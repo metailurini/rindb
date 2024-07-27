@@ -1,0 +1,11 @@
+# Ignore binary files and folders
+*.a
+*.o
+*.so
+*.dll
+*.exe
+bin/
+obj/
+
+# Ignore OS-specific files
+.DS_Store
