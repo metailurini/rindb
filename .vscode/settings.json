@@ -1,0 +1,10 @@
+{
+    "cSpell.words": [
+        "geeksforgeeks",
+        "spaolacci"
+    ],
+    "go.lintTool": "golangci-lint",
+    "go.lintFlags": [
+        "--fast"
+    ],
+}
