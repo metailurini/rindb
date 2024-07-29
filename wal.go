@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,7 +58,27 @@ func (w *wal) clean() error {
 	return nil
 }
 
-func (w *wal) append(key, value []byte) error {
+func (w *wal) load() (*memtable, error) {
+	_, err := w.file.Seek(0, io.SeekStart)
+	if err != nil {
+		return nil, fmt.Errorf("failed to seek to start of file: %w", err)
+	}
+	mem := initMemtable()
+	for {
+		key, value, err := read(w.file)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return nil, err
+		}
+		mem.put(key, value)
+	}
+	return mem, nil
+}
+
+func (w *wal) append(key, value Bytes) error {
 	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return fmt.Errorf("failed to seek to end of file: %w", err)
@@ -66,6 +87,15 @@ func (w *wal) append(key, value []byte) error {
 	err = write(w.file, key, value)
 	if err != nil {
 		return fmt.Errorf("failed to write to file: %w", err)
+	}
+
+	return nil
+}
+
+func (w *wal) write(key, value Bytes) error {
+	err := w.append(key, value)
+	if err != nil {
+		return err
 	}
 
 	err = w.sync()
