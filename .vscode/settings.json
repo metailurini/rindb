@@ -1,6 +1,12 @@
 {
     "cSpell.words": [
+        "funlen",
         "geeksforgeeks",
+        "gocognit",
+        "gocyclo",
+        "memtable",
+        "nolint",
+        "rindb",
         "spaolacci"
     ],
     "go.lintTool": "golangci-lint",
