@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"crypto/rand"
 	"errors"
 	"math/big"
@@ -9,30 +8,44 @@ import (
 
 const (
 	DefaultLevel = 2
-	MaxLevel     = 10
+	MaxLevel     = 32
 	p            = 0.5
 )
 
 var ErrKeyNotFound = errors.New("key not found")
 
-type node[K, V cmp.Ordered] struct {
+type node[K Comparable, V any] struct {
 	key      K
 	value    V
 	forwards []*node[K, V]
 }
 
-type skipList[K, V cmp.Ordered] struct {
-	level uint
-	head  *node[K, V]
+type skipList[K Comparable, V any] struct {
+	level  uint
+	length uint
+	head   *node[K, V]
 }
 
-func (list *skipList[K, V]) insert(searchKey K, newValue V) {
+func initSkipList[K Comparable, V any]() (*skipList[K, V], error) {
+	var emptyKeyValue K
+	err := ValidateCmpType(emptyKeyValue)
+	if err != nil {
+		return nil, err
+	}
+
+	return &skipList[K, V]{
+		level: DefaultLevel,
+		head:  &node[K, V]{forwards: make([]*node[K, V], DefaultLevel)},
+	}, nil
+}
+
+func (list *skipList[K, V]) put(searchKey K, newValue V) {
 	rl := list.level
 	rn := list.head
 	update := make([]*node[K, V], MaxLevel)
 	for rl > 0 {
 		rl--
-		for rn.forwards[rl] != nil && rn.forwards[rl].key < searchKey {
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].key, searchKey) == -1 {
 			rn = rn.forwards[rl]
 		}
 		update[rl] = rn
@@ -41,7 +54,7 @@ func (list *skipList[K, V]) insert(searchKey K, newValue V) {
 	if rn.forwards[0] != nil {
 		rn = rn.forwards[0]
 	}
-	if rn.key == searchKey {
+	if Compare(rn.key, searchKey) == 0 {
 		rn.value = newValue
 	} else {
 		newLevel := randomLevel()
@@ -64,6 +77,8 @@ func (list *skipList[K, V]) insert(searchKey K, newValue V) {
 			newNode.forwards[newLevel] = update[newLevel].forwards[newLevel]
 			update[newLevel].forwards[newLevel] = newNode
 		}
+
+		list.length++
 	}
 }
 
@@ -73,14 +88,14 @@ func (list *skipList[K, V]) get(searchKey K) (V, error) {
 
 	for rl > 0 {
 		rl--
-		for rn.forwards[rl] != nil && rn.forwards[rl].key < searchKey {
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].key, searchKey) == -1 {
 			rn = rn.forwards[rl]
 		}
 	}
 	if rn.forwards[0] != nil {
 		rn = rn.forwards[0]
 	}
-	if rn.key == searchKey {
+	if Compare(rn.key, searchKey) == 0 {
 		return rn.value, nil
 	} else {
 		var emptyValue V
@@ -88,13 +103,13 @@ func (list *skipList[K, V]) get(searchKey K) (V, error) {
 	}
 }
 
-func (list skipList[K, V]) remove(searchKey K) error {
+func (list *skipList[K, V]) remove(searchKey K) error {
 	rl := list.level
 	rn := list.head
 	update := make([]*node[K, V], MaxLevel)
 	for rl > 0 {
 		rl--
-		for rn.forwards[rl] != nil && rn.forwards[rl].key < searchKey {
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].key, searchKey) == -1 {
 			rn = rn.forwards[rl]
 		}
 		update[rl] = rn
@@ -103,7 +118,7 @@ func (list skipList[K, V]) remove(searchKey K) error {
 	if rn.forwards[0] != nil {
 		rn = rn.forwards[0]
 	}
-	if rn.key == searchKey {
+	if Compare(rn.key, searchKey) == 0 {
 		for i := 0; i < int(list.level); i++ {
 			if update[i].forwards[i] != rn {
 				break
@@ -116,7 +131,13 @@ func (list skipList[K, V]) remove(searchKey K) error {
 	} else {
 		return ErrKeyNotFound
 	}
+
+	list.length--
 	return nil
+}
+
+func (list skipList[K, V]) len() uint {
+	return list.length
 }
 
 func intn(m int64) int64 {
@@ -142,11 +163,4 @@ func randomLevel() uint {
 		lvl++
 	}
 	return lvl
-}
-
-func initSkipList[K, V cmp.Ordered]() *skipList[K, V] {
-	return &skipList[K, V]{
-		level: DefaultLevel,
-		head:  &node[K, V]{forwards: make([]*node[K, V], DefaultLevel)},
-	}
 }
