@@ -21,7 +21,7 @@ func Test_rw(t *testing.T) {
 			testValue += fmt.Sprintf("test value %d ", i)
 		}
 
-		err := write(buf, []byte(testKey), []byte(testValue))
+		err := write(buf, Bytes(testKey), Bytes(testValue))
 		assert.NoError(t, err)
 
 		key, value, err := read(buf)
@@ -33,7 +33,7 @@ func Test_rw(t *testing.T) {
 	t.Run("write key and value with size < 255", func(t *testing.T) {
 		buf := bytes.NewBufferString("")
 
-		err := write(buf, []byte("key"), []byte("value"))
+		err := write(buf, Bytes("key"), Bytes("value"))
 		assert.NoError(t, err)
 
 		key, value, err := read(buf)
