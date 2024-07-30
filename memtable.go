@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 )
 
 var _ CmpType = (*Bytes)(nil)
@@ -30,10 +33,34 @@ func (m *memtable) put(key, value Bytes) {
 	m.data.put(key, value)
 }
 
-func (m *memtable) delete(key Bytes) {
-	m.data.put(key, nil)
-}
+func (m *memtable) flush(diskPath string) error {
+	file, err := os.OpenFile(filepath.Clean(diskPath), os.O_RDWR|os.O_CREATE, fileSystemPermission)
+	if err != nil {
+		return fmt.Errorf("failed to open WAL file: %w", err)
+	}
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
 
-func (m *memtable) flush() {
-	panic("implement me")
+	node := m.data.head()
+	for {
+		node = node.next()
+		if node == nil {
+			break
+		}
+		err := write(file, node.key, node.value)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = file.Sync()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

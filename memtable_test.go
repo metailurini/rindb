@@ -3,25 +3,26 @@ package main
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMemtableLargeScaleOperations(t *testing.T) {
-	mt := initMemtable()
+func Test_memtable(t *testing.T) {
+	mem := initMemtable()
 
 	// Insert 1 million elements
 	for i := 0; i < 1_000_000; i++ {
 		key := Bytes(fmt.Sprintf("key%d", i))
 		value := Bytes(fmt.Sprintf("value%d", i))
-		mt.put(key, value)
+		mem.put(key, value)
 	}
 
 	// Retrieve and assert values of 1 million elements
 	for i := 0; i < 1_000_000; i++ {
 		key := Bytes(fmt.Sprintf("key%d", i))
 		expectedValue := Bytes(fmt.Sprintf("value%d", i))
-		got, err := mt.get(key)
+		got, err := mem.get(key)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedValue, got)
 	}
@@ -30,7 +31,7 @@ func TestMemtableLargeScaleOperations(t *testing.T) {
 	for i := 0; i < 1_000_000; i++ {
 		if i%3 == 0 {
 			key := Bytes(fmt.Sprintf("key%d", i))
-			mt.delete(key)
+			mem.put(key, nil)
 		}
 	}
 
@@ -38,8 +39,10 @@ func TestMemtableLargeScaleOperations(t *testing.T) {
 	for i := 0; i < 1_000_000; i++ {
 		key := Bytes(fmt.Sprintf("key%d", i))
 		expectedValue := Bytes(fmt.Sprintf("value%d", i))
-		got, err := mt.get(key)
+
+		got, err := mem.get(key)
 		assert.NoError(t, err)
+
 		if i%3 == 0 {
 			assert.Nil(t, got)
 		} else {

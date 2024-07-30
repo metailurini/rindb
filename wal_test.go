@@ -73,5 +73,8 @@ func Test_wal(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, expectedValue, got)
 		}
+
+		err = mem.flush("/tmp/tmp")
+		assert.NoError(t, err)
 	})
 }
