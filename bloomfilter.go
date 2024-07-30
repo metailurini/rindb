@@ -17,11 +17,15 @@ func EstimateBloomFilterParams(numberElements uint, falsePositiveProbability flo
 	n := float64(numberElements)
 	P := float64(falsePositiveProbability)
 
-	m := n * math.Log(P) / (math.Log(0.5) * math.Log(2))
+	const (
+		half    = 0.5
+		logBase = 2
+	)
+	m := n * math.Log(P) / (math.Log(half) * math.Log(logBase))
 	k := HashQuantity
 
 	bucketSize = uint(m)
-	numHashFunctions = uint32(k)
+	numHashFunctions = k
 	return
 }
 
@@ -62,6 +66,6 @@ func (b *BloomFilter) FalsePositive(numberElements uint) float64 {
 
 func hashStr(str string, seed uint32) uint32 {
 	h := murmur3.New32WithSeed(seed)
-	h.Write([]byte(str))
+	_, _ = h.Write([]byte(str))
 	return h.Sum32()
 }
