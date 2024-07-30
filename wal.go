@@ -12,10 +12,11 @@ type wal struct {
 	file *os.File
 }
 
-const walPermission = 0o600
+const fileSystemPermission = 0o600
 
+//nolint:unused
 func openWAL(path string) (*wal, error) {
-	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, walPermission)
+	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, fileSystemPermission)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open WAL file: %w", err)
 	}
@@ -43,7 +44,7 @@ func (w *wal) clean() error {
 		return fmt.Errorf("failed to close WAL file: %w", err)
 	}
 
-	cleanWal, err := os.OpenFile(w.path(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, walPermission)
+	cleanWal, err := os.OpenFile(w.path(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileSystemPermission)
 	if err != nil {
 		return fmt.Errorf("failed to clean WAL file: %w", err)
 	}
