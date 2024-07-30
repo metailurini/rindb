@@ -1,0 +1,2 @@
+# rindb
+![](./assets/mascot.jpeg)
