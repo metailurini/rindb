@@ -20,10 +20,17 @@ type node[K Comparable, V any] struct {
 	forwards []*node[K, V]
 }
 
+func (n *node[K, V]) next() *node[K, V] {
+	if n == nil {
+		return nil
+	}
+	return n.forwards[0]
+}
+
 type skipList[K Comparable, V any] struct {
-	level  uint
-	length uint
-	head   *node[K, V]
+	level    uint
+	length   uint
+	headNote *node[K, V]
 }
 
 func initSkipList[K Comparable, V any]() (*skipList[K, V], error) {
@@ -34,14 +41,14 @@ func initSkipList[K Comparable, V any]() (*skipList[K, V], error) {
 	}
 
 	return &skipList[K, V]{
-		level: DefaultLevel,
-		head:  &node[K, V]{forwards: make([]*node[K, V], DefaultLevel)},
+		level:    DefaultLevel,
+		headNote: &node[K, V]{forwards: make([]*node[K, V], DefaultLevel)},
 	}, nil
 }
 
 func (list *skipList[K, V]) put(searchKey K, newValue V) {
 	rl := list.level
-	rn := list.head
+	rn := list.head()
 	update := make([]*node[K, V], MaxLevel)
 	for rl > 0 {
 		rl--
@@ -62,7 +69,7 @@ func (list *skipList[K, V]) put(searchKey K, newValue V) {
 			rl := newLevel
 			for rl > list.level {
 				rl--
-				update[rl] = list.head
+				update[rl] = list.head()
 				update[rl].forwards = append(update[rl].forwards, make([]*node[K, V], newLevel-list.level)...)
 			}
 			list.level = newLevel
@@ -84,7 +91,7 @@ func (list *skipList[K, V]) put(searchKey K, newValue V) {
 
 func (list *skipList[K, V]) get(searchKey K) (V, error) {
 	rl := list.level
-	rn := list.head
+	rn := list.head()
 
 	for rl > 0 {
 		rl--
@@ -103,9 +110,13 @@ func (list *skipList[K, V]) get(searchKey K) (V, error) {
 	}
 }
 
+func (list *skipList[K, V]) head() *node[K, V] {
+	return list.headNote
+}
+
 func (list *skipList[K, V]) remove(searchKey K) error {
 	rl := list.level
-	rn := list.head
+	rn := list.head()
 	update := make([]*node[K, V], MaxLevel)
 	for rl > 0 {
 		rl--
@@ -125,7 +136,7 @@ func (list *skipList[K, V]) remove(searchKey K) error {
 			}
 			update[i].forwards[i] = rn.forwards[i]
 		}
-		for list.level > 1 && list.head.forwards[list.level-1] == nil {
+		for list.level > 1 && list.head().forwards[list.level-1] == nil {
 			list.level--
 		}
 	} else {

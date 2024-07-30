@@ -7,13 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func next[K, V Comparable](current *node[K, V]) *node[K, V] {
-	if current == nil {
-		return nil
-	}
-	return current.forwards[0]
-}
-
 func Test_initSkipList(t *testing.T) {
 	t.Run("init with invalid key type", func(t *testing.T) {
 		list, err := initSkipList[struct{ int }, int]()
@@ -38,12 +31,7 @@ func Test_initSkipList(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		c := list.head
-		for next(c) != nil {
-			n := next(c)
-			assert.Less(t, c.key, n.key)
-			c = next(c)
-		}
+		assertOrderedList(t, list.head())
 
 		v, err := list.get("k:8")
 		assert.Equal(t, 8, v)
@@ -77,7 +65,7 @@ func Test_skipList_put(t *testing.T) {
 
 		// should be 6 because data has 2 "8"
 		assert.Equal(t, uint(6), list.len())
-		assertOrderedList(t, list.head)
+		assertOrderedList(t, list.head())
 	})
 
 	t.Run("override existing key", func(t *testing.T) {
@@ -88,7 +76,7 @@ func Test_skipList_put(t *testing.T) {
 
 		// should be 6 because no new key
 		assert.Equal(t, uint(6), list.len())
-		assertOrderedList(t, list.head)
+		assertOrderedList(t, list.head())
 	})
 }
 
@@ -160,15 +148,15 @@ func Test_skipList_remove(t *testing.T) {
 			assert.Empty(t, v)
 			assert.ErrorIs(t, ErrKeyNotFound, err)
 			assert.Equal(t, actualLength, list.len())
-			assertOrderedList(t, list.head)
+			assertOrderedList(t, list.head())
 		})
 	}
 }
 
 func assertOrderedList[K, V Comparable](t *testing.T, head *node[K, V]) {
-	for next(head) != nil {
-		n := next(head)
+	for head.next() != nil {
+		n := head.next()
 		assert.Less(t, head.key, n.key)
-		head = next(head)
+		head = head.next()
 	}
 }
