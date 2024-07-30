@@ -1,4 +1,4 @@
-module tdb
+module rindb
 
 go 1.21.6
 
