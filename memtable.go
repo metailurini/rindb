@@ -2,9 +2,6 @@ package rindb
 
 import (
 	"bytes"
-	"fmt"
-	"os"
-	"path/filepath"
 )
 
 var _ CmpType = (*Bytes)(nil)
@@ -16,51 +13,27 @@ func (b Bytes) Compare(other any) int {
 	return bytes.Compare(b, o)
 }
 
-type memtable struct {
-	data *skipList[Bytes, Bytes]
+type Memtable struct {
+	data *SkipList[Bytes, Bytes]
 }
 
-func initMemtable() *memtable {
-	list, _ := initSkipList[Bytes, Bytes]()
-	return &memtable{data: list}
+func toRecord(node *SLNode[Bytes, Bytes]) Record {
+	return RecordImpl{node.Key, node.Value}
 }
 
-func (m *memtable) get(key Bytes) (Bytes, error) {
-	return m.data.get(key)
+func InitMemtable() Memtable {
+	list, _ := InitSkipList[Bytes, Bytes]()
+	return Memtable{data: list}
 }
 
-func (m *memtable) put(key, value Bytes) {
-	m.data.put(key, value)
+func (m Memtable) Get(key Bytes) (Bytes, error) {
+	return m.data.Get(key)
 }
 
-func (m *memtable) flush(diskPath string) error {
-	file, err := os.OpenFile(filepath.Clean(diskPath), os.O_RDWR|os.O_CREATE, fileSystemPermission)
-	if err != nil {
-		return fmt.Errorf("failed to open WAL file: %w", err)
-	}
-	defer func() {
-		err := file.Close()
-		if err != nil {
-			panic(err)
-		}
-	}()
+func (m Memtable) Put(key, value Bytes) {
+	m.data.Put(key, value)
+}
 
-	node := m.data.head()
-	for {
-		node = node.next()
-		if node == nil {
-			break
-		}
-		err := write(file, node.key, node.value)
-		if err != nil {
-			return err
-		}
-	}
-
-	err = file.Sync()
-	if err != nil {
-		return err
-	}
-
-	return nil
+func (m Memtable) Clear() {
+	m.data.Clear()
 }
