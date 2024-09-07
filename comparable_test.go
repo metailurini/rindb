@@ -7,15 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockCmpType struct {
+type customCmpType struct {
 	value int
 }
 
-func (m mockCmpType) Compare(other any) int {
-	o := other.(mockCmpType)
-	if m.value < o.value {
+func (c customCmpType) Compare(other any) int {
+	o := other.(customCmpType)
+	if c.value < o.value {
 		return -1
-	} else if m.value > o.value {
+	} else if c.value > o.value {
 		return 1
 	}
 	return 0
@@ -23,14 +23,14 @@ func (m mockCmpType) Compare(other any) int {
 
 //nolint:gocognit,funlen,gocyclo
 func TestComparable(t *testing.T) {
-	t.Run("int", func(t *testing.T) {
+	t.Run("Int", func(t *testing.T) {
 		tests := []struct {
 			a, b     int
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -44,14 +44,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("int8", func(t *testing.T) {
+	t.Run("Int8", func(t *testing.T) {
 		tests := []struct {
 			a, b     int8
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -65,14 +65,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("int16", func(t *testing.T) {
+	t.Run("Int16", func(t *testing.T) {
 		tests := []struct {
 			a, b     int16
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -86,14 +86,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("int32", func(t *testing.T) {
+	t.Run("Int32", func(t *testing.T) {
 		tests := []struct {
 			a, b     int32
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -107,14 +107,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("int64", func(t *testing.T) {
+	t.Run("Int64", func(t *testing.T) {
 		tests := []struct {
 			a, b     int64
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -128,14 +128,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("uint", func(t *testing.T) {
+	t.Run("Uint", func(t *testing.T) {
 		tests := []struct {
 			a, b     uint
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -149,14 +149,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("uint8", func(t *testing.T) {
+	t.Run("Uint8", func(t *testing.T) {
 		tests := []struct {
 			a, b     uint8
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -170,14 +170,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("uint16", func(t *testing.T) {
+	t.Run("Uint16", func(t *testing.T) {
 		tests := []struct {
 			a, b     uint16
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -191,14 +191,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("uint32", func(t *testing.T) {
+	t.Run("Uint32", func(t *testing.T) {
 		tests := []struct {
 			a, b     uint32
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -212,14 +212,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("uint64", func(t *testing.T) {
+	t.Run("Uint64", func(t *testing.T) {
 		tests := []struct {
 			a, b     uint64
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -233,14 +233,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("uintptr", func(t *testing.T) {
+	t.Run("Uintptr", func(t *testing.T) {
 		tests := []struct {
 			a, b     uintptr
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%d vs %d", tt.a, tt.b), func(t *testing.T) {
@@ -254,14 +254,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("float32", func(t *testing.T) {
+	t.Run("Float32", func(t *testing.T) {
 		tests := []struct {
 			a, b     float32
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%f vs %f", tt.a, tt.b), func(t *testing.T) {
@@ -275,14 +275,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("float64", func(t *testing.T) {
+	t.Run("Float64", func(t *testing.T) {
 		tests := []struct {
 			a, b     float64
-			expected int
+			expected CompareResult
 		}{
-			{1, 2, -1},
-			{2, 1, 1},
-			{1, 1, 0},
+			{1, 2, CmpLess},
+			{2, 1, CmpGreater},
+			{1, 1, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%f vs %f", tt.a, tt.b), func(t *testing.T) {
@@ -296,14 +296,14 @@ func TestComparable(t *testing.T) {
 		}
 	})
 
-	t.Run("string", func(t *testing.T) {
+	t.Run("String", func(t *testing.T) {
 		tests := []struct {
 			a, b     string
-			expected int
+			expected CompareResult
 		}{
-			{"1", "2", -1},
-			{"2", "1", 1},
-			{"1", "1", 0},
+			{"1", "2", CmpLess},
+			{"2", "1", CmpGreater},
+			{"1", "1", CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%s vs %s", tt.a, tt.b), func(t *testing.T) {
@@ -319,12 +319,12 @@ func TestComparable(t *testing.T) {
 
 	t.Run("MyCmpType", func(t *testing.T) {
 		tests := []struct {
-			a, b     mockCmpType
-			expected int
+			a, b     customCmpType
+			expected CompareResult
 		}{
-			{mockCmpType{1}, mockCmpType{2}, -1},
-			{mockCmpType{2}, mockCmpType{1}, 1},
-			{mockCmpType{1}, mockCmpType{1}, 0},
+			{customCmpType{1}, customCmpType{2}, CmpLess},
+			{customCmpType{2}, customCmpType{1}, CmpGreater},
+			{customCmpType{1}, customCmpType{1}, CmpEqual},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%v vs %v", tt.a, tt.b), func(t *testing.T) {
@@ -341,14 +341,14 @@ func TestComparable(t *testing.T) {
 	t.Run("Unsupported Type", func(t *testing.T) {
 		tests := []struct {
 			a, b     struct{ int }
-			expected int
+			expected CompareResult
 		}{
 			{struct{ int }{1}, struct{ int }{1}, UnsupportedTypeCode},
 		}
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%v vs %v", tt.a, tt.b), func(t *testing.T) {
 				err := ValidateCmpType(tt.a)
-				assert.ErrorIs(t, ErrUnsupportedType, err)
+				assert.ErrorIs(t, err, ErrUnsupportedType)
 				result := Compare(tt.a, tt.b)
 				if result != tt.expected {
 					t.Errorf("Compare(%v, %v) = %d; want %d", tt.a, tt.b, result, tt.expected)

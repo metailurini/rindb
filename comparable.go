@@ -5,7 +5,18 @@ import (
 	"errors"
 )
 
-const UnsupportedTypeCode = -2
+type CompareResult = int
+
+const (
+	UnsupportedTypeCode CompareResult = -2
+
+	// CmpLess if x is less than y,
+	CmpLess CompareResult = -1
+	//	CmpEqual if x equals y,
+	CmpEqual CompareResult = 0
+	// CmpGreater if x is greater than y.
+	CmpGreater CompareResult = 1
+)
 
 var ErrUnsupportedType = errors.New("unsupported type: type does not implement CmpType interface")
 
@@ -17,7 +28,7 @@ type Comparable interface {
 	cmp.Ordered | *CmpType | any
 }
 
-func Compare[T Comparable](a, b T) int {
+func Compare[T Comparable](a, b T) CompareResult {
 	switch a := any(a).(type) {
 	case int:
 		return cmp.Compare(a, any(b).(int))
