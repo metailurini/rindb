@@ -25,7 +25,7 @@ func TestBitset_Set(t *testing.T) {
 		assert.Equal(t, uint32(0), bitset.size)
 	})
 
-	t.Run("huge size", func(t *testing.T) {
+	t.Run("Bitset with huge size", func(t *testing.T) {
 		size := uint32(1000)
 
 		for skipNum := uint32(2); skipNum < 9; skipNum++ {
