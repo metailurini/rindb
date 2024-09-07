@@ -4,10 +4,16 @@
         "geeksforgeeks",
         "gocognit",
         "gocyclo",
+        "Hino",
         "memtable",
         "nolint",
+        "oklog",
         "rindb",
-        "spaolacci"
+        "skiplist",
+        "spaolacci",
+        "sstable",
+        "sstables",
+        "Wrapf"
     ],
     "go.lintTool": "golangci-lint",
     "go.lintFlags": [
