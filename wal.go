@@ -1,107 +1,84 @@
 package rindb
 
 import (
-	"errors"
-	"fmt"
+	"bytes"
 	"io"
-	"os"
-	"path/filepath"
+
+	"github.com/pkg/errors"
 )
 
-type wal struct {
-	file *os.File
+type WAL struct{ *FileSystem }
+
+func NewWAL(fs *FileSystem) WAL {
+	return WAL{fs}
 }
 
-const fileSystemPermission = 0o600
-
-//nolint:unused
-func openWAL(path string) (*wal, error) {
-	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, fileSystemPermission)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open WAL file: %w", err)
-	}
-	return &wal{file: file}, nil
-}
-
-func newWAL(file *os.File) *wal {
-	return &wal{file: file}
-}
-
-func (w *wal) path() string {
-	return w.file.Name()
-}
-
-func (w *wal) sync() error {
-	return w.file.Sync()
-}
-
-func (w *wal) close() error {
-	return w.file.Close()
-}
-
-func (w *wal) clean() error {
-	if err := w.file.Close(); err != nil {
-		return fmt.Errorf("failed to close WAL file: %w", err)
-	}
-
-	cleanWal, err := os.OpenFile(w.path(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileSystemPermission)
-	if err != nil {
-		return fmt.Errorf("failed to clean WAL file: %w", err)
-	}
-
-	w.file = cleanWal
-
-	err = w.sync()
-	if err != nil {
-		return fmt.Errorf("failed to sync WAL file: %w", err)
-	}
-
-	return nil
-}
-
-func (w *wal) load() (*memtable, error) {
+func (w *WAL) Load() (Memtable, error) {
 	_, err := w.file.Seek(0, io.SeekStart)
 	if err != nil {
-		return nil, fmt.Errorf("failed to seek to start of file: %w", err)
+		return Memtable{}, errors.Wrap(err, "failed to seek to start of file: %w")
 	}
-	mem := initMemtable()
+	mem := InitMemtable()
+	ce := 0
 	for {
-		key, value, err := read(w.file)
+		record, err := ReadRecord(w.file)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
 
-			return nil, err
+			return Memtable{}, err
 		}
-		mem.put(key, value)
+
+		ce += CalOnDiskSize(record)
+		mem.Put(record.GetKey(), record.GetValue())
 	}
 	return mem, nil
 }
 
-func (w *wal) append(key, value Bytes) error {
+func (w *WAL) Append(record Record) error {
 	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
-		return fmt.Errorf("failed to seek to end of file: %w", err)
+		return errors.Wrap(err, "failed to seek to end of file: %w")
 	}
 
-	err = write(w.file, key, value)
+	err = WriteRecord(w, record)
 	if err != nil {
-		return fmt.Errorf("failed to write to file: %w", err)
+		return errors.Wrap(err, "failed to write to file: %w")
+	}
+
+	err = w.Sync()
+	if err != nil {
+		return errors.Wrap(err, "failed to sync file: %w")
 	}
 
 	return nil
 }
 
-func (w *wal) write(key, value Bytes) error {
-	err := w.append(key, value)
+func (w *WAL) AppendMany(records []Record) error {
+	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to seek to end of file: %w")
 	}
 
-	err = w.sync()
+	// write to string buffer and write back to file
+	// to make sure that all data must be persistent
+	txBuf := bytes.NewBufferString("")
+	for _, record := range records {
+		err := WriteRecord(txBuf, record)
+		if err != nil {
+			return errors.Wrap(err, "failed to write to buffer: %w")
+		}
+	}
+
+	_, err = w.Write(txBuf.Bytes())
 	if err != nil {
-		return fmt.Errorf("failed to sync file: %w", err)
+		return errors.Wrap(err, "failed to write to file: %w")
+	}
+
+	err = w.Sync()
+	if err != nil {
+		return errors.Wrap(err, "failed to sync file: %w")
 	}
 
 	return nil
