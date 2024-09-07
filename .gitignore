@@ -9,3 +9,7 @@ obj/
 
 # Ignore OS-specific files
 .DS_Store
+
+# test data
+testdata/*
+!testdata/.keep
