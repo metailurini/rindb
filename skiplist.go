@@ -1,4 +1,4 @@
-package main
+package rindb
 
 import (
 	"crypto/rand"
@@ -12,47 +12,47 @@ const (
 	p            = 0.5
 )
 
-var ErrKeyNotFound = errors.New("key not found")
+var (
+	ErrKeyNotFound   = errors.New("key not found")
+	ErrMalformedList = errors.New("the list was not init-ed properly")
+)
 
-type node[K Comparable, V any] struct {
-	key      K
-	value    V
-	forwards []*node[K, V]
+type SLNode[K Comparable, V any] struct {
+	Key      K
+	Value    V
+	forwards []*SLNode[K, V]
 }
 
-func (n *node[K, V]) next() *node[K, V] {
-	if n == nil {
-		return nil
-	}
+func (n *SLNode[K, V]) Next() *SLNode[K, V] {
 	return n.forwards[0]
 }
 
-type skipList[K Comparable, V any] struct {
+type SkipList[K Comparable, V any] struct {
 	level    uint
 	length   uint
-	headNote *node[K, V]
+	headNote *SLNode[K, V]
 }
 
-func initSkipList[K Comparable, V any]() (*skipList[K, V], error) {
+func InitSkipList[K Comparable, V any]() (*SkipList[K, V], error) {
 	var emptyKeyValue K
 	err := ValidateCmpType(emptyKeyValue)
 	if err != nil {
 		return nil, err
 	}
 
-	return &skipList[K, V]{
+	return &SkipList[K, V]{
 		level:    DefaultLevel,
-		headNote: &node[K, V]{forwards: make([]*node[K, V], DefaultLevel)},
+		headNote: &SLNode[K, V]{forwards: make([]*SLNode[K, V], DefaultLevel)},
 	}, nil
 }
 
-func (list *skipList[K, V]) put(searchKey K, newValue V) {
+func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
+	rn := list.Head()
 	rl := list.level
-	rn := list.head()
-	update := make([]*node[K, V], MaxLevel)
+	update := make([]*SLNode[K, V], MaxLevel)
 	for rl > 0 {
 		rl--
-		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].key, searchKey) == -1 {
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
 			rn = rn.forwards[rl]
 		}
 		update[rl] = rn
@@ -61,23 +61,23 @@ func (list *skipList[K, V]) put(searchKey K, newValue V) {
 	if rn.forwards[0] != nil {
 		rn = rn.forwards[0]
 	}
-	if Compare(rn.key, searchKey) == 0 {
-		rn.value = newValue
+	if Compare(rn.Key, searchKey) == CmpEqual {
+		rn.Value = newValue
 	} else {
 		newLevel := randomLevel()
 		if newLevel > list.level {
 			rl := newLevel
 			for rl > list.level {
 				rl--
-				update[rl] = list.head()
-				update[rl].forwards = append(update[rl].forwards, make([]*node[K, V], newLevel-list.level)...)
+				update[rl] = list.Head()
+				update[rl].forwards = append(update[rl].forwards, make([]*SLNode[K, V], newLevel-list.level)...)
 			}
 			list.level = newLevel
 		}
-		newNode := &node[K, V]{
-			key:      searchKey,
-			value:    newValue,
-			forwards: make([]*node[K, V], list.level),
+		newNode := &SLNode[K, V]{
+			Key:      searchKey,
+			Value:    newValue,
+			forwards: make([]*SLNode[K, V], list.level),
 		}
 		for newLevel > 0 {
 			newLevel--
@@ -89,38 +89,42 @@ func (list *skipList[K, V]) put(searchKey K, newValue V) {
 	}
 }
 
-func (list *skipList[K, V]) get(searchKey K) (V, error) {
+func (list *SkipList[K, V]) Get(searchKey K) (V, error) {
+	rn := list.Head()
 	rl := list.level
-	rn := list.head()
 
 	for rl > 0 {
 		rl--
-		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].key, searchKey) == -1 {
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
 			rn = rn.forwards[rl]
 		}
 	}
 	if rn.forwards[0] != nil {
 		rn = rn.forwards[0]
 	}
-	if Compare(rn.key, searchKey) == 0 {
-		return rn.value, nil
+	if Compare(rn.Key, searchKey) == CmpEqual {
+		return rn.Value, nil
 	} else {
 		var emptyValue V
 		return emptyValue, ErrKeyNotFound
 	}
 }
 
-func (list *skipList[K, V]) head() *node[K, V] {
+func (list *SkipList[K, V]) Head() *SLNode[K, V] {
+	if list == nil || list.headNote == nil {
+		panic(ErrMalformedList)
+	}
+
 	return list.headNote
 }
 
-func (list *skipList[K, V]) remove(searchKey K) error {
+func (list *SkipList[K, V]) Remove(searchKey K) error {
+	rn := list.Head()
 	rl := list.level
-	rn := list.head()
-	update := make([]*node[K, V], MaxLevel)
+	update := make([]*SLNode[K, V], MaxLevel)
 	for rl > 0 {
 		rl--
-		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].key, searchKey) == -1 {
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
 			rn = rn.forwards[rl]
 		}
 		update[rl] = rn
@@ -129,14 +133,14 @@ func (list *skipList[K, V]) remove(searchKey K) error {
 	if rn.forwards[0] != nil {
 		rn = rn.forwards[0]
 	}
-	if Compare(rn.key, searchKey) == 0 {
+	if Compare(rn.Key, searchKey) == CmpEqual {
 		for i := 0; i < int(list.level); i++ {
 			if update[i].forwards[i] != rn {
 				break
 			}
 			update[i].forwards[i] = rn.forwards[i]
 		}
-		for list.level > 1 && list.head().forwards[list.level-1] == nil {
+		for list.level > 1 && list.Head().forwards[list.level-1] == nil {
 			list.level--
 		}
 	} else {
@@ -147,7 +151,21 @@ func (list *skipList[K, V]) remove(searchKey K) error {
 	return nil
 }
 
-func (list skipList[K, V]) len() uint {
+func (list *SkipList[K, V]) Clear() {
+	newList, err := InitSkipList[K, V]()
+	if err != nil {
+		panic(ErrMalformedList)
+	}
+
+	list.level = newList.level
+	list.length = newList.length
+	list.headNote = newList.headNote
+}
+
+func (list *SkipList[K, V]) Len() uint {
+	if list == nil {
+		panic(ErrMalformedList)
+	}
 	return list.length
 }
 
