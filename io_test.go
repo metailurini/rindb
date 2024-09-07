@@ -9,7 +9,35 @@ import (
 )
 
 func Test_rw(t *testing.T) {
-	t.Parallel()
+	t.Run("write key with size = 0", func(t *testing.T) {
+		buf := bytes.NewBufferString("")
+
+		testKey := ""
+		testValue := "value"
+
+		err := WriteRecord(buf, RecordImpl{Bytes(testKey), Bytes(testValue)})
+		assert.NoError(t, err)
+
+		record, err := ReadRecord(buf)
+		assert.NoError(t, err)
+		assert.Equal(t, testKey, string(record.GetKey()))
+		assert.Equal(t, testValue, string(record.GetValue()))
+	})
+
+	t.Run("write key and value with size = 0", func(t *testing.T) {
+		buf := bytes.NewBufferString("")
+
+		testKey := ""
+		testValue := ""
+
+		err := WriteRecord(buf, RecordImpl{Bytes(testKey), Bytes(testValue)})
+		assert.NoError(t, err)
+
+		record, err := ReadRecord(buf)
+		assert.NoError(t, err)
+		assert.Equal(t, testKey, string(record.GetKey()))
+		assert.Equal(t, testValue, string(record.GetValue()))
+	})
 
 	t.Run("write key and value with size > 255", func(t *testing.T) {
 		buf := bytes.NewBufferString("")
@@ -21,24 +49,24 @@ func Test_rw(t *testing.T) {
 			testValue += fmt.Sprintf("test value %d ", i)
 		}
 
-		err := write(buf, Bytes(testKey), Bytes(testValue))
+		err := WriteRecord(buf, RecordImpl{Bytes(testKey), Bytes(testValue)})
 		assert.NoError(t, err)
 
-		key, value, err := read(buf)
+		record, err := ReadRecord(buf)
 		assert.NoError(t, err)
-		assert.Equal(t, testKey, string(key))
-		assert.Equal(t, testValue, string(value))
+		assert.Equal(t, testKey, string(record.GetKey()))
+		assert.Equal(t, testValue, string(record.GetValue()))
 	})
 
 	t.Run("write key and value with size < 255", func(t *testing.T) {
 		buf := bytes.NewBufferString("")
 
-		err := write(buf, Bytes("key"), Bytes("value"))
+		err := WriteRecord(buf, RecordImpl{Bytes("key"), Bytes("value")})
 		assert.NoError(t, err)
 
-		key, value, err := read(buf)
+		record, err := ReadRecord(buf)
 		assert.NoError(t, err)
-		assert.Equal(t, "key", string(key))
-		assert.Equal(t, "value", string(value))
+		assert.Equal(t, "key", string(record.GetKey()))
+		assert.Equal(t, "value", string(record.GetValue()))
 	})
 }

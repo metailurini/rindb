@@ -3,53 +3,36 @@ package rindb
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
+
+	"github.com/pkg/errors"
 )
 
 var byteOrder = binary.LittleEndian
 
-func write(storage io.Writer, key, value Bytes) error {
-	keyLenBytes := [8]byte{}
-	valueLenBytes := [8]byte{}
+const mdByteSize = 8
 
-	byteOrder.PutUint64(keyLenBytes[:], uint64(len(key)))
-	byteOrder.PutUint64(valueLenBytes[:], uint64(len(value)))
-
-	if _, err := storage.Write(keyLenBytes[:]); err != nil {
-		return fmt.Errorf("failed to write key length: %w", err)
+func ReadNumber(storage io.Reader) (uint64, error) {
+	numBytes := [mdByteSize]byte{}
+	if _, err := storage.Read(numBytes[:]); err != nil {
+		return 0, err
 	}
 
-	if _, err := storage.Write(valueLenBytes[:]); err != nil {
-		return fmt.Errorf("failed to write value length: %w", err)
-	}
-
-	if err := binary.Write(storage, byteOrder, key); err != nil {
-		return fmt.Errorf("failed to write key: %w", err)
-	}
-
-	if err := binary.Write(storage, byteOrder, value); err != nil {
-		return fmt.Errorf("failed to write value: %w", err)
-	}
-
-	return nil
+	return byteOrder.Uint64(numBytes[:]), nil
 }
 
-func read(storage io.Reader) (key, value Bytes, err error) {
-	keyLenBytes := [8]byte{}
-	if _, err := storage.Read(keyLenBytes[:]); err != nil {
-		return nil, nil, fmt.Errorf("failed to read key length: %w", err)
+func ReadRecord(storage io.Reader) (Record, error) {
+	keyLen, err := ReadNumber(storage)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read key length")
 	}
 
-	valueLenBytes := [8]byte{}
-	if _, err := storage.Read(valueLenBytes[:]); err != nil {
-		return nil, nil, fmt.Errorf("failed to read value length: %w", err)
+	valueLen, err := ReadNumber(storage)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read value length")
 	}
 
-	keyLen := byteOrder.Uint64(keyLenBytes[:])
-	valueLen := byteOrder.Uint64(valueLenBytes[:])
-
-	keyBytes := bytes.NewBuffer(Bytes{})
+	keyBytes := bytes.NewBuffer(nil)
 
 	const defaultReadStep = uint64(255)
 
@@ -63,15 +46,15 @@ func read(storage io.Reader) (key, value Bytes, err error) {
 		tempBytes := make(Bytes, step)
 
 		if err := binary.Read(storage, byteOrder, tempBytes); err != nil {
-			return nil, nil, fmt.Errorf("failed to read key: %w", err)
+			return nil, errors.Wrap(err, "failed to read key: %w")
 		}
 
 		if _, err := keyBytes.Write(tempBytes); err != nil {
-			return nil, nil, fmt.Errorf("failed to write key: %w", err)
+			return nil, errors.Wrap(err, "failed to write key: %w")
 		}
 	}
 
-	valueBytes := bytes.NewBuffer(Bytes{})
+	valueBytes := bytes.NewBuffer(nil)
 	for valueLen > 0 {
 		step := defaultReadStep
 		if valueLen < step {
@@ -82,16 +65,45 @@ func read(storage io.Reader) (key, value Bytes, err error) {
 		tempBytes := make(Bytes, step)
 
 		if err := binary.Read(storage, byteOrder, tempBytes); err != nil {
-			return nil, nil, fmt.Errorf("failed to read value: %w", err)
+			return nil, errors.Wrap(err, "failed to read value: %w")
 		}
 
 		if _, err := valueBytes.Write(tempBytes); err != nil {
-			return nil, nil, fmt.Errorf("failed to write value: %w", err)
+			return nil, errors.Wrap(err, "failed to write value: %w")
 		}
 	}
 
-	key = keyBytes.Bytes()
-	value = valueBytes.Bytes()
+	return RecordImpl{
+		Key:   keyBytes.Bytes(),
+		Value: valueBytes.Bytes(),
+	}, nil
+}
 
-	return
+func WriteNumber(storage io.Writer, number uint64) error {
+	numBytes := [mdByteSize]byte{}
+	byteOrder.PutUint64(numBytes[:], number)
+	if _, err := storage.Write(numBytes[:]); err != nil {
+		return err
+	}
+	return nil
+}
+
+func WriteRecord(storage io.Writer, record Record) error {
+	if err := WriteNumber(storage, uint64(len(record.GetKey()))); err != nil {
+		return errors.Wrap(err, "failed to write key length")
+	}
+
+	if err := WriteNumber(storage, uint64(len(record.GetValue()))); err != nil {
+		return errors.Wrap(err, "failed to write value length")
+	}
+
+	if err := binary.Write(storage, byteOrder, record.GetKey()); err != nil {
+		return errors.Wrap(err, "failed to write key: %w")
+	}
+
+	if err := binary.Write(storage, byteOrder, record.GetValue()); err != nil {
+		return errors.Wrap(err, "failed to write value: %w")
+	}
+
+	return nil
 }
