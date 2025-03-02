@@ -155,11 +155,7 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	}
 
 	sparseIndex := SparseIndex{}
-	for {
-		if !(ret < tailSSTableOffset) {
-			break
-		}
-
+	for ret < tailSSTableOffset {
 		record, err := ReadRecord(fs)
 		if err != nil {
 			return SparseIndex{}, errors.Wrap(err, "failed to read record")
@@ -274,7 +270,7 @@ func (s *sstableIterator) Next() (Record, error) {
 }
 
 func (s SStable) Iterator() (Iterator[Record], error) {
-	_, err := s.FileSystem.file.Seek(0, io.SeekStart)
+	_, err := s.file.Seek(0, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}

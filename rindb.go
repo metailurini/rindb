@@ -98,10 +98,7 @@ func (h *Hino) NewSSTableFS(levelNumb int) (*FileSystem, error) {
 
 func (h *Hino) Close() {
 	element := h.openedFs.Front()
-	for {
-		if element == nil {
-			break
-		}
+	for element != nil {
 		fs, ok := element.Value.(*FileSystem)
 		if !ok {
 			log.Println("[ERR] can not cast element to file system")
