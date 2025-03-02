@@ -232,3 +232,116 @@ func Test_mergeSSTables(t *testing.T) {
 		assert.Nil(t, record)
 	})
 }
+
+//nolint:funlen
+func TestHino_searchKey(t *testing.T) {
+	// Setup temporary directory
+	err := os.MkdirAll(dbDirectory, 0755)
+	assert.NoError(t, err)
+	defer func() {
+		err := os.RemoveAll(dbDirectory)
+		assert.NoError(t, err)
+	}()
+
+	t.Run("Key exists in memtable but not in SSTables", func(t *testing.T) {
+		// Initialize Rin with a memtable containing the key
+		rin, err := InitRinDB()
+		assert.NoError(t, err)
+		key := Bytes("mem-key")
+		value := Bytes("mem-value")
+		err = rin.Put(key, value)
+		assert.NoError(t, err)
+
+		// Initialize Hino with no SSTables
+		hino, err := InitHino()
+		assert.NoError(t, err)
+		defer hino.Close()
+
+		// Search for the key (should not find it in SSTables, test relies on Rin.Get)
+		// Note: searchKey only searches SSTables, so we verify Rin.Get behavior separately
+		result, err := rin.Get(key)
+		assert.NoError(t, err)
+		assert.Equal(t, value, result)
+
+		// Verify hino.searchKey doesn't find it since it's only in memtable
+		result, err = hino.searchKey(key)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Key exists in SSTable at level 0", func(t *testing.T) {
+		// Create a temporary SSTable at level 0
+		hino, err := InitHino()
+		assert.NoError(t, err)
+		defer hino.Close()
+
+		fs, err := hino.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer fs.Close()
+
+		mem := InitMemtable()
+		key := Bytes("level0-key")
+		value := Bytes("level0-value")
+		mem.Put(key, value)
+		_, err = Flush(mem, fs)
+		assert.NoError(t, err)
+
+		// Ensure level 0 is populated
+		if len(hino.levels) == 0 {
+			hino.levels = append(hino.levels, InitLinkedList[*FileSystem]())
+		}
+		hino.levels[0].PushBack(fs)
+
+		// Search for the key
+		result, err := hino.searchKey(key)
+		assert.NoError(t, err)
+		assert.Equal(t, value, result)
+
+		// Verify non-existent key
+		result, err = hino.searchKey(Bytes("non-existent"))
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Key exists in level 1 with newer value in level 0", func(t *testing.T) {
+		// Initialize Hino
+		hino, err := InitHino()
+		assert.NoError(t, err)
+		defer hino.Close()
+
+		// Create SSTable at level 1
+		fs1, err := hino.NewSSTableFS(1)
+		assert.NoError(t, err)
+		defer fs1.Close()
+
+		mem1 := InitMemtable()
+		key := Bytes("multi-level-key")
+		oldValue := Bytes("old-value")
+		mem1.Put(key, oldValue)
+		_, err = Flush(mem1, fs1)
+		assert.NoError(t, err)
+
+		// Create SSTable at level 0 with newer value
+		fs0, err := hino.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer fs0.Close()
+
+		mem0 := InitMemtable()
+		newValue := Bytes("new-value")
+		mem0.Put(key, newValue)
+		_, err = Flush(mem0, fs0)
+		assert.NoError(t, err)
+
+		// Populate levels
+		if len(hino.levels) < 2 {
+			hino.levels = append(hino.levels, InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]())
+		}
+		hino.levels[0].PushBack(fs0)
+		hino.levels[1].PushBack(fs1)
+
+		// Search for the key, should return the newer value from level 0
+		result, err := hino.searchKey(key)
+		assert.NoError(t, err)
+		assert.Equal(t, newValue, result, "Expected newer value from level 0")
+	})
+}
