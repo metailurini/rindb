@@ -366,12 +366,41 @@ func (r Rin) Get(key Bytes) (Bytes, error) {
 	return hino.searchKey(key)
 }
 
+const maxMemtableSize = 1000
+
 func (r Rin) Put(key, value Bytes) error {
 	record := RecordImpl{Key: key, Value: value}
 	if err := r.wal.Append(record); err != nil {
 		return err
 	}
 	r.memtable.Put(key, value)
+
+	// Check size and flush if needed
+	if r.memtable.data.Len() >= maxMemtableSize {
+		hino, err := InitHino()
+		if err != nil {
+			return err
+		}
+		defer hino.Close()
+		if hino.levels[0] != nil && hino.levels[0].Len() > 2 { // Simple threshold
+			if err := hino.Compact(); err != nil {
+				return err
+			}
+		}
+
+		fs, err := hino.NewSSTableFS(0)
+		if err != nil {
+			return err
+		}
+		_, err = Flush(r.memtable, fs)
+		if err != nil {
+			return err
+		}
+		if err := r.wal.Clean(); err != nil {
+			return err
+		}
+		fs.Close()
+	}
 	return nil
 }
 
