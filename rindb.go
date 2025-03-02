@@ -350,7 +350,20 @@ func InitRinDB() (Rin, error) {
 }
 
 func (r Rin) Get(key Bytes) (Bytes, error) {
-	return r.memtable.Get(key)
+	value, err := r.memtable.Get(key)
+	if err == nil {
+		return value, nil
+	}
+	if !errors.Is(err, ErrKeyNotFound) {
+		return nil, err
+	}
+	// Key not in memtable, check SSTables
+	hino, err := InitHino()
+	if err != nil {
+		return nil, err
+	}
+	defer hino.Close()
+	return hino.searchKey(key)
 }
 
 func (r Rin) Put(key, value Bytes) error {
