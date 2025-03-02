@@ -272,40 +272,53 @@ TODO:
 -> implement full tests for the linked list
 */
 func (h *Hino) searchKey(key Bytes) (Bytes, error) {
-	// Iterate through levels in reverse order (newer levels first)
-	for i := len(h.levels) - 1; i >= 0; i-- {
-		if h.levels[i] == nil {
-			continue
-		}
-		iterator := h.levels[i].Iterator()
-		for iterator.HasNext() {
-			fs, err := iterator.Next()
-			if err != nil {
-				return nil, err
-			}
-			if err := fs.Open(); err != nil {
-				return nil, err
-			}
-			sstable, err := NewSSTable(fs)
-			if err != nil {
-				_ = fs.Close() // Ensure file is closed even on error
-				return nil, err
-			}
-			value, err := sstable.GetValue(key)
-			if err == nil {
-				_ = fs.Close() // Close file before returning
-				return value, nil // Found the key
-			}
-			if !errors.Is(err, ErrKeyNotFound) {
-				_ = fs.Close() // Close file before returning error
-				return nil, err // Unexpected error
-			}
-			if err := fs.Close(); err != nil {
-				return nil, err // Handle close error
-			}
-		}
-	}
-	return nil, ErrKeyNotFound
+    var latestValue Bytes
+    var found bool
+
+    // Iterate through levels in reverse order (newer levels first)
+    for i := len(h.levels) - 1; i >= 0; i-- {
+        if h.levels[i] == nil {
+            continue
+        }
+        iterator := h.levels[i].Iterator()
+        for iterator.HasNext() {
+            fs, err := iterator.Next()
+            if err != nil {
+                return nil, err
+            }
+            if err := fs.Open(); err != nil {
+                return nil, err
+            }
+            sstable, err := NewSSTable(fs)
+            if err != nil {
+                _ = fs.Close()
+                return nil, err
+            }
+            value, err := sstable.GetValue(key)
+            if err == nil {
+                // Found a value or tombstone; this is the latest so far
+                latestValue = value
+                found = true
+                _ = fs.Close()
+                break
+            }
+            if !errors.Is(err, ErrKeyNotFound) {
+                _ = fs.Close()
+                return nil, err
+            }
+            if err := fs.Close(); err != nil {
+                return nil, err
+            }
+        }
+        if found {
+            break
+        }
+    }
+
+    if found {
+        return latestValue, nil
+    }
+    return nil, ErrKeyNotFound
 }
 
 func mergeSSTables(target *FileSystem, sources []SStable) (SStable, error) {
