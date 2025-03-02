@@ -190,10 +190,7 @@ MANIFEST:
 */
 func (h *Hino) Compact() error {
 	levelNumb := 0
-	for {
-		if levelNumb == len(h.levels) {
-			break
-		}
+	for levelNumb != len(h.levels) {
 		level := h.levels[levelNumb]
 
 		const bufferFileCount = 2
