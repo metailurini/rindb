@@ -78,9 +78,14 @@ var ErrMalFormedSSTable = errors.New("malformed sstable")
 type SStable struct {
 	*FileSystem
 	SparseIndex SparseIndex
+	Bloom       *BloomFilter
 }
 
 func (s SStable) GetValue(key Bytes) (Bytes, error) {
+	if !s.Bloom.Lookup(key) {
+		return nil, ErrKeyNotFound
+	}
+
 	offset, err := s.SparseIndex.GetOffset(key)
 	if err != nil {
 		return nil, err
@@ -111,7 +116,18 @@ func NewSSTable(fs *FileSystem) (SStable, error) {
 	if err != nil {
 		return SStable{}, errors.Wrap(err, "failed to load sparse index")
 	}
-	return SStable{fs, sparseIndex}, nil
+
+	bloom := NewBloomFilter(
+		SetN(uint64(len(sparseIndex))),
+		SetP(0.01),
+		WithCalculatedM(),
+		WithCalculatedK(),
+	)
+	for _, ko := range sparseIndex {
+		bloom.Insert(ko.key)
+	}
+
+	return SStable{fs, sparseIndex, bloom}, nil
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
@@ -205,7 +221,17 @@ func Flush(mem Memtable, fs *FileSystem) (SStable, error) {
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return SStable{fs, sparseIndex}, nil
+	bloom := NewBloomFilter(
+		SetN(uint64(len(sparseIndex))),
+		SetP(0.01),
+		WithCalculatedM(),
+		WithCalculatedK(),
+	)
+	for _, ko := range sparseIndex {
+		bloom.Insert(ko.key)
+	}
+
+	return SStable{fs, sparseIndex, bloom}, nil
 }
 
 func genSparseIndex(mem Memtable) SparseIndex {
