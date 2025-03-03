@@ -22,11 +22,13 @@ var (
 	walName     = "WAL"
 )
 
+// Rin is the main database structure
 type Rin struct {
 	wal      WAL
 	memtable Memtable
 }
 
+// Hino is storage for SSTables
 type Hino struct {
 	openedFs *list.List
 	levels   []*LinkedList[*FileSystem]
