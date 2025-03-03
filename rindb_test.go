@@ -4,6 +4,7 @@ package rindb
 import (
 	"container/list"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"testing"
@@ -239,9 +240,8 @@ func TestHino_searchKey(t *testing.T) {
 		// Initialize Rin with a memtable containing the key
 		rin, err := InitRinDB()
 		assert.NoError(t, err)
-    randStr := RandStringBytes(10)
-		key := Bytes("mem-key")
-		value := Bytes("mem-value")
+		key := RandStringBytes(10)
+		value := RandStringBytes(10)
 		err = rin.Put(key, value)
 		assert.NoError(t, err)
 
@@ -341,4 +341,10 @@ func TestHino_searchKey(t *testing.T) {
 }
 
 func RandStringBytes(i int) Bytes {
+	letterBytes := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	b := make([]byte, i)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return b
 }
