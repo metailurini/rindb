@@ -73,30 +73,30 @@ func ReadRecord(storage io.Reader) (Record, error) {
 	}, nil
 }
 
-func WriteNumber(storage io.Writer, number uint64) error {
+func WriteNumber(tx *Transaction, number uint64) error {
 	numBytes := [mdByteSize]byte{}
 	byteOrder.PutUint64(numBytes[:], number)
-	if _, err := storage.Write(numBytes[:]); err != nil {
-		return err
+	if _, err := tx.Write(numBytes[:]); err != nil {
+		return errors.Wrap(err, "failed to write number")
 	}
 	return nil
 }
 
-func WriteRecord(storage io.Writer, record Record) error {
-	if err := WriteNumber(storage, uint64(len(record.GetKey()))); err != nil {
+func WriteRecord(tx *Transaction, record Record) error {
+	if err := WriteNumber(tx, uint64(len(record.GetKey()))); err != nil {
 		return errors.Wrap(err, "failed to write key length")
 	}
 
-	if err := WriteNumber(storage, uint64(len(record.GetValue()))); err != nil {
+	if err := WriteNumber(tx, uint64(len(record.GetValue()))); err != nil {
 		return errors.Wrap(err, "failed to write value length")
 	}
 
-	if err := binary.Write(storage, byteOrder, record.GetKey()); err != nil {
-		return errors.Wrap(err, "failed to write key: %w")
+	if err := binary.Write(tx, byteOrder, record.GetKey()); err != nil {
+		return errors.Wrap(err, "failed to write key")
 	}
 
-	if err := binary.Write(storage, byteOrder, record.GetValue()); err != nil {
-		return errors.Wrap(err, "failed to write value: %w")
+	if err := binary.Write(tx, byteOrder, record.GetValue()); err != nil {
+		return errors.Wrap(err, "failed to write value")
 	}
 
 	return nil

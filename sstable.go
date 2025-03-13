@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"bytes"
 	"io"
 	"log"
 	"os"
@@ -176,58 +175,42 @@ func Flush(mem Memtable, fs *FileSystem) (SStable, error) {
 		log.Panic("empty memtable!")
 	}
 
-	// txBuf is a buffer for making sure that once
-	// content wrote to a disk it must be full content
-	txBuf := bytes.NewBufferString("")
+	tm := NewTransactionManager()
+	tx := tm.Begin()
+	defer tx.Rollback()
 
 	r := mem.data.Head().Next()
 	for r != nil {
-		err := WriteRecord(txBuf, RecordImpl{r.Key, r.Value})
+		err := WriteRecord(tx, RecordImpl{r.Key, r.Value})
 		if err != nil {
 			return SStable{}, errors.Wrap(err, "failed to write record to sstable")
 		}
-
 		r = r.Next()
 	}
 
-	// this sparseIndexOffset is standing for
-	// end of data and offset sparse index
-	sparseIndexOffset := uint64(txBuf.Len())
+	sparseIndexOffset := uint64(tx.buffer.Len())
 
 	sparseIndex := genSparseIndex(mem)
 	for _, v := range sparseIndex {
-		if err := WriteRecord(txBuf, v); err != nil {
+		err := WriteRecord(tx, v)
+		if err != nil {
 			return SStable{}, errors.Wrap(err, "failed to write index to sstable")
 		}
 	}
 
-	if err := WriteNumber(txBuf, sparseIndexOffset); err != nil {
+	if err := WriteNumber(tx, sparseIndexOffset); err != nil {
 		return SStable{}, errors.Wrap(err, "failed to write offset index to sstable")
 	}
 
-	if _, err := fs.Write(txBuf.Bytes()); err != nil {
-		return SStable{}, err
-	}
-
-	if err := fs.Sync(); err != nil {
-		return SStable{}, errors.Wrap(err, "failed to sync file system")
+	if err := tx.Commit(fs); err != nil {
+		return SStable{}, errors.Wrap(err, "failed to commit transaction to file system")
 	}
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	bloom := NewBloomFilter(
-		SetN(uint64(len(sparseIndex))),
-		SetP(0.01),
-		WithCalculatedM(),
-		WithCalculatedK(),
-	)
-	for _, ko := range sparseIndex {
-		bloom.Insert(ko.key)
-	}
-
-	return SStable{fs, sparseIndex, bloom}, nil
+	return NewSSTable(fs)
 }
 
 func genSparseIndex(mem Memtable) SparseIndex {
