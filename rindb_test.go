@@ -64,11 +64,11 @@ func TestRin(t *testing.T) {
 		err = rin.Remove(Bytes("rm-key"))
 		assert.NoError(t, err)
 
-		hino, err := InitHino()
+		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
-		defer hino.Close()
+		defer ssTableManager.Close()
 
-		newSSTableFS, err := hino.NewSSTableFS(0)
+		newSSTableFS, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer func() { _ = newSSTableFS.Close() }()
 
@@ -88,13 +88,13 @@ func TestRin(t *testing.T) {
 	})
 }
 
-func TestHino(t *testing.T) {
-	t.Run("hino::LoadLevels", func(t *testing.T) {
-		hino, err := InitHino()
+func TestSSTableManager(t *testing.T) {
+	t.Run("SSTableManager::LoadLevels", func(t *testing.T) {
+		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
-		assert.NoError(t, hino.Compact())
-		defer hino.Close()
-		for levelNumb, level := range hino.levels {
+		assert.NoError(t, ssTableManager.Compact())
+		defer ssTableManager.Close()
+		for levelNumb, level := range ssTableManager.levels {
 			iterator := level.Iterator()
 			for iterator.HasNext() {
 				fs, err := iterator.Next()
@@ -107,7 +107,7 @@ func TestHino(t *testing.T) {
 		}
 	})
 
-	t.Run("hino::Compact", func(t *testing.T) {
+	t.Run("SSTableManager::Compact", func(t *testing.T) {
 		/*
 		   Compact logic:
 		   - 1 lvl0 <-(compact)- 1 lvl0 -> 01 lvl0
@@ -120,7 +120,7 @@ func TestHino(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 33)
 		defer closer()
 
-		h := &Hino{openedFs: list.New()}
+		h := &SSTableManager{openedFs: list.New()}
 		defer h.Close()
 
 		h.levels = []*LinkedList[*FileSystem]{
@@ -161,8 +161,8 @@ func TestHino(t *testing.T) {
 //nolint:funlen
 func Test_mergeSSTables(t *testing.T) {
 	t.Run("merging sstables", func(t *testing.T) {
-		hino := Hino{openedFs: list.New()}
-		defer hino.Close()
+		ssTableManager := SSTableManager{openedFs: list.New()}
+		defer ssTableManager.Close()
 
 		fss, closer := initTempFileSystems(t, 4)
 		defer closer()
@@ -235,7 +235,7 @@ func Test_mergeSSTables(t *testing.T) {
 }
 
 //nolint:funlen
-func TestHino_searchKey(t *testing.T) {
+func TestSSTableManager_searchKey(t *testing.T) {
 	t.Run("Key exists in memtable but not in SSTables", func(t *testing.T) {
 		// Initialize Rin with a memtable containing the key
 		rin, err := InitRinDB()
@@ -245,10 +245,10 @@ func TestHino_searchKey(t *testing.T) {
 		err = rin.Put(key, value)
 		assert.NoError(t, err)
 
-		// Initialize Hino with no SSTables
-		hino, err := InitHino()
+		// Initialize SSTableManager with no SSTables
+		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
-		defer hino.Close()
+		defer ssTableManager.Close()
 
 		// Search for the key (should not find it in SSTables, test relies on Rin.Get)
 		// Note: searchKey only searches SSTables, so we verify Rin.Get behavior separately
@@ -256,19 +256,19 @@ func TestHino_searchKey(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 
-		// Verify hino.searchKey doesn't find it since it's only in memtable
-		result, err = hino.searchKey(key)
+		// Verify ssTableManager.searchKey doesn't find it since it's only in memtable
+		result, err = ssTableManager.searchKey(key)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
 	t.Run("Key exists in SSTable at level 0", func(t *testing.T) {
 		// Create a temporary SSTable at level 0
-		hino, err := InitHino()
+		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
-		defer hino.Close()
+		defer ssTableManager.Close()
 
-		fs, err := hino.NewSSTableFS(0)
+		fs, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
 
@@ -280,31 +280,31 @@ func TestHino_searchKey(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Ensure level 0 is populated
-		if len(hino.levels) == 0 {
-			hino.levels = append(hino.levels, InitLinkedList[*FileSystem]())
+		if len(ssTableManager.levels) == 0 {
+			ssTableManager.levels = append(ssTableManager.levels, InitLinkedList[*FileSystem]())
 		}
-		hino.levels[0].PushBack(fs)
+		ssTableManager.levels[0].PushBack(fs)
 
 		// Search for the key
-		result, err := hino.searchKey(key)
+		result, err := ssTableManager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 
 		// Verify non-existent key
-		result, err = hino.searchKey(Bytes("non-existent"))
+		result, err = ssTableManager.searchKey(Bytes("non-existent"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
 	t.Run("Key exists in level 1 with newer value in level 0", func(t *testing.T) {
 		t.Skip("Skip this test")
-		// Initialize Hino
-		hino, err := InitHino()
+		// Initialize SSTableManager
+		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
-		defer hino.Close()
+		defer ssTableManager.Close()
 
 		// Create SSTable at level 1
-		fs1, err := hino.NewSSTableFS(1)
+		fs1, err := ssTableManager.NewSSTableFS(1)
 		assert.NoError(t, err)
 		defer fs1.Close()
 
@@ -316,7 +316,7 @@ func TestHino_searchKey(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Create SSTable at level 0 with newer value
-		fs0, err := hino.NewSSTableFS(0)
+		fs0, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs0.Close()
 
@@ -327,14 +327,14 @@ func TestHino_searchKey(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Populate levels
-		if len(hino.levels) < 2 {
-			hino.levels = append(hino.levels, InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]())
+		if len(ssTableManager.levels) < 2 {
+			ssTableManager.levels = append(ssTableManager.levels, InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]())
 		}
-		hino.levels[0].PushBack(fs0)
-		hino.levels[1].PushBack(fs1)
+		ssTableManager.levels[0].PushBack(fs0)
+		ssTableManager.levels[1].PushBack(fs1)
 
 		// Search for the key, should return the newer value from level 0
-		result, err := hino.searchKey(key)
+		result, err := ssTableManager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Equal(t, newValue, result, "Expected newer value from level 0")
 	})

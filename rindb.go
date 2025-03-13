@@ -22,20 +22,20 @@ var (
 	walName     = "WAL"
 )
 
-// Rin is the main database structure
-type Rin struct {
+// Rindb is the main database structure
+type Rindb struct {
 	wal      WAL
 	memtable Memtable
 }
 
-// Hino is storage for SSTables
-type Hino struct {
+// SSTableManager is storage for SSTables
+type SSTableManager struct {
 	openedFs *list.List
 	levels   []*LinkedList[*FileSystem]
 }
 
-func InitHino() (*Hino, error) {
-	h := &Hino{openedFs: list.New()}
+func InitSSTableManager() (*SSTableManager, error) {
+	h := &SSTableManager{openedFs: list.New()}
 	err := h.LoadLevels()
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func InitHino() (*Hino, error) {
 	return h, nil
 }
 
-func (h *Hino) LoadLevels() error {
+func (h *SSTableManager) LoadLevels() error {
 	dirEntries, err := os.ReadDir(dbDirectory)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func (h *Hino) LoadLevels() error {
 	return nil
 }
 
-func (h *Hino) NewSSTableFS(levelNumb int) (*FileSystem, error) {
+func (h *SSTableManager) NewSSTableFS(levelNumb int) (*FileSystem, error) {
 	uid := ulid.Make()
 	sstableFileName := path.Join(dbDirectory, fmt.Sprintf("l%02d_%s.sst", levelNumb, uid.String()))
 	fs, err := OpenFS(sstableFileName)
@@ -98,7 +98,7 @@ func (h *Hino) NewSSTableFS(levelNumb int) (*FileSystem, error) {
 	return fs, nil
 }
 
-func (h *Hino) Close() {
+func (h *SSTableManager) Close() {
 	element := h.openedFs.Front()
 	for element != nil {
 		fs, ok := element.Value.(*FileSystem)
@@ -151,7 +151,7 @@ train of thought:
 		    for sstable in level.sstables:
 			  check and value by key
 
-hino:
+SSTableManager:
 level:
 
 	[]*LinkedList[]
@@ -188,7 +188,7 @@ MANIFEST:
     bloom filter: <bin>
   - level n1: file 1, file 2,  ...  bloom filter: <bin>
 */
-func (h *Hino) Compact() error {
+func (h *SSTableManager) Compact() error {
 	levelNumb := 0
 	for levelNumb != len(h.levels) {
 		level := h.levels[levelNumb]
@@ -239,7 +239,7 @@ func (h *Hino) Compact() error {
 	return nil
 }
 
-func (h *Hino) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStable) error {
+func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStable) error {
 	newLevelSSTable, err := h.NewSSTableFS(newLevelNumb)
 	if err != nil {
 		return err
@@ -270,7 +270,7 @@ TODO:
 -> so implement single -> double should be compatible, copy concept of list in built-in package
 -> implement full tests for the linked list
 */
-func (h *Hino) searchKey(key Bytes) (Bytes, error) {
+func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	var latestValue Bytes
 	var found bool
 
@@ -349,25 +349,25 @@ func mergeSSTables(target *FileSystem, sources []SStable) (SStable, error) {
 	return sstable, nil
 }
 
-func InitRinDB() (Rin, error) {
+func InitRinDB() (Rindb, error) {
 	walPath := path.Join(dbDirectory, walName)
 	fs, err := OpenFS(walPath)
 	if err != nil {
-		return Rin{}, err
+		return Rindb{}, err
 	}
 
 	wal := NewWAL(fs)
 	memtable, err := wal.Load()
 	if err != nil {
-		return Rin{}, err
+		return Rindb{}, err
 	}
-	return Rin{
+	return Rindb{
 		wal:      wal,
 		memtable: memtable,
 	}, nil
 }
 
-func (r Rin) Get(key Bytes) (Bytes, error) {
+func (r Rindb) Get(key Bytes) (Bytes, error) {
 	value, err := r.memtable.Get(key)
 	if err == nil {
 		return value, nil
@@ -376,17 +376,17 @@ func (r Rin) Get(key Bytes) (Bytes, error) {
 		return nil, err
 	}
 	// Key not in memtable, check SSTables
-	hino, err := InitHino()
+	ssTableManager, err := InitSSTableManager()
 	if err != nil {
 		return nil, err
 	}
-	defer hino.Close()
-	return hino.searchKey(key)
+	defer ssTableManager.Close()
+	return ssTableManager.searchKey(key)
 }
 
 const maxMemtableSize = 1000
 
-func (r Rin) Put(key, value Bytes) error {
+func (r Rindb) Put(key, value Bytes) error {
 	record := RecordImpl{Key: key, Value: value}
 	if err := r.wal.Append(record); err != nil {
 		return err
@@ -395,18 +395,18 @@ func (r Rin) Put(key, value Bytes) error {
 
 	// Check size and flush if needed
 	if r.memtable.data.Len() >= maxMemtableSize {
-		hino, err := InitHino()
+		ssTableManager, err := InitSSTableManager()
 		if err != nil {
 			return err
 		}
-		defer hino.Close()
-		if hino.levels[0] != nil && hino.levels[0].Len() > 2 { // Simple threshold
-			if err := hino.Compact(); err != nil {
+		defer ssTableManager.Close()
+		if ssTableManager.levels[0] != nil && ssTableManager.levels[0].Len() > 2 { // Simple threshold
+			if err := ssTableManager.Compact(); err != nil {
 				return err
 			}
 		}
 
-		fs, err := hino.NewSSTableFS(0)
+		fs, err := ssTableManager.NewSSTableFS(0)
 		if err != nil {
 			return err
 		}
@@ -422,7 +422,7 @@ func (r Rin) Put(key, value Bytes) error {
 	return nil
 }
 
-func (r Rin) Remove(key Bytes) error {
+func (r Rindb) Remove(key Bytes) error {
 	record := RecordImpl{Key: key, Value: nil}
 	if err := r.wal.Append(record); err != nil {
 		return err
