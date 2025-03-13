@@ -26,7 +26,7 @@ func (b Bitset) Set(index uint32) {
 // Test checks whether the bit at the specified index is set or not.
 func (b Bitset) Test(index uint32) bool {
 	word, bit := index/bitSize, index%bitSize
-	if !(index < b.size) {
+	if index >= b.size {
 		log.Printf("Index %d out of bounds for Bitset of size %d", index, b.size)
 		return false
 	}

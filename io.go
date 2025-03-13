@@ -37,10 +37,7 @@ func ReadRecord(storage io.Reader) (Record, error) {
 	const defaultReadStep = uint64(255)
 
 	for keyLen > 0 {
-		step := defaultReadStep
-		if keyLen < step {
-			step = keyLen
-		}
+		step := min(keyLen, defaultReadStep)
 		keyLen -= step
 
 		tempBytes := make(Bytes, step)
@@ -56,10 +53,7 @@ func ReadRecord(storage io.Reader) (Record, error) {
 
 	valueBytes := bytes.NewBuffer(nil)
 	for valueLen > 0 {
-		step := defaultReadStep
-		if valueLen < step {
-			step = valueLen
-		}
+		step := min(valueLen, defaultReadStep)
 		valueLen -= step
 
 		tempBytes := make(Bytes, step)
