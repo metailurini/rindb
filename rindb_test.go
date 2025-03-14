@@ -109,7 +109,7 @@ func TestSSTableManager(t *testing.T) {
 
 	t.Run("SSTableManager::Compact", func(t *testing.T) {
 		/*
-		   Compact logic:
+		   Compaction Test Expectations:
 		   - 1 lvl0 <-(compact)- 1 lvl0 -> 01 lvl0
 		   - 1 lvl1 <-(compact)- 2 lvl0 -> 02 lvl0
 		   - 1 lvl2 <-(compact)- 3 lvl1 -> 06 lvl0
