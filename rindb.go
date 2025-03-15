@@ -65,7 +65,7 @@ func (h *SSTableManager) LoadLevels() error {
 
 		idx := strings.Index(fileName, "_")
 		if idx == -1 {
-			// TODO: log here, because this sstable doesn't follow the sstable instruction
+			ERROR("Invalid sstable name: %s", fileName)
 			continue
 		}
 
@@ -103,8 +103,7 @@ func (h *SSTableManager) Close() {
 	for element != nil {
 		fs, ok := element.Value.(*FileSystem)
 		if !ok {
-			log.Println("[ERR] can not cast element to file system")
-			// TODO: log information over here
+			ERROR("can not cast element to file system")
 			break
 		}
 
