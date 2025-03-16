@@ -102,6 +102,7 @@ func NewBloomFilter(options ...BloomFilterOpt) *BloomFilter {
 		optionFn(cfg)
 	}
 	bucket := NewBitset(cfg.m)
+	DEBUG("New BloomFilter with config %+v", cfg)
 	return &BloomFilter{
 		config: *cfg,
 		bucket: bucket,
@@ -110,6 +111,7 @@ func NewBloomFilter(options ...BloomFilterOpt) *BloomFilter {
 
 // Insert adds a string to the BloomFilter.
 func (b *BloomFilter) Insert(str Bytes) {
+	DEBUG("Inserting %s", str)
 	l := b.bucket.size
 	for i := b.config.k; i > 0; i-- {
 		hv := hashStr(str, i)
@@ -123,9 +125,11 @@ func (b *BloomFilter) Lookup(str Bytes) bool {
 	for i := b.config.k; i > 0; i-- {
 		hv := hashStr(str, i)
 		if !b.bucket.Test(hv % l) {
+			DEBUG("Looking up %s, not found", str)
 			return false
 		}
 	}
+	DEBUG("Looking up %s, found", str)
 	return true
 }
 
