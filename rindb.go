@@ -288,11 +288,6 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 				return nil, err
 			}
 
-			if !sstable.Bloom.Lookup(key) {
-				_ = fs.Close()
-				continue
-			}
-
 			value, err := sstable.GetValue(key)
 			if err == nil {
 				// Found a value or tombstone; this is the latest so far
