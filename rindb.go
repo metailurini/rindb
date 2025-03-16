@@ -262,13 +262,6 @@ func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStab
 	return nil
 }
 
-/*
-TODO:
--> to search key, so in the level we have to move backward
--> implement double ll remove the current single ll
--> so implement single -> double should be compatible, copy concept of list in built-in package
--> implement full tests for the linked list
-*/
 func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	var latestValue Bytes
 	var found bool
