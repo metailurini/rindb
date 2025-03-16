@@ -273,10 +273,10 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	var latestValue Bytes
 	var found bool
 
-	// Iterate through levels in reverse order (newer levels first)
-	for i := len(h.levels) - 1; i >= 0; i-- {
+	for i := range h.levels {
 		if h.levels[i] == nil {
-			continue
+			// No more levels to search
+			break
 		}
 		iterator := h.levels[i].Iterator()
 		for iterator.HasNext() {
