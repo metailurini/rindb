@@ -266,13 +266,20 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	var latestValue Bytes
 	var found bool
 
+	// In an LSM-tree, data is organized into levels, where lower levels (e.g., level 0) contain newer data,
+	// and higher levels (e.g., level 1, 2, etc.) contain older, compacted data. When searching for a key,
+	// we must prioritize the most recent data, as it reflects the latest updates or deletions (e.g., tombstones).
+	// Within each level, SSTables are also ordered by recency, especially in level 0 where SSTables may overlap.
+	// Iterating from the bottom (most recent SSTable) to the top (oldest SSTable) ensures we find the latest
+	// version of the key first. Once a key is found in a level, we can stop searching that level, as newer
+	// levels take precedence, and within a level, the most recent SSTable's value is authoritative.
+	// This bottom-up traversal aligns with LSM's principle of prioritizing recency in a write-heavy system.
 	for levelNumb := range h.levels {
 		if h.levels[levelNumb] == nil {
 			// No more levels to search
 			break
 		}
 
-		// Iterate from the bottom of ssTables belonging to the level
 		iterator := h.levels[levelNumb].IteratorFromBottom()
 		fs := iterator.Value()
 		for {
