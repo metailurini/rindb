@@ -239,34 +239,19 @@ func Test_mergeSSTables(t *testing.T) {
 
 //nolint:funlen
 func TestSSTableManager_searchKey(t *testing.T) {
-	t.Run("Key exists in memtable but not in SSTables", func(t *testing.T) {
-		// Initialize Rin with a memtable containing the key
-		rin, err := InitRinDB()
-		assert.NoError(t, err)
-		key := RandStringBytes(10)
-		value := RandStringBytes(10)
-		err = rin.Put(key, value)
-		assert.NoError(t, err)
-
-		// Initialize SSTableManager with no SSTables
+	t.Run("Key in memtable, absent in SSTables", func(t *testing.T) {
 		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
 		defer ssTableManager.Close()
 
-		// Search for the key (should not find it in SSTables, test relies on Rin.Get)
-		// Note: searchKey only searches SSTables, so we verify Rin.Get behavior separately
-		result, err := rin.Get(key)
-		assert.NoError(t, err)
-		assert.Equal(t, value, result)
+		key := RandStringBytes(10)
 
-		// Verify ssTableManager.searchKey doesn't find it since it's only in memtable
-		result, err = ssTableManager.searchKey(key)
+		result, err := ssTableManager.searchKey(key)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
-	t.Run("Key exists in SSTable at level 0", func(t *testing.T) {
-		// Create a temporary SSTable at level 0
+	t.Run("Key in level 0 only", func(t *testing.T) {
 		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
 		defer ssTableManager.Close()
@@ -282,64 +267,183 @@ func TestSSTableManager_searchKey(t *testing.T) {
 		_, err = Flush(mem, fs)
 		assert.NoError(t, err)
 
-		// Ensure level 0 is populated
 		if len(ssTableManager.levels) == 0 {
 			ssTableManager.levels = append(ssTableManager.levels, InitLinkedList[*FileSystem]())
 		}
 		ssTableManager.levels[0].PushBack(fs)
 
-		// Search for the key
 		result, err := ssTableManager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
-
-		// Verify non-existent key
-		result, err = ssTableManager.searchKey(Bytes("non-existent"))
-		assert.ErrorIs(t, err, ErrKeyNotFound)
-		assert.Nil(t, result)
 	})
 
-	t.Run("Key exists in level 1 with newer value in level 0", func(t *testing.T) {
-		t.Skip("Skip this test")
-		// Initialize SSTableManager
+	t.Run("Key in level 1 overridden by level 0", func(t *testing.T) {
 		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
-		defer ssTableManager.Close()
+		backupLevels := ssTableManager.levels
+		defer func() {
+			ssTableManager.levels = backupLevels
+			ssTableManager.Close()
+		}()
 
-		// Create SSTable at level 1
+		// Level 1: older value
 		fs1, err := ssTableManager.NewSSTableFS(1)
 		assert.NoError(t, err)
 		defer fs1.Close()
-
 		mem1 := InitMemtable()
-		key := Bytes("multi-level-key")
+		key := RandStringBytes(10)
 		oldValue := Bytes("old-value")
 		mem1.Put(key, oldValue)
 		_, err = Flush(mem1, fs1)
 		assert.NoError(t, err)
 
-		// Create SSTable at level 0 with newer value
+		// Level 0: newer value
 		fs0, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs0.Close()
-
 		mem0 := InitMemtable()
 		newValue := Bytes("new-value")
 		mem0.Put(key, newValue)
 		_, err = Flush(mem0, fs0)
 		assert.NoError(t, err)
 
-		// Populate levels
-		if len(ssTableManager.levels) < 2 {
-			ssTableManager.levels = append(ssTableManager.levels, InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]())
+		// Backup old levels
+		oldLevels := ssTableManager.levels
+
+		// Override levels with new values
+		ssTableManager.levels = []*LinkedList[*FileSystem]{
+			InitLinkedList[*FileSystem](),
+			InitLinkedList[*FileSystem](),
 		}
+
+		ssTableManager.levels[0].PushBack(fs0)
+		ssTableManager.levels[1].PushBack(fs1)
+		// assert ssTableManager.levels.Len() == 1
+		assert.Equal(t, 1, ssTableManager.levels[0].Len())
+		assert.Equal(t, 1, ssTableManager.levels[1].Len())
+
+		result, err := ssTableManager.searchKey(key)
+		assert.NoError(t, err)
+		assert.Equal(t, newValue, result)
+
+		// Restore old levels
+		ssTableManager.levels = oldLevels
+	})
+
+	t.Run("Key not found in any level", func(t *testing.T) {
+		ssTableManager, err := InitSSTableManager()
+		assert.NoError(t, err)
+		backupLevels := ssTableManager.levels
+		defer func() {
+			ssTableManager.levels = backupLevels
+			ssTableManager.Close()
+		}()
+
+		fs, err := ssTableManager.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer fs.Close()
+		mem := InitMemtable()
+		mem.Put(Bytes("some-key"), Bytes("some-value"))
+		_, err = Flush(mem, fs)
+		assert.NoError(t, err)
+
+		// Override levels with new values
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ssTableManager.levels[0].PushBack(fs)
+
+		missingKey := RandStringBytes(10)
+		result, err := ssTableManager.searchKey(missingKey)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Empty SSTableManager", func(t *testing.T) {
+		ssTableManager, err := InitSSTableManager()
+		assert.NoError(t, err)
+		defer ssTableManager.Close()
+
+		ssTableManager.levels = nil // Explicitly empty
+
+		result, err := ssTableManager.searchKey(Bytes("any-key"))
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Single SSTable in level 0", func(t *testing.T) {
+		ssTableManager, err := InitSSTableManager()
+		assert.NoError(t, err)
+		defer ssTableManager.Close()
+
+		fs, err := ssTableManager.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer fs.Close()
+		mem := InitMemtable()
+		key := Bytes("single-key")
+		value := Bytes("single-value")
+		mem.Put(key, value)
+		_, err = Flush(mem, fs)
+		assert.NoError(t, err)
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ssTableManager.levels[0].PushBack(fs)
+
+		result, err := ssTableManager.searchKey(key)
+		assert.NoError(t, err)
+		assert.Equal(t, value, result)
+	})
+
+	t.Run("Tombstone in level 0 overrides level 1", func(t *testing.T) {
+		ssTableManager, err := InitSSTableManager()
+		assert.NoError(t, err)
+		defer ssTableManager.Close()
+
+		// Level 1: original value
+		fs1, err := ssTableManager.NewSSTableFS(1)
+		assert.NoError(t, err)
+		defer fs1.Close()
+		mem1 := InitMemtable()
+		key := Bytes("tombstone-key")
+		value := Bytes("original-value")
+		mem1.Put(key, value)
+		_, err = Flush(mem1, fs1)
+		assert.NoError(t, err)
+
+		// Level 0: tombstone
+		fs0, err := ssTableManager.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer fs0.Close()
+		mem0 := InitMemtable()
+		mem0.Put(key, nil) // Tombstone
+		_, err = Flush(mem0, fs0)
+		assert.NoError(t, err)
+
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]()}
 		ssTableManager.levels[0].PushBack(fs0)
 		ssTableManager.levels[1].PushBack(fs1)
 
-		// Search for the key, should return the newer value from level 0
 		result, err := ssTableManager.searchKey(key)
 		assert.NoError(t, err)
-		assert.Equal(t, newValue, result, "Expected newer value from level 0")
+		assert.Nil(t, result) // Tombstone returns nil value
+	})
+
+	t.Run("Bloom filter skips irrelevant SSTables", func(t *testing.T) {
+		ssTableManager, err := InitSSTableManager()
+		assert.NoError(t, err)
+		defer ssTableManager.Close()
+
+		fs, err := ssTableManager.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer fs.Close()
+		mem := InitMemtable()
+		mem.Put(Bytes("present-key"), Bytes("present-value"))
+		_, err = Flush(mem, fs)
+		assert.NoError(t, err)
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ssTableManager.levels[0].PushBack(fs)
+
+		// Key not in Bloom filter
+		result, err := ssTableManager.searchKey(Bytes("absent-key"))
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
 	})
 }
 
