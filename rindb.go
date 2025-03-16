@@ -278,9 +278,11 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 			// No more levels to search
 			break
 		}
-		iterator := h.levels[i].Iterator()
-		for iterator.HasNext() {
-			fs, err := iterator.Next()
+
+		// Iterate from the bottom of ssTables belonging to the level
+		iterator := h.levels[i].IteratorFromBottom()
+		for iterator.HasPrev() {
+			fs, err := iterator.Prev()
 			if err != nil {
 				return nil, err
 			}
