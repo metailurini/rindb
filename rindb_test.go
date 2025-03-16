@@ -101,8 +101,11 @@ func TestSSTableManager(t *testing.T) {
 				assert.NoError(t, err)
 				segments := strings.Split(fs.Path(), "/")
 				fileName := segments[len(segments)-1]
-				assert.True(t, strings.HasPrefix(fileName, fmt.Sprintf("l%d_", levelNumb)))
-				assert.True(t, strings.HasSuffix(fileName, ".sst"))
+				expectedPrefix := fmt.Sprintf("l%02d_", levelNumb)
+				assert.True(t, strings.HasPrefix(fileName, expectedPrefix),
+					"expected filename '%s' to start with '%s'", fileName, expectedPrefix)
+				assert.True(t, strings.HasSuffix(fileName, ".sst"),
+					"expected filename '%s' to end with '.sst'", fileName)
 			}
 		}
 	})
