@@ -266,19 +266,16 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	var latestValue Bytes
 	var found bool
 
-	for i := range h.levels {
-		if h.levels[i] == nil {
+	for levelNumb := range h.levels {
+		if h.levels[levelNumb] == nil {
 			// No more levels to search
 			break
 		}
 
 		// Iterate from the bottom of ssTables belonging to the level
-		iterator := h.levels[i].IteratorFromBottom()
-		for iterator.HasPrev() {
-			fs, err := iterator.Prev()
-			if err != nil {
-				return nil, err
-			}
+		iterator := h.levels[levelNumb].IteratorFromBottom()
+		fs := iterator.Value()
+		for {
 			if err := fs.Open(); err != nil {
 				return nil, err
 			}
@@ -301,6 +298,15 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 				return nil, err
 			}
 			if err := fs.Close(); err != nil {
+				return nil, err
+			}
+
+			if !iterator.HasPrev() {
+				break
+			}
+
+			fs, err = iterator.Prev()
+			if err != nil {
 				return nil, err
 			}
 		}
