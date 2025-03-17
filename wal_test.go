@@ -108,3 +108,40 @@ func Test_wal(t *testing.T) {
 		assert.Equal(t, Bytes("single_value"), got)
 	})
 }
+
+func TestWALCrashRecovery(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1)
+	defer closer()
+	fs := fss[0]
+	w := NewWAL(fs)
+
+	k1 := randStringBytes(10)
+	k2 := randStringBytes(10)
+
+	// Write some records
+	records := []Record{
+		RecordImpl{k1, Bytes("v1")},
+		RecordImpl{k2, Bytes("v2")},
+	}
+	for _, r := range records {
+		assert.NoError(t, w.Append(r))
+	}
+
+	// Simulate crash by closing without cleaning
+	assert.NoError(t, fs.Close())
+
+	// Reopen and recover
+	fs, err := OpenFS(fs.Path())
+	assert.NoError(t, err)
+	w = NewWAL(fs)
+	mem, err := w.Load()
+	assert.NoError(t, err)
+
+	// Verify recovered data
+	v1, err := mem.Get(k1)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), v1)
+	v2, err := mem.Get(k2)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), v2)
+}

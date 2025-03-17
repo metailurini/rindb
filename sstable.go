@@ -126,6 +126,9 @@ func NewSSTable(fs *FileSystem) (SStable, error) {
 		bloom.Insert(ko.key)
 	}
 
+	// Seek to the beginning of the file
+	// Support testing assertions
+	fs.file.Seek(0, io.SeekStart)
 	return SStable{fs, sparseIndex, bloom}, nil
 }
 

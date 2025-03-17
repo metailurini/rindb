@@ -373,3 +373,47 @@ func TestSparseIndex_GetOffset(t *testing.T) {
 		})
 	}
 }
+
+func TestFlushWithTombstones(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1)
+	defer closer()
+	fs := fss[0]
+
+	k1 := randStringBytes(10)
+	k2 := randStringBytes(10)
+
+	mem := InitMemtable()
+	mem.Put(k1, Bytes("v1"))
+	mem.Put(k2, nil) // Tombstone
+
+	sstable, err := Flush(mem, fs)
+	assert.NoError(t, err)
+
+	v1, err := sstable.GetValue(k1)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), v1)
+
+	v2, err := sstable.GetValue(k2)
+	assert.NoError(t, err)
+	assert.Nil(t, v2) // Tombstone preserved
+}
+
+func TestBloomFilterSkipsReads(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable()
+	mem.Put(Bytes("k1"), Bytes("v1"))
+	sstable, err := Flush(mem, fs)
+	assert.NoError(t, err)
+
+	// Non-existent key
+	_, err = sstable.GetValue(Bytes("k2"))
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+
+	// Verify Bloom filter prevents read by checking file position
+	pos, err := fs.CursorPos()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), pos, "File should not be read due to Bloom filter")
+}

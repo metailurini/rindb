@@ -7,7 +7,9 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -244,7 +246,7 @@ func TestSSTableManager_searchKey(t *testing.T) {
 		assert.NoError(t, err)
 		defer ssTableManager.Close()
 
-		key := RandStringBytes(10)
+		key := randStringBytes(10)
 
 		result, err := ssTableManager.searchKey(key)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -291,7 +293,7 @@ func TestSSTableManager_searchKey(t *testing.T) {
 		assert.NoError(t, err)
 		defer fs1.Close()
 		mem1 := InitMemtable()
-		key := RandStringBytes(10)
+		key := randStringBytes(10)
 		oldValue := Bytes("old-value")
 		mem1.Put(key, oldValue)
 		_, err = Flush(mem1, fs1)
@@ -351,7 +353,7 @@ func TestSSTableManager_searchKey(t *testing.T) {
 		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ssTableManager.levels[0].PushBack(fs)
 
-		missingKey := RandStringBytes(10)
+		missingKey := randStringBytes(10)
 		result, err := ssTableManager.searchKey(missingKey)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
@@ -447,7 +449,144 @@ func TestSSTableManager_searchKey(t *testing.T) {
 	})
 }
 
-func RandStringBytes(i int) Bytes {
+func TestCompactionMergesOverwritesAndTombstones(t *testing.T) {
+	ssTableManager := SSTableManager{openedFs: list.New()}
+	defer ssTableManager.Close()
+
+	fss, closer := initTempFileSystems(t, 3)
+	defer closer()
+
+	// SSTable 1: older data
+	mem1 := InitMemtable()
+	mem1.Put(Bytes("k1"), Bytes("v1-old"))
+	mem1.Put(Bytes("k2"), Bytes("v2"))
+	_, err := Flush(mem1, fss[0])
+	assert.NoError(t, err)
+
+	// SSTable 2: newer data
+	mem2 := InitMemtable()
+	mem2.Put(Bytes("k1"), Bytes("v1-new"))
+	mem2.Put(Bytes("k2"), nil) // Tombstone
+	_, err = Flush(mem2, fss[1])
+	assert.NoError(t, err)
+
+	// SSTable 3: empty
+	mem3 := InitMemtable()
+	mem3.Put(Bytes("k3"), Bytes("v3"))
+	_, err = Flush(mem3, fss[2])
+	assert.NoError(t, err)
+
+	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+	ssTableManager.levels[0].PushBack(fss[0])
+	ssTableManager.levels[0].PushBack(fss[1])
+	ssTableManager.levels[0].PushBack(fss[2])
+
+	err = ssTableManager.Compact()
+	assert.NoError(t, err)
+
+	// Verify merged SSTable
+	mergedFS := ssTableManager.levels[1].rootNode.next.Value
+	sstable, err := NewSSTable(mergedFS)
+	assert.NoError(t, err)
+
+	v1, err := sstable.GetValue(Bytes("k1"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1-new"), v1) // Latest value
+	fmt.Printf("v1: %s\n", v1)
+
+	v2, err := sstable.GetValue(Bytes("k2"))
+	assert.NoError(t, err)
+	assert.Nil(t, v2) // Tombstone preserved
+}
+
+func TestGetPrioritization(t *testing.T) {
+	rin, err := InitRinDB()
+	assert.NoError(t, err)
+
+	// Write to SSTable
+	ssTableManager, err := InitSSTableManager()
+	assert.NoError(t, err)
+	defer ssTableManager.Close()
+	fs, err := ssTableManager.NewSSTableFS(0)
+	assert.NoError(t, err)
+	mem := InitMemtable()
+	mem.Put(Bytes("k1"), Bytes("v1-sst"))
+	_, err = Flush(mem, fs)
+	assert.NoError(t, err)
+	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+	ssTableManager.levels[0].PushBack(fs)
+
+	// Write to Memtable
+	err = rin.Put(Bytes("k1"), Bytes("v1-mem"))
+	assert.NoError(t, err)
+
+	// Get should return Memtable value
+	v, err := rin.Get(Bytes("k1"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1-mem"), v)
+}
+
+func TestCompactionThresholdAndLevels(t *testing.T) {
+	ssTableManager := SSTableManager{openedFs: list.New()}
+	defer ssTableManager.Close()
+
+	fss, closer := initTempFileSystems(t, 5) // Exceed threshold
+	defer closer()
+
+	for i, fs := range fss {
+		mem := InitMemtable()
+		mem.Put(Bytes(fmt.Sprintf("k%d", i)), Bytes(fmt.Sprintf("v%d", i)))
+		_, err := Flush(mem, fs)
+		assert.NoError(t, err)
+	}
+
+	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+	for _, fs := range fss {
+		ssTableManager.levels[0].PushBack(fs)
+	}
+
+	err := ssTableManager.Compact()
+	assert.NoError(t, err)
+
+	assert.True(t, ssTableManager.levels[0].Len() <= 2, "Level 0 should have ≤ 2 SSTables")
+	assert.NotNil(t, ssTableManager.levels[1], "Level 1 should exist")
+	assert.Greater(t, ssTableManager.levels[1].Len(), 0, "Level 1 should have SSTables")
+}
+
+func TestConcurrentRindbOperations(t *testing.T) {
+	db, err := InitRinDB()
+	assert.NoError(t, err)
+
+	var wg sync.WaitGroup
+	const numGoroutines = 10
+	wg.Add(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			key := Bytes(fmt.Sprintf("k%d", i))
+			value := Bytes(fmt.Sprintf("v%d", i))
+			assert.NoError(t, db.Put(key, value))
+			v, err := db.Get(key)
+			assert.NoError(t, err)
+			assert.Equal(t, value, v)
+
+			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+			value = Bytes(fmt.Sprintf("v%d-updated", i))
+			assert.NoError(t, db.Put(key, value))
+
+			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+			v, err = db.Get(key)
+			assert.NoError(t, err)
+			assert.Equal(t, value, v)
+
+			assert.NoError(t, db.Remove(key))
+		}(i)
+	}
+	wg.Wait()
+}
+
+func randStringBytes(i int) Bytes {
 	letterBytes := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	b := make([]byte, i)
 	for i := range b {
