@@ -1,96 +1,16 @@
-// Package rindb is key-value database
 package rindb
 
 import (
 	"container/list"
 	"fmt"
-	"math/rand"
 	"os"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-//nolint:funlen
-func TestRindb_InitAndBasicOps(t *testing.T) {
-	t.Run("init::rindb", func(t *testing.T) {
-		_, err := InitRinDB()
-		assert.NoError(t, err)
-	})
-
-	t.Run("rindb::put", func(t *testing.T) {
-		rin, err := InitRinDB()
-		assert.NoError(t, err)
-
-		err = rin.Put(Bytes("key"), Bytes("value"))
-		assert.NoError(t, err)
-	})
-
-	t.Run("rindb::get", func(t *testing.T) {
-		key := Bytes("key")
-		rin, err := InitRinDB()
-		assert.NoError(t, err)
-
-		value, err := rin.Get(key)
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("value"), value)
-	})
-
-	t.Run("rindb::remove", func(t *testing.T) {
-		rin, err := InitRinDB()
-		assert.NoError(t, err)
-
-		key := Bytes("rm-key")
-		err = rin.Put(key, Bytes("value"))
-		assert.NoError(t, err)
-
-		err = rin.Remove(key)
-		assert.NoError(t, err)
-
-		value, err := rin.Get(key)
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes(nil), value)
-	})
-
-	t.Run("flush memtable to sstable", func(t *testing.T) {
-		rin, err := InitRinDB()
-		assert.NoError(t, err)
-
-		err = rin.Put(Bytes("key"), Bytes("value"))
-		assert.NoError(t, err)
-		err = rin.Put(Bytes("rm-key"), Bytes("value"))
-		assert.NoError(t, err)
-		err = rin.Remove(Bytes("rm-key"))
-		assert.NoError(t, err)
-
-		ssTableManager, err := InitSSTableManager()
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
-
-		newSSTableFS, err := ssTableManager.NewSSTableFS(0)
-		assert.NoError(t, err)
-		defer func() { _ = newSSTableFS.Close() }()
-
-		newSStable, err := Flush(rin.memtable, newSSTableFS)
-		assert.NoError(t, err)
-
-		err = rin.wal.Clean()
-		assert.NoError(t, err)
-
-		value, err := newSStable.GetValue(Bytes("rm-key"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes(nil), value)
-
-		value, err = newSStable.GetValue(Bytes("key"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("value"), value)
-	})
-}
-
-func TestSSTableManager(t *testing.T) {
+func TestSSTableManager_LoadLevels(t *testing.T) {
 	t.Run("SSTableManager::LoadLevels", func(t *testing.T) {
 		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
@@ -114,13 +34,13 @@ func TestSSTableManager(t *testing.T) {
 
 	t.Run("SSTableManager::Compact", func(t *testing.T) {
 		/*
-		   Compaction Test Expectations:
-		   - 1 lvl0 <-(compact)- 1 lvl0 -> 01 lvl0
-		   - 1 lvl1 <-(compact)- 2 lvl0 -> 02 lvl0
-		   - 1 lvl2 <-(compact)- 3 lvl1 -> 06 lvl0
-		   - 1 lvl3 <-(compact)- 4 lvl2 -> 24 lvl0
-		   --------------------------------[Total]
-		                                   33 lvl0
+			Compaction Test Expectations:
+			- 1 lvl0 <-(compact)- 1 lvl0 -> 01 lvl0
+			- 1 lvl1 <-(compact)- 2 lvl0 -> 02 lvl0
+			- 1 lvl2 <-(compact)- 3 lvl1 -> 06 lvl0
+			- 1 lvl3 <-(compact)- 4 lvl2 -> 24 lvl0
+			--------------------------------[Total]
+			33 lvl0
 		*/
 		fss, closer := initTempFileSystems(t, 33)
 		defer closer()
@@ -163,8 +83,7 @@ func TestSSTableManager(t *testing.T) {
 	})
 }
 
-//nolint:funlen
-func Test_mergeSSTables(t *testing.T) {
+func TestSSTableManager_MergeSSTables(t *testing.T) {
 	t.Run("merging sstables", func(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New()}
 		defer ssTableManager.Close()
@@ -239,8 +158,7 @@ func Test_mergeSSTables(t *testing.T) {
 	})
 }
 
-//nolint:funlen
-func TestSSTableManager_searchKey(t *testing.T) {
+func TestSSTableManager_SearchKey(t *testing.T) {
 	t.Run("Key in memtable, absent in SSTables", func(t *testing.T) {
 		ssTableManager, err := InitSSTableManager()
 		assert.NoError(t, err)
@@ -320,7 +238,6 @@ func TestSSTableManager_searchKey(t *testing.T) {
 
 		ssTableManager.levels[0].PushBack(fs0)
 		ssTableManager.levels[1].PushBack(fs1)
-		// assert ssTableManager.levels.Len() == 1
 		assert.Equal(t, 1, ssTableManager.levels[0].Len())
 		assert.Equal(t, 1, ssTableManager.levels[1].Len())
 
@@ -449,139 +366,81 @@ func TestSSTableManager_searchKey(t *testing.T) {
 	})
 }
 
-func TestCompactionMergesOverwritesAndTombstones(t *testing.T) {
-	ssTableManager := SSTableManager{openedFs: list.New()}
-	defer ssTableManager.Close()
+func TestSSTableManager_CompactThreshold(t *testing.T) {
+	t.Run("Compaction threshold", func(t *testing.T) {
+		ssTableManager := SSTableManager{openedFs: list.New()}
+		defer ssTableManager.Close()
 
-	fss, closer := initTempFileSystems(t, 3)
-	defer closer()
+		fss, closer := initTempFileSystems(t, 3)
+		defer closer()
 
-	// SSTable 1: older data
-	mem1 := InitMemtable()
-	mem1.Put(Bytes("k1"), Bytes("v1-old"))
-	mem1.Put(Bytes("k2"), Bytes("v2"))
-	_, err := Flush(mem1, fss[0])
-	assert.NoError(t, err)
-
-	// SSTable 2: newer data
-	mem2 := InitMemtable()
-	mem2.Put(Bytes("k1"), Bytes("v1-new"))
-	mem2.Put(Bytes("k2"), nil) // Tombstone
-	_, err = Flush(mem2, fss[1])
-	assert.NoError(t, err)
-
-	// SSTable 3: empty
-	mem3 := InitMemtable()
-	mem3.Put(Bytes("k3"), Bytes("v3"))
-	_, err = Flush(mem3, fss[2])
-	assert.NoError(t, err)
-
-	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-	ssTableManager.levels[0].PushBack(fss[0])
-	ssTableManager.levels[0].PushBack(fss[1])
-	ssTableManager.levels[0].PushBack(fss[2])
-
-	err = ssTableManager.Compact()
-	assert.NoError(t, err)
-
-	// Verify merged SSTable
-	mergedFS := ssTableManager.levels[1].rootNode.next.Value
-	sstable, err := NewSSTable(mergedFS)
-	assert.NoError(t, err)
-
-	v1, err := sstable.GetValue(Bytes("k1"))
-	assert.NoError(t, err)
-	assert.Equal(t, Bytes("v1-new"), v1) // Latest value
-	fmt.Printf("v1: %s\n", v1)
-
-	v2, err := sstable.GetValue(Bytes("k2"))
-	assert.NoError(t, err)
-	assert.Nil(t, v2) // Tombstone preserved
-}
-
-func TestRindb_GetPrioritization(t *testing.T) {
-	rin, err := InitRinDB()
-	assert.NoError(t, err)
-
-	// Write to SSTable
-	ssTableManager, err := InitSSTableManager()
-	assert.NoError(t, err)
-	defer ssTableManager.Close()
-	fs, err := ssTableManager.NewSSTableFS(0)
-	assert.NoError(t, err)
-	mem := InitMemtable()
-	mem.Put(Bytes("k1"), Bytes("v1-sst"))
-	_, err = Flush(mem, fs)
-	assert.NoError(t, err)
-	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-	ssTableManager.levels[0].PushBack(fs)
-
-	// Write to Memtable
-	err = rin.Put(Bytes("k1"), Bytes("v1-mem"))
-	assert.NoError(t, err)
-
-	// Get should return Memtable value
-	v, err := rin.Get(Bytes("k1"))
-	assert.NoError(t, err)
-	assert.Equal(t, Bytes("v1-mem"), v)
-}
-
-func TestCompactionThresholdAndLevels(t *testing.T) {
-	ssTableManager := SSTableManager{openedFs: list.New()}
-	defer ssTableManager.Close()
-
-	fss, closer := initTempFileSystems(t, 5) // Exceed threshold
-	defer closer()
-
-	for i, fs := range fss {
-		mem := InitMemtable()
-		mem.Put(Bytes(fmt.Sprintf("k%d", i)), Bytes(fmt.Sprintf("v%d", i)))
-		_, err := Flush(mem, fs)
+		// SSTable 1: older data
+		mem1 := InitMemtable()
+		mem1.Put(Bytes("k1"), Bytes("v1-old"))
+		mem1.Put(Bytes("k2"), Bytes("v2"))
+		_, err := Flush(mem1, fss[0])
 		assert.NoError(t, err)
-	}
 
-	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-	for _, fs := range fss {
-		ssTableManager.levels[0].PushBack(fs)
-	}
+		// SSTable 2: newer data
+		mem2 := InitMemtable()
+		mem2.Put(Bytes("k1"), Bytes("v1-new"))
+		mem2.Put(Bytes("k2"), nil) // Tombstone
+		_, err = Flush(mem2, fss[1])
+		assert.NoError(t, err)
 
-	err := ssTableManager.Compact()
-	assert.NoError(t, err)
+		// SSTable 3: empty
+		mem3 := InitMemtable()
+		mem3.Put(Bytes("k3"), Bytes("v3"))
+		_, err = Flush(mem3, fss[2])
+		assert.NoError(t, err)
 
-	assert.True(t, ssTableManager.levels[0].Len() <= 2, "Level 0 should have ≤ 2 SSTables")
-	assert.NotNil(t, ssTableManager.levels[1], "Level 1 should exist")
-	assert.Greater(t, ssTableManager.levels[1].Len(), 0, "Level 1 should have SSTables")
-}
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ssTableManager.levels[0].PushBack(fss[0])
+		ssTableManager.levels[0].PushBack(fss[1])
+		ssTableManager.levels[0].PushBack(fss[2])
 
-func TestRindb_ConcurrentOperations(t *testing.T) {
-	db, err := InitRinDB()
-	assert.NoError(t, err)
+		err = ssTableManager.Compact()
+		assert.NoError(t, err)
 
-	var wg sync.WaitGroup
-	const numGoroutines = 10
-	wg.Add(numGoroutines)
+		// Verify merged SSTable
+		mergedFS := ssTableManager.levels[1].rootNode.next.Value
+		sstable, err := NewSSTable(mergedFS)
+		assert.NoError(t, err)
 
-	for i := 0; i < numGoroutines; i++ {
-		go func(i int) {
-			defer wg.Done()
-			key := Bytes(fmt.Sprintf("k%d", i))
-			value := Bytes(fmt.Sprintf("v%d", i))
-			assert.NoError(t, db.Put(key, value))
-			v, err := db.Get(key)
+		v1, err := sstable.GetValue(Bytes("k1"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v1-new"), v1) // Latest value
+		fmt.Printf("v1: %s\n", v1)
+
+		v2, err := sstable.GetValue(Bytes("k2"))
+		assert.NoError(t, err)
+		assert.Nil(t, v2) // Tombstone preserved
+	})
+
+	t.Run("Exceed threshold and compact", func(t *testing.T) {
+		ssTableManager := SSTableManager{openedFs: list.New()}
+		defer ssTableManager.Close()
+
+		fss, closer := initTempFileSystems(t, 5) // Exceed threshold
+		defer closer()
+
+		for i, fs := range fss {
+			mem := InitMemtable()
+			mem.Put(Bytes(fmt.Sprintf("k%d", i)), Bytes(fmt.Sprintf("v%d", i)))
+			_, err := Flush(mem, fs)
 			assert.NoError(t, err)
-			assert.Equal(t, value, v)
+		}
 
-			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-			value = Bytes(fmt.Sprintf("v%d-updated", i))
-			assert.NoError(t, db.Put(key, value))
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		for _, fs := range fss {
+			ssTableManager.levels[0].PushBack(fs)
+		}
 
-			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-			v, err = db.Get(key)
-			assert.NoError(t, err)
-			assert.Equal(t, value, v)
+		err := ssTableManager.Compact()
+		assert.NoError(t, err)
 
-			assert.NoError(t, db.Remove(key))
-		}(i)
-	}
-	wg.Wait()
+		assert.True(t, ssTableManager.levels[0].Len() <= 2, "Level 0 should have ≤ 2 SSTables")
+		assert.NotNil(t, ssTableManager.levels[1], "Level 1 should exist")
+		assert.Greater(t, ssTableManager.levels[1].Len(), 0, "Level 1 should have SSTables")
+	})
 }

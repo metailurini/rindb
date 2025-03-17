@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_memtable(t *testing.T) {
+func TestMemtable(t *testing.T) {
 	mem := InitMemtable()
 
 	for i := 0; i < 1_000; i++ {

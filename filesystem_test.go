@@ -9,23 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func initTempFileSystems(t *testing.T, amount int) ([]*FileSystem, func()) {
-	fss := make([]*FileSystem, 0, amount)
-	for i := 0; i < amount; i++ {
-		file, err := os.CreateTemp(os.TempDir(), "*")
-		assert.NoError(t, err)
-		fss = append(fss, NewFS(file))
-	}
-	closer := func() {
-		for _, fs := range fss {
-			_ = fs.Close()
-			_ = os.Remove(fs.Path())
-			t.Logf("Pruned %s file", fs.Path())
-		}
-	}
-	return fss, closer
-}
-
 //nolint:funlen
 func TestFileSystem(t *testing.T) {
 	t.Run("Rename file", func(t *testing.T) {
