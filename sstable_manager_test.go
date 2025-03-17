@@ -31,60 +31,10 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 			}
 		}
 	})
-
-	t.Run("SSTableManager::Compact", func(t *testing.T) {
-		/*
-			Compaction Test Expectations:
-			- 1 lvl0 <-(compact)- 1 lvl0 -> 01 lvl0
-			- 1 lvl1 <-(compact)- 2 lvl0 -> 02 lvl0
-			- 1 lvl2 <-(compact)- 3 lvl1 -> 06 lvl0
-			- 1 lvl3 <-(compact)- 4 lvl2 -> 24 lvl0
-			--------------------------------[Total]
-			33 lvl0
-		*/
-		fss, closer := initTempFileSystems(t, 33)
-		defer closer()
-
-		h := &SSTableManager{openedFs: list.New()}
-		defer h.Close()
-
-		h.levels = []*LinkedList[*FileSystem]{
-			InitLinkedList[*FileSystem](),
-		}
-
-		for _, fs := range fss {
-			memtable := InitMemtable()
-			memtable.Put(Bytes("1"), Bytes("2"))
-			memtable.Put(Bytes("3"), Bytes("4"))
-			memtable.Put(Bytes("2"), Bytes("3"))
-			_, err := Flush(memtable, fs)
-			assert.NoError(t, err)
-			h.levels[0].PushBack(fs)
-		}
-
-		err := h.Compact()
-		assert.NoError(t, err)
-
-		assert.Equal(t, 1, h.levels[0].Len())
-		assert.Equal(t, 1, h.levels[1].Len())
-		assert.Equal(t, 1, h.levels[2].Len())
-		assert.Equal(t, 1, h.levels[3].Len())
-
-		for _, fs := range fss {
-			_, err := os.Stat(fs.Path())
-			// Only last fs in level 0 hasn't compacted, so it should be existed
-			if h.levels[0].lastNode.Value.Path() == fs.Path() {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "no such file or directory")
-			}
-		}
-	})
 }
 
 func TestSSTableManager_MergeSSTables(t *testing.T) {
-	t.Run("merging sstables", func(t *testing.T) {
+	t.Run("Merging sstables", func(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New()}
 		defer ssTableManager.Close()
 
@@ -367,7 +317,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 }
 
 func TestSSTableManager_CompactThreshold(t *testing.T) {
-	t.Run("Compaction threshold", func(t *testing.T) {
+	t.Run("Compaction threshold 1", func(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New()}
 		defer ssTableManager.Close()
 
@@ -415,6 +365,56 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		v2, err := sstable.GetValue(Bytes("k2"))
 		assert.NoError(t, err)
 		assert.Nil(t, v2) // Tombstone preserved
+	})
+
+	t.Run("Compaction threshold 2", func(t *testing.T) {
+		/*
+			Compaction Test Expectations:
+			- 1 lvl0 <-(compact)- 1 lvl0 -> 01 lvl0
+			- 1 lvl1 <-(compact)- 2 lvl0 -> 02 lvl0
+			- 1 lvl2 <-(compact)- 3 lvl1 -> 06 lvl0
+			- 1 lvl3 <-(compact)- 4 lvl2 -> 24 lvl0
+			--------------------------------[Total]
+			33 lvl0
+		*/
+		fss, closer := initTempFileSystems(t, 33)
+		defer closer()
+
+		h := &SSTableManager{openedFs: list.New()}
+		defer h.Close()
+
+		h.levels = []*LinkedList[*FileSystem]{
+			InitLinkedList[*FileSystem](),
+		}
+
+		for _, fs := range fss {
+			memtable := InitMemtable()
+			memtable.Put(Bytes("1"), Bytes("2"))
+			memtable.Put(Bytes("3"), Bytes("4"))
+			memtable.Put(Bytes("2"), Bytes("3"))
+			_, err := Flush(memtable, fs)
+			assert.NoError(t, err)
+			h.levels[0].PushBack(fs)
+		}
+
+		err := h.Compact()
+		assert.NoError(t, err)
+
+		assert.Equal(t, 1, h.levels[0].Len())
+		assert.Equal(t, 1, h.levels[1].Len())
+		assert.Equal(t, 1, h.levels[2].Len())
+		assert.Equal(t, 1, h.levels[3].Len())
+
+		for _, fs := range fss {
+			_, err := os.Stat(fs.Path())
+			// Only last fs in level 0 hasn't compacted, so it should be existed
+			if h.levels[0].lastNode.Value.Path() == fs.Path() {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "no such file or directory")
+			}
+		}
 	})
 
 	t.Run("Exceed threshold and compact", func(t *testing.T) {

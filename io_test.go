@@ -8,7 +8,7 @@ import (
 )
 
 func Test_rw(t *testing.T) {
-	t.Run("write key with size = 0", func(t *testing.T) {
+	t.Run("Write key with size = 0", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
 		testKey := ""
@@ -23,7 +23,7 @@ func Test_rw(t *testing.T) {
 		assert.Equal(t, testValue, string(record.GetValue()))
 	})
 
-	t.Run("write key and value with size = 0", func(t *testing.T) {
+	t.Run("Write key and value with size = 0", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
 		testKey := ""
@@ -38,7 +38,7 @@ func Test_rw(t *testing.T) {
 		assert.Equal(t, testValue, string(record.GetValue()))
 	})
 
-	t.Run("write key and value with size > 255", func(t *testing.T) {
+	t.Run("Write key and value with size > 255", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
 		testKey := ""
@@ -57,7 +57,7 @@ func Test_rw(t *testing.T) {
 		assert.Equal(t, testValue, string(record.GetValue()))
 	})
 
-	t.Run("write key and value with size < 255", func(t *testing.T) {
+	t.Run("Write key and value with size < 255", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
 		err := WriteRecord(tx, RecordImpl{Bytes("key"), Bytes("value")})

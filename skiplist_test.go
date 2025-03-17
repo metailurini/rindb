@@ -42,7 +42,7 @@ func TestSkipList_Init(t *testing.T) {
 		}
 
 		assert.GreaterOrEqual(t, list.level, uint(2))
-		debugList(list)
+		debugSkipList(list)
 
 		for _, v := range data {
 			list.Put(fmt.Sprintf("k:%d", v), v)
@@ -135,7 +135,7 @@ func TestSkipList_Put(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes(""), value)
 
-		debugList(list)
+		debugSkipList(list)
 		assert.Equal(t, uint(2), list.Len())
 		assertOrderedList(t, list.Head())
 	})
@@ -197,9 +197,9 @@ func TestSkipList_Remove(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			debugList(list)
+			debugSkipList(list)
 			err := list.Remove(tt.key)
-			debugList(list)
+			debugSkipList(list)
 			if tt.existing {
 				actualLength--
 				assert.NoError(t, err)

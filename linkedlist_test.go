@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +18,7 @@ func TestInitLinkedList(t *testing.T) {
 }
 
 func TestLinkedListPushBack(t *testing.T) {
-	t.Run("push value from a slice", func(t *testing.T) {
+	t.Run("Push value from a slice", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		slice := []int{1, 2, 3, 4, 5, 6}
 		for _, v := range slice {
@@ -230,7 +229,7 @@ func TestIteratorFromBottomAfterModification(t *testing.T) {
 }
 
 func TestLinkedListBackwardTraversal(t *testing.T) {
-	t.Run("backward traversal after pushing values", func(t *testing.T) {
+	t.Run("Backward traversal after pushing values", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		values := []int{1, 2, 3, 4, 5}
 		for _, v := range values {
@@ -264,7 +263,7 @@ func TestLinkedListBackwardTraversal(t *testing.T) {
 }
 
 func TestIteratorFromBottom(t *testing.T) {
-	t.Run("empty list", func(t *testing.T) {
+	t.Run("Empty list", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		iterator := l.IteratorFromBottom()
 		assert.False(t, iterator.HasNext())
@@ -277,7 +276,7 @@ func TestIteratorFromBottom(t *testing.T) {
 		assert.Equal(t, 0, value)
 	})
 
-	t.Run("single node", func(t *testing.T) {
+	t.Run("Single node", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		l.PushBack(42)
 		iterator := l.IteratorFromBottom()
@@ -289,7 +288,7 @@ func TestIteratorFromBottom(t *testing.T) {
 		assert.Equal(t, 0, value)
 	})
 
-	t.Run("full backward traversal", func(t *testing.T) {
+	t.Run("Full backward traversal", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		values := []int{1, 2, 3}
 		for _, v := range values {
@@ -306,7 +305,7 @@ func TestIteratorFromBottom(t *testing.T) {
 		assert.False(t, iterator.HasPrev())
 	})
 
-	t.Run("mixed traversal", func(t *testing.T) {
+	t.Run("Mixed traversal", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		l.PushBack(1)
 		l.PushBack(2)
@@ -321,21 +320,9 @@ func TestIteratorFromBottom(t *testing.T) {
 		assert.Equal(t, 3, value)
 	})
 
-	t.Run("value before traversal on empty list", func(t *testing.T) {
+	t.Run("Value before traversal on empty list", func(t *testing.T) {
 		l := InitLinkedList[int]()
 		iterator := l.IteratorFromBottom()
 		assert.Equal(t, 0, iterator.Value()) // Note: uninitialized value
 	})
-}
-
-func run(iterator *LLIterator[int]) {
-	if iterator.HasNext() {
-		_, err := iterator.Next()
-		if err != nil {
-			return
-		}
-		currentValue := iterator.Value()
-		run(iterator)
-		fmt.Printf("iterator.Value(): %v\n", currentValue)
-	}
 }
