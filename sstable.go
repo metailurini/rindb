@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"bytes"
 	"io"
 	"log"
 	"os"
@@ -78,9 +77,14 @@ var ErrMalFormedSSTable = errors.New("malformed sstable")
 type SStable struct {
 	*FileSystem
 	SparseIndex SparseIndex
+	Bloom       *BloomFilter
 }
 
 func (s SStable) GetValue(key Bytes) (Bytes, error) {
+	if !s.Bloom.Lookup(key) {
+		return nil, ErrKeyNotFound
+	}
+
 	offset, err := s.SparseIndex.GetOffset(key)
 	if err != nil {
 		return nil, err
@@ -111,7 +115,21 @@ func NewSSTable(fs *FileSystem) (SStable, error) {
 	if err != nil {
 		return SStable{}, errors.Wrap(err, "failed to load sparse index")
 	}
-	return SStable{fs, sparseIndex}, nil
+
+	bloom := NewBloomFilter(
+		SetN(uint64(len(sparseIndex))),
+		SetP(0.01),
+		WithCalculatedM(),
+		WithCalculatedK(),
+	)
+	for _, ko := range sparseIndex {
+		bloom.Insert(ko.key)
+	}
+
+	// Seek to the beginning of the file
+	// Support testing assertions
+	fs.file.Seek(0, io.SeekStart)
+	return SStable{fs, sparseIndex, bloom}, nil
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
@@ -139,11 +157,7 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	}
 
 	sparseIndex := SparseIndex{}
-	for {
-		if !(ret < tailSSTableOffset) {
-			break
-		}
-
+	for ret < tailSSTableOffset {
 		record, err := ReadRecord(fs)
 		if err != nil {
 			return SparseIndex{}, errors.Wrap(err, "failed to read record")
@@ -164,48 +178,42 @@ func Flush(mem Memtable, fs *FileSystem) (SStable, error) {
 		log.Panic("empty memtable!")
 	}
 
-	// txBuf is a buffer for making sure that once
-	// content wrote to a disk it must be full content
-	txBuf := bytes.NewBufferString("")
+	tm := NewTransactionManager()
+	tx := tm.Begin()
+	defer tx.Rollback()
 
 	r := mem.data.Head().Next()
 	for r != nil {
-		err := WriteRecord(txBuf, RecordImpl{r.Key, r.Value})
+		err := WriteRecord(tx, RecordImpl{r.Key, r.Value})
 		if err != nil {
 			return SStable{}, errors.Wrap(err, "failed to write record to sstable")
 		}
-
 		r = r.Next()
 	}
 
-	// this sparseIndexOffset is standing for
-	// end of data and offset sparse index
-	sparseIndexOffset := uint64(txBuf.Len())
+	sparseIndexOffset := uint64(tx.buffer.Len())
 
 	sparseIndex := genSparseIndex(mem)
 	for _, v := range sparseIndex {
-		if err := WriteRecord(txBuf, v); err != nil {
+		err := WriteRecord(tx, v)
+		if err != nil {
 			return SStable{}, errors.Wrap(err, "failed to write index to sstable")
 		}
 	}
 
-	if err := WriteNumber(txBuf, sparseIndexOffset); err != nil {
+	if err := WriteNumber(tx, sparseIndexOffset); err != nil {
 		return SStable{}, errors.Wrap(err, "failed to write offset index to sstable")
 	}
 
-	if _, err := fs.Write(txBuf.Bytes()); err != nil {
-		return SStable{}, err
-	}
-
-	if err := fs.Sync(); err != nil {
-		return SStable{}, errors.Wrap(err, "failed to sync file system")
+	if err := tx.Commit(fs); err != nil {
+		return SStable{}, errors.Wrap(err, "failed to commit transaction to file system")
 	}
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return SStable{fs, sparseIndex}, nil
+	return NewSSTable(fs)
 }
 
 func genSparseIndex(mem Memtable) SparseIndex {
@@ -248,7 +256,7 @@ func (s *sstableIterator) Next() (Record, error) {
 }
 
 func (s SStable) Iterator() (Iterator[Record], error) {
-	_, err := s.FileSystem.file.Seek(0, io.SeekStart)
+	_, err := s.file.Seek(0, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}

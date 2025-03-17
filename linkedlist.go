@@ -4,6 +4,7 @@ import "errors"
 
 type llNode[V any] struct {
 	next  *llNode[V]
+	prev  *llNode[V]
 	Value V
 }
 
@@ -15,15 +16,18 @@ type LinkedList[V any] struct {
 
 func InitLinkedList[V any]() *LinkedList[V] {
 	l := new(LinkedList[V])
-	rootNode := new(llNode[V])
+	rootNode := &llNode[V]{next: nil, prev: nil}
 	l.rootNode = rootNode
 	l.lastNode = rootNode
 	return l
 }
 
 func (l *LinkedList[V]) PushBack(value V) {
-	node := new(llNode[V])
-	node.Value = value
+	node := &llNode[V]{
+		Value: value,
+		prev:  l.lastNode,
+		next:  nil,
+	}
 	l.lastNode.next = node
 	l.lastNode = node
 	l.len += 1
@@ -36,6 +40,14 @@ func (l *LinkedList[V]) Len() int {
 func (l *LinkedList[V]) Iterator() *LLIterator[V] {
 	return &LLIterator[V]{
 		runNode: l.rootNode,
+		list:    l,
+	}
+}
+
+// IteratorFromBottom returns an iterator starting from the last node
+func (l *LinkedList[V]) IteratorFromBottom() *LLIterator[V] {
+	return &LLIterator[V]{
+		runNode: l.lastNode,
 		list:    l,
 	}
 }
@@ -91,6 +103,17 @@ func (l *LLIterator[V]) RemoveNext() error {
 	}
 	removedNode := l.runNode.next
 	l.runNode.next = removedNode.next
+
+	// Update prev pointer of the next node
+	if removedNode.next != nil {
+		removedNode.next.prev = l.runNode
+	}
+
+	// Update lastNode if we're removing the last node
+	if removedNode == l.list.lastNode {
+		l.list.lastNode = l.runNode
+	}
+
 	l.list.len -= 1
 	return nil
 }
@@ -107,4 +130,20 @@ func (l *LLIterator[V]) PickNext() (V, error) {
 		return emptyValue, err
 	}
 	return value, nil
+}
+
+// HasPrev checks if there is a previous node to traverse to
+func (l *LLIterator[V]) HasPrev() bool {
+	return l.runNode != nil && l.runNode.prev != nil && l.runNode.prev != l.list.rootNode
+}
+
+// Prev moves to the previous node and returns its value
+func (l *LLIterator[V]) Prev() (V, error) {
+	if !l.HasPrev() {
+		var emptyValue V
+		return emptyValue, EOI
+	}
+
+	l.runNode = l.runNode.prev
+	return l.runNode.Value, nil
 }

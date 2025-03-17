@@ -7,23 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func debugList[K Comparable, V any](list *SkipList[K, V]) {
-	DEBUG("--header--: %v", list.headNote)
-	r := list.headNote.Next()
-	for r != nil {
-		DEBUG("[%v<>%v] ", r.Key, r.Value)
-		for _, v := range r.forwards {
-			if v == nil {
-				continue
-			}
-			DEBUG("[%v<>%v] ", v.Key, v.Value)
-		}
-		fmt.Println()
-		r = r.Next()
-	}
-}
-
-func TestInitSkipList(t *testing.T) {
+func TestSkipList_Init(t *testing.T) {
 	t.Run("Init with invalid key type", func(t *testing.T) {
 		list, err := InitSkipList[struct{ int }, int]()
 		assert.ErrorIs(t, err, ErrUnsupportedType)
@@ -58,7 +42,7 @@ func TestInitSkipList(t *testing.T) {
 		}
 
 		assert.GreaterOrEqual(t, list.level, uint(2))
-		debugList(list)
+		debugSkipList(list)
 
 		for _, v := range data {
 			list.Put(fmt.Sprintf("k:%d", v), v)
@@ -83,7 +67,7 @@ func TestInitSkipList(t *testing.T) {
 }
 
 //nolint:funlen
-func TestSkipListPut(t *testing.T) {
+func TestSkipList_Put(t *testing.T) {
 	t.Run("Assert all added values", func(t *testing.T) {
 		list, err := InitSkipList[string, int]()
 		assert.NoError(t, err)
@@ -151,13 +135,13 @@ func TestSkipListPut(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes(""), value)
 
-		debugList(list)
+		debugSkipList(list)
 		assert.Equal(t, uint(2), list.Len())
 		assertOrderedList(t, list.Head())
 	})
 }
 
-func TestSkipListGet(t *testing.T) {
+func TestSkipList_Get(t *testing.T) {
 	list, err := InitSkipList[string, int]()
 	assert.NoError(t, err)
 
@@ -175,7 +159,7 @@ func TestSkipListGet(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSkipListRemove(t *testing.T) {
+func TestSkipList_Remove(t *testing.T) {
 	list, err := InitSkipList[string, int]()
 	assert.NoError(t, err)
 
@@ -213,9 +197,9 @@ func TestSkipListRemove(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			debugList(list)
+			debugSkipList(list)
 			err := list.Remove(tt.key)
-			debugList(list)
+			debugSkipList(list)
 			if tt.existing {
 				actualLength--
 				assert.NoError(t, err)
@@ -233,7 +217,7 @@ func TestSkipListRemove(t *testing.T) {
 	}
 }
 
-func TestSkipListClear(t *testing.T) {
+func TestSkipList_Clear(t *testing.T) {
 	t.Run("Clear list properly", func(t *testing.T) {
 		list, err := InitSkipList[string, int]()
 		assert.NoError(t, err)

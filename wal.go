@@ -1,16 +1,21 @@
 package rindb
 
 import (
-	"bytes"
 	"io"
 
 	"github.com/pkg/errors"
 )
 
-type WAL struct{ *FileSystem }
+type WAL struct {
+	*FileSystem
+	tm *TransactionManager
+}
 
 func NewWAL(fs *FileSystem) WAL {
-	return WAL{fs}
+	return WAL{
+		FileSystem: fs,
+		tm:         NewTransactionManager(),
+	}
 }
 
 func (w *WAL) Load() (Memtable, error) {
@@ -37,48 +42,56 @@ func (w *WAL) Load() (Memtable, error) {
 }
 
 func (w *WAL) Append(record Record) error {
+	tx := w.tm.Begin()
+	defer tx.Rollback()
+
 	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
-		return errors.Wrap(err, "failed to seek to end of file: %w")
+		return errors.Wrap(err, "failed to seek to end of file")
 	}
 
-	err = WriteRecord(w, record)
+	err = WriteRecord(tx, record)
 	if err != nil {
-		return errors.Wrap(err, "failed to write to file: %w")
+		return errors.Wrap(err, "failed to write record")
+	}
+
+	err = tx.Commit(w.file)
+	if err != nil {
+		return errors.Wrap(err, "failed to commit transaction")
 	}
 
 	err = w.Sync()
 	if err != nil {
-		return errors.Wrap(err, "failed to sync file: %w")
+		return errors.Wrap(err, "failed to sync file")
 	}
 
 	return nil
 }
 
 func (w *WAL) AppendMany(records []Record) error {
+	tx := w.tm.Begin()
+	defer tx.Rollback()
+
 	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
-		return errors.Wrap(err, "failed to seek to end of file: %w")
+		return errors.Wrap(err, "failed to seek to end of file")
 	}
 
-	// write to string buffer and write back to file
-	// to make sure that all data must be persistent
-	txBuf := bytes.NewBufferString("")
 	for _, record := range records {
-		err := WriteRecord(txBuf, record)
+		err := WriteRecord(tx, record)
 		if err != nil {
-			return errors.Wrap(err, "failed to write to buffer: %w")
+			return errors.Wrap(err, "failed to write record")
 		}
 	}
 
-	_, err = w.Write(txBuf.Bytes())
+	err = tx.Commit(w.file)
 	if err != nil {
-		return errors.Wrap(err, "failed to write to file: %w")
+		return errors.Wrap(err, "failed to commit transaction")
 	}
 
 	err = w.Sync()
 	if err != nil {
-		return errors.Wrap(err, "failed to sync file: %w")
+		return errors.Wrap(err, "failed to sync file")
 	}
 
 	return nil
