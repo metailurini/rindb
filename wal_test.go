@@ -32,10 +32,11 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 
 // TestWAL_Clean tests cleaning the WAL.
 func TestWAL_Clean(t *testing.T) {
+	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(fs)
+	w := NewWAL(cfg, fs)
 	err := w.Append(RecordImpl{Key: Bytes("key"), Value: Bytes("value")})
 	assert.NoError(t, err)
 	err = w.Clean()
@@ -52,10 +53,11 @@ func TestWAL_Clean(t *testing.T) {
 
 // TestWAL_AppendAndLoad tests appending and loading records from the WAL.
 func TestWAL_AppendAndLoad(t *testing.T) {
+	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(fs)
+	w := NewWAL(cfg, fs)
 	t.Run("SingleRecord", func(t *testing.T) {
 		err := w.Append(RecordImpl{Bytes("single_key"), Bytes("single_value")})
 		assert.NoError(t, err)
@@ -90,10 +92,11 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 
 // TestWALCrashRecovery tests WAL recovery after a crash.
 func TestWALCrashRecovery(t *testing.T) {
+	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(fs)
+	w := NewWAL(cfg, fs)
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	records := []Record{
@@ -106,7 +109,7 @@ func TestWALCrashRecovery(t *testing.T) {
 	assert.NoError(t, fs.Close())
 	fs, err := OpenFS(fs.Path())
 	assert.NoError(t, err)
-	w = NewWAL(fs)
+	w = NewWAL(cfg, fs)
 	mem, err := w.Load()
 	assert.NoError(t, err)
 	v1, err := mem.Get(k1)

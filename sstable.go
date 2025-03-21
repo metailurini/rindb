@@ -101,7 +101,7 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	return record.GetValue(), nil
 }
 
-func NewSSTable(fs *FileSystem) (SStable, error) {
+func NewSSTable(config Config, fs *FileSystem) (SStable, error) {
 	fileInfo, err := os.Stat(fs.Path())
 	if err != nil {
 		return SStable{}, errors.Wrap(err, "failed to load file info")
@@ -118,7 +118,7 @@ func NewSSTable(fs *FileSystem) (SStable, error) {
 
 	bloom := NewBloomFilter(
 		SetN(uint64(len(sparseIndex))),
-		SetP(0.01),
+		SetP(config.bloomFalsePositiveRate),
 		WithCalculatedM(),
 		WithCalculatedK(),
 	)
@@ -172,7 +172,7 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	return sparseIndex, nil
 }
 
-func Flush(mem Memtable, fs *FileSystem) (SStable, error) {
+func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 	if mem.data.Len() == 0 {
 		WARN("Flushing empty memtable!")
 		log.Panic("empty memtable!")
@@ -213,7 +213,7 @@ func Flush(mem Memtable, fs *FileSystem) (SStable, error) {
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return NewSSTable(fs)
+	return NewSSTable(config, fs)
 }
 
 func genSparseIndex(mem Memtable) SparseIndex {

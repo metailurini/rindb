@@ -21,8 +21,8 @@ func toRecord(node *SLNode[Bytes, Bytes]) Record {
 	return RecordImpl{node.Key, node.Value}
 }
 
-func InitMemtable() Memtable {
-	list, _ := InitSkipList[Bytes, Bytes]()
+func InitMemtable(config Config) Memtable {
+	list, _ := InitSkipList[Bytes, Bytes](config)
 	return Memtable{data: list}
 }
 

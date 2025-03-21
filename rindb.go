@@ -17,35 +17,31 @@ import (
 
 // https://github.com/google/leveldb/blob/main/doc/impl.md
 
-var (
-	dbDirectory = "testdata"
-	walName     = "WAL"
-)
-
 // Rindb is the main database structure
 type Rindb struct {
 	wal      WAL
 	memtable Memtable
+	config   Config
 }
 
 // SSTableManager is storage for SSTables
 type SSTableManager struct {
 	openedFs *list.List
 	levels   []*LinkedList[*FileSystem]
+	config   Config
 }
 
-func InitSSTableManager() (*SSTableManager, error) {
-	h := &SSTableManager{openedFs: list.New()}
-	err := h.LoadLevels()
+func InitSSTableManager(config Config) (*SSTableManager, error) {
+	h := &SSTableManager{openedFs: list.New(), config: config}
+	err := h.LoadLevels(config.databaseDir)
 	if err != nil {
 		return nil, err
 	}
-
 	return h, nil
 }
 
-func (h *SSTableManager) LoadLevels() error {
-	dirEntries, err := os.ReadDir(dbDirectory)
+func (h *SSTableManager) LoadLevels(dir string) error {
+	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
@@ -57,7 +53,7 @@ func (h *SSTableManager) LoadLevels() error {
 	levels := make([]*LinkedList[*FileSystem], 0)
 	for _, dirEntry := range dirEntries {
 		fileName := dirEntry.Name()
-		filePath := path.Join(dbDirectory, fileName)
+		filePath := path.Join(dir, fileName)
 		isSSTable := strings.HasSuffix(filePath, ".sst")
 		if !isSSTable {
 			continue
@@ -90,7 +86,7 @@ func (h *SSTableManager) LoadLevels() error {
 
 func (h *SSTableManager) NewSSTableFS(levelNumb int) (*FileSystem, error) {
 	uid := ulid.Make()
-	sstableFileName := path.Join(dbDirectory, fmt.Sprintf("l%02d_%s.sst", levelNumb, uid.String()))
+	sstableFileName := path.Join(h.config.databaseDir, fmt.Sprintf("l%02d_%s.sst", levelNumb, uid.String()))
 	fs, err := OpenFS(sstableFileName)
 	if err != nil {
 		return nil, err
@@ -137,56 +133,6 @@ func (h *SSTableManager) Close() {
 	}
 }
 
-/*
-TODO:
-train of thought:
-
-	  get value by key:
-	    if it was found in memtable -> return
-		else:
-		  for level in all levels:
-		    check value if it's in that level (using bloom filter)
-			  not -> continue
-		    for sstable in level.sstables:
-			  check and value by key
-
-SSTableManager:
-level:
-
-	[]*LinkedList[]
-
-define structure levels
-
-	|
-
-(upgrade)
-
-	|
-	V
-
-list files
-
-	|
-
-(upgrade)
-
-	|
-	V
-
-list files + bloom filter file (l0_bl)
-
-	|
-
-(upgrade)
-
-	|
-	V
-
-MANIFEST:
-  - level 0: file 1, file 2,  ...
-    bloom filter: <bin>
-  - level n1: file 1, file 2,  ...  bloom filter: <bin>
-*/
 func (h *SSTableManager) Compact() error {
 	levelNumb := 0
 	for levelNumb != len(h.levels) {
@@ -222,7 +168,7 @@ func (h *SSTableManager) Compact() error {
 				return err
 			}
 
-			sstable, err := NewSSTable(fs)
+			sstable, err := NewSSTable(h.config, fs)
 			if err != nil {
 				return err
 			}
@@ -244,7 +190,7 @@ func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStab
 		return err
 	}
 
-	if _, err := mergeSSTables(newLevelSSTable, pickedUpSSTable); err != nil {
+	if _, err := mergeSSTables(h.config, newLevelSSTable, pickedUpSSTable); err != nil {
 		return err
 	}
 
@@ -286,7 +232,7 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 			if err := fs.Open(); err != nil {
 				return nil, err
 			}
-			sstable, err := NewSSTable(fs)
+			sstable, err := NewSSTable(h.config, fs)
 			if err != nil {
 				_ = fs.Close()
 				return nil, err
@@ -328,8 +274,8 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	return nil, ErrKeyNotFound
 }
 
-func mergeSSTables(target *FileSystem, sources []SStable) (SStable, error) {
-	memtable := InitMemtable()
+func mergeSSTables(config Config, target *FileSystem, sources []SStable) (SStable, error) {
+	memtable := InitMemtable(config)
 	for _, sstable := range sources {
 		iterator, err := sstable.Iterator()
 		if err != nil {
@@ -344,21 +290,21 @@ func mergeSSTables(target *FileSystem, sources []SStable) (SStable, error) {
 			memtable.Put(record.GetKey(), record.GetValue())
 		}
 	}
-	sstable, err := Flush(memtable, target)
+	sstable, err := Flush(config, memtable, target)
 	if err != nil {
 		return SStable{}, err
 	}
 	return sstable, nil
 }
 
-func InitRinDB() (Rindb, error) {
-	walPath := path.Join(dbDirectory, walName)
+func InitRinDB(opts ...Option) (Rindb, error) {
+	cfg := NewConfig(opts...)
+	walPath := path.Join(cfg.databaseDir, "WAL")
 	fs, err := OpenFS(walPath)
 	if err != nil {
 		return Rindb{}, err
 	}
-
-	wal := NewWAL(fs)
+	wal := NewWAL(cfg, fs)
 	memtable, err := wal.Load()
 	if err != nil {
 		return Rindb{}, err
@@ -366,6 +312,7 @@ func InitRinDB() (Rindb, error) {
 	return Rindb{
 		wal:      wal,
 		memtable: memtable,
+		config:   cfg,
 	}, nil
 }
 
@@ -378,7 +325,7 @@ func (r Rindb) Get(key Bytes) (Bytes, error) {
 		return nil, err
 	}
 	// Key not in memtable, check SSTables
-	ssTableManager, err := InitSSTableManager()
+	ssTableManager, err := InitSSTableManager(r.config)
 	if err != nil {
 		return nil, err
 	}
@@ -396,13 +343,13 @@ func (r Rindb) Put(key, value Bytes) error {
 	r.memtable.Put(key, value)
 
 	// Check size and flush if needed
-	if r.memtable.data.Len() >= maxMemtableSize {
-		ssTableManager, err := InitSSTableManager()
+	if r.memtable.data.Len() >= r.config.maxMemtableSize {
+		ssTableManager, err := InitSSTableManager(r.config)
 		if err != nil {
 			return err
 		}
 		defer ssTableManager.Close()
-		if ssTableManager.levels[0] != nil && ssTableManager.levels[0].Len() > 2 { // Simple threshold
+		if ssTableManager.levels[0] != nil && ssTableManager.levels[0].Len() > r.config.level0CompactionThreshold {
 			if err := ssTableManager.Compact(); err != nil {
 				return err
 			}
@@ -412,7 +359,7 @@ func (r Rindb) Put(key, value Bytes) error {
 		if err != nil {
 			return err
 		}
-		_, err = Flush(r.memtable, fs)
+		_, err = Flush(r.config, r.memtable, fs)
 		if err != nil {
 			return err
 		}

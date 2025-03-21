@@ -8,14 +8,15 @@ import (
 )
 
 func TestSkipList_Init(t *testing.T) {
+	cfg := testConfig()
 	t.Run("Init with invalid key type", func(t *testing.T) {
-		list, err := InitSkipList[struct{ int }, int]()
+		list, err := InitSkipList[struct{ int }, int](cfg)
 		assert.ErrorIs(t, err, ErrUnsupportedType)
 		assert.Nil(t, list)
 	})
 
 	t.Run("Init with custom type", func(t *testing.T) {
-		list, err := InitSkipList[customCmpType, customCmpType]()
+		list, err := InitSkipList[customCmpType, customCmpType](cfg)
 		assert.NoError(t, err)
 		list.Put(customCmpType{1}, customCmpType{2})
 		list.Put(customCmpType{3}, customCmpType{4})
@@ -32,7 +33,7 @@ func TestSkipList_Init(t *testing.T) {
 	})
 
 	t.Run("Init with correct key type", func(t *testing.T) {
-		list, err := InitSkipList[string, int]()
+		list, err := InitSkipList[string, int](cfg)
 		assert.NoError(t, err)
 
 		data := []int{6, 3, 5, 8, 1, 2, 8}
@@ -68,8 +69,9 @@ func TestSkipList_Init(t *testing.T) {
 
 //nolint:funlen
 func TestSkipList_Put(t *testing.T) {
+	cfg := testConfig()
 	t.Run("Assert all added values", func(t *testing.T) {
-		list, err := InitSkipList[string, int]()
+		list, err := InitSkipList[string, int](cfg)
 		assert.NoError(t, err)
 
 		data := []int{6, 3, 5, 8, 1, 2, 8}
@@ -90,7 +92,7 @@ func TestSkipList_Put(t *testing.T) {
 	})
 
 	t.Run("Override existing key", func(t *testing.T) {
-		list, err := InitSkipList[string, int]()
+		list, err := InitSkipList[string, int](cfg)
 		assert.NoError(t, err)
 
 		data := []int{6, 3, 5, 8, 1, 2, 8}
@@ -112,7 +114,7 @@ func TestSkipList_Put(t *testing.T) {
 		// TODO: fix this case
 		t.Skip()
 
-		list, err := InitSkipList[Bytes, Bytes]()
+		list, err := InitSkipList[Bytes, Bytes](cfg)
 		assert.NoError(t, err)
 
 		list.Put(nil, nil)
@@ -142,7 +144,8 @@ func TestSkipList_Put(t *testing.T) {
 }
 
 func TestSkipList_Get(t *testing.T) {
-	list, err := InitSkipList[string, int]()
+	cfg := testConfig()
+	list, err := InitSkipList[string, int](cfg)
 	assert.NoError(t, err)
 
 	data := []int{6, 3, 5, 8, 1, 2, 8}
@@ -160,7 +163,8 @@ func TestSkipList_Get(t *testing.T) {
 }
 
 func TestSkipList_Remove(t *testing.T) {
-	list, err := InitSkipList[string, int]()
+	cfg := testConfig()
+	list, err := InitSkipList[string, int](cfg)
 	assert.NoError(t, err)
 
 	data := []int{6, 3, 5, 8, 1, 2, 9}
@@ -218,8 +222,9 @@ func TestSkipList_Remove(t *testing.T) {
 }
 
 func TestSkipList_Clear(t *testing.T) {
+	cfg := testConfig()
 	t.Run("Clear list properly", func(t *testing.T) {
-		list, err := InitSkipList[string, int]()
+		list, err := InitSkipList[string, int](cfg)
 		assert.NoError(t, err)
 
 		list.Put("1", 1)
@@ -231,7 +236,7 @@ func TestSkipList_Clear(t *testing.T) {
 		assert.Equal(t, uint(0), list.Len())
 	})
 
-	t.Run("expect error when clearing list was not init properly",
+	t.Run("Expect error when clearing list was not init properly",
 		func(t *testing.T) {
 			defer func() {
 				r := recover()

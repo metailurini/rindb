@@ -1,0 +1,131 @@
+package rindb
+
+import (
+	"testing"
+)
+
+// TestDefaultConfig verifies that DefaultConfig returns the expected default values.
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	tests := []struct {
+		name string
+		got  interface{}
+		want interface{}
+	}{
+		{"databaseDir", cfg.databaseDir, "rindat"},
+		{"maxMemtableSize", cfg.maxMemtableSize, uint(1000)},
+		{"level0CompactionThreshold", cfg.level0CompactionThreshold, 2},
+		{"bloomFalsePositiveRate", cfg.bloomFalsePositiveRate, 0.01},
+		{"skipListDefaultLevel", cfg.skipListDefaultLevel, uint(2)},
+		{"skipListMaxLevel", cfg.skipListMaxLevel, uint(32)},
+		{"skipListP", cfg.skipListP, 0.5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("DefaultConfig() %s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNewConfigWithOptions tests that NewConfig applies options correctly.
+func TestNewConfigWithOptions(t *testing.T) {
+	tests := []struct {
+		name   string
+		opts   []Option
+		verify func(*testing.T, Config)
+	}{
+		{
+			name: "WithDatabaseDir",
+			opts: []Option{WithDatabaseDir("/custom/path")},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.databaseDir != "/custom/path" {
+					t.Errorf("databaseDir = %v, want %v", cfg.databaseDir, "/custom/path")
+				}
+			},
+		},
+		{
+			name: "WithMaxMemtableSize",
+			opts: []Option{WithMaxMemtableSize(5000)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.maxMemtableSize != 5000 {
+					t.Errorf("maxMemtableSize = %v, want %v", cfg.maxMemtableSize, 5000)
+				}
+			},
+		},
+		{
+			name: "WithLevel0CompactionThreshold",
+			opts: []Option{WithLevel0CompactionThreshold(10)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.level0CompactionThreshold != 10 {
+					t.Errorf("level0CompactionThreshold = %v, want %v", cfg.level0CompactionThreshold, 10)
+				}
+			},
+		},
+		{
+			name: "WithBloomFalsePositiveRate",
+			opts: []Option{WithBloomFalsePositiveRate(0.05)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.bloomFalsePositiveRate != 0.05 {
+					t.Errorf("bloomFalsePositiveRate = %v, want %v", cfg.bloomFalsePositiveRate, 0.05)
+				}
+			},
+		},
+		{
+			name: "WithSkipListDefaultLevel",
+			opts: []Option{WithSkipListDefaultLevel(5)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.skipListDefaultLevel != 5 {
+					t.Errorf("skipListDefaultLevel = %v, want %v", cfg.skipListDefaultLevel, 5)
+				}
+			},
+		},
+		{
+			name: "WithSkipListMaxLevel",
+			opts: []Option{WithSkipListMaxLevel(64)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.skipListMaxLevel != 64 {
+					t.Errorf("skipListMaxLevel = %v, want %v", cfg.skipListMaxLevel, 64)
+				}
+			},
+		},
+		{
+			name: "WithSkipListP",
+			opts: []Option{WithSkipListP(0.25)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.skipListP != 0.25 {
+					t.Errorf("skipListP = %v, want %v", cfg.skipListP, 0.25)
+				}
+			},
+		},
+		{
+			name: "MultipleOptions",
+			opts: []Option{
+				WithDatabaseDir("/multi/path"),
+				WithMaxMemtableSize(2000),
+				WithBloomFalsePositiveRate(0.02),
+			},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.databaseDir != "/multi/path" {
+					t.Errorf("databaseDir = %v, want %v", cfg.databaseDir, "/multi/path")
+				}
+				if cfg.maxMemtableSize != 2000 {
+					t.Errorf("maxMemtableSize = %v, want %v", cfg.maxMemtableSize, 2000)
+				}
+				if cfg.bloomFalsePositiveRate != 0.02 {
+					t.Errorf("bloomFalsePositiveRate = %v, want %v", cfg.bloomFalsePositiveRate, 0.02)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewConfig(tt.opts...)
+			tt.verify(t, cfg)
+		})
+	}
+}

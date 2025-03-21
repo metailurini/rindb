@@ -6,12 +6,6 @@ import (
 	"math/big"
 )
 
-const (
-	DefaultLevel = 2
-	MaxLevel     = 32
-	p            = 0.5
-)
-
 var (
 	ErrKeyNotFound   = errors.New("key not found")
 	ErrMalformedList = errors.New("the list was not init-ed properly")
@@ -31,9 +25,10 @@ type SkipList[K Comparable, V any] struct {
 	level    uint
 	length   uint
 	headNote *SLNode[K, V]
+	config   Config
 }
 
-func InitSkipList[K Comparable, V any]() (*SkipList[K, V], error) {
+func InitSkipList[K Comparable, V any](config Config) (*SkipList[K, V], error) {
 	var emptyKeyValue K
 	err := ValidateCmpType(emptyKeyValue)
 	if err != nil {
@@ -41,15 +36,16 @@ func InitSkipList[K Comparable, V any]() (*SkipList[K, V], error) {
 	}
 
 	return &SkipList[K, V]{
-		level:    DefaultLevel,
-		headNote: &SLNode[K, V]{forwards: make([]*SLNode[K, V], DefaultLevel)},
+		level:    config.skipListDefaultLevel,
+		headNote: &SLNode[K, V]{forwards: make([]*SLNode[K, V], config.skipListDefaultLevel)},
+		config:   config,
 	}, nil
 }
 
 func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 	rn := list.Head()
 	rl := list.level
-	update := make([]*SLNode[K, V], MaxLevel)
+	update := make([]*SLNode[K, V], list.config.skipListMaxLevel)
 	for rl > 0 {
 		rl--
 		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
@@ -64,7 +60,7 @@ func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 	if Compare(rn.Key, searchKey) == CmpEqual {
 		rn.Value = newValue
 	} else {
-		newLevel := randomLevel()
+		newLevel := randomLevel(list.config)
 		if newLevel > list.level {
 			rl := newLevel
 			for rl > list.level {
@@ -121,7 +117,7 @@ func (list *SkipList[K, V]) Head() *SLNode[K, V] {
 func (list *SkipList[K, V]) Remove(searchKey K) error {
 	rn := list.Head()
 	rl := list.level
-	update := make([]*SLNode[K, V], MaxLevel)
+	update := make([]*SLNode[K, V], list.config.skipListMaxLevel)
 	for rl > 0 {
 		rl--
 		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
@@ -152,7 +148,10 @@ func (list *SkipList[K, V]) Remove(searchKey K) error {
 }
 
 func (list *SkipList[K, V]) Clear() {
-	newList, err := InitSkipList[K, V]()
+	if list == nil {
+		panic(ErrMalformedList)
+	}
+	newList, err := InitSkipList[K, V](list.config)
 	if err != nil {
 		panic(ErrMalformedList)
 	}
@@ -182,11 +181,11 @@ func randF64() float64 {
 	return float64(intn(1<<m)) / (1 << m)
 }
 
-func randomLevel() uint {
+func randomLevel(config Config) uint {
 	lvl := uint(1)
-	for lvl < MaxLevel {
+	for lvl < config.skipListMaxLevel {
 		randFloat := randF64()
-		if randFloat >= p {
+		if randFloat >= config.skipListP {
 			break
 		}
 		lvl++

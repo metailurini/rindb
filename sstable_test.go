@@ -12,6 +12,7 @@ import (
 
 // TestSStable tests the SStable functionality.
 func TestSStable(t *testing.T) {
+	cfg := testConfig()
 	t.Run("FlushEmptyMemtable", func(t *testing.T) {
 		defer func() {
 			r := recover()
@@ -23,8 +24,8 @@ func TestSStable(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1)
 		defer closer()
 		fs := fss[0]
-		mem := InitMemtable()
-		_, err := Flush(mem, fs)
+		mem := InitMemtable(cfg)
+		_, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 	})
 	t.Run("FlushWithElements", func(t *testing.T) {
@@ -41,11 +42,11 @@ func TestSStable(t *testing.T) {
 			{Bytes("c"), Bytes("3")},
 			{Bytes("d"), Bytes("4")},
 		}
-		mem := InitMemtable()
+		mem := InitMemtable(cfg)
 		for _, v := range data {
 			mem.Put(v.key, v.value)
 		}
-		sstable, err := Flush(mem, fs)
+		sstable, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
 		assert.NoError(t, err)
@@ -85,13 +86,13 @@ func TestSStable(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1)
 		defer closer()
 		fs := fss[0]
-		mem := InitMemtable()
+		mem := InitMemtable(cfg)
 		mem.Put(Bytes("2"), Bytes("3"))
 		mem.Put(Bytes("1"), Bytes("2"))
 		mem.Put(Bytes("3"), Bytes("4"))
-		sstable1, err := Flush(mem, fs)
+		sstable1, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
-		sstable2, err := NewSSTable(fs)
+		sstable2, err := NewSSTable(cfg, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, sstable1.SparseIndex, sstable2.SparseIndex)
 	})
@@ -99,13 +100,13 @@ func TestSStable(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1)
 		defer closer()
 		fs := fss[0]
-		mem := InitMemtable()
+		mem := InitMemtable(cfg)
 		mem.Put(Bytes("2"), Bytes("3"))
 		mem.Put(Bytes("1"), Bytes("2"))
 		mem.Put(Bytes("3"), Bytes("4"))
-		_, err := Flush(mem, fs)
+		_, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
-		sstable, err := NewSSTable(fs)
+		sstable, err := NewSSTable(cfg, fs)
 		assert.NoError(t, err)
 		sparseIndex := sstable.SparseIndex
 		for idx := len(sparseIndex) - 1; idx > -1; idx-- {
@@ -121,12 +122,12 @@ func TestSStable(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1)
 		defer closer()
 		fs := fss[0]
-		mem := InitMemtable()
+		mem := InitMemtable(cfg)
 		mem.Put(Bytes("2"), Bytes("3"))
 		mem.Put(Bytes("1"), Bytes("2"))
 		mem.Put(Bytes("3"), Bytes("4"))
 		assert.Equal(t, uint(3), mem.data.Len())
-		sstable, err := Flush(mem, fs)
+		sstable, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(0), mem.data.Len())
 		value, err := sstable.GetValue(Bytes("2"))
@@ -146,11 +147,11 @@ func TestSStable(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1)
 		defer closer()
 		fs := fss[0]
-		mem := InitMemtable()
+		mem := InitMemtable(cfg)
 		mem.Put(Bytes("2"), Bytes("3"))
 		mem.Put(Bytes("1"), Bytes("2"))
 		mem.Put(Bytes("3"), Bytes("4"))
-		sstable, err := Flush(mem, fs)
+		sstable, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		iterator, err := sstable.Iterator()
 		assert.NoError(t, err)
@@ -178,7 +179,8 @@ func TestSStable(t *testing.T) {
 
 // Test_genSparseIndex tests the generation of sparse index from memtable.
 func Test_genSparseIndex(t *testing.T) {
-	mem := InitMemtable()
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
 	mem.Put(Bytes("1"), Bytes("2"))
 	mem.Put(Bytes("2"), Bytes("3"))
 	mem.Put(Bytes("3"), Bytes("4"))
@@ -315,15 +317,16 @@ func TestSparseIndex_GetOffset(t *testing.T) {
 
 // TestFlushWithTombstones tests flushing a memtable with tombstones.
 func TestFlushWithTombstones(t *testing.T) {
+	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1)
 	defer closer()
 	fs := fss[0]
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
-	mem := InitMemtable()
+	mem := InitMemtable(cfg)
 	mem.Put(k1, Bytes("v1"))
 	mem.Put(k2, nil)
-	sstable, err := Flush(mem, fs)
+	sstable, err := Flush(cfg, mem, fs)
 	assert.NoError(t, err)
 	v1, err := sstable.GetValue(k1)
 	assert.NoError(t, err)
@@ -335,12 +338,13 @@ func TestFlushWithTombstones(t *testing.T) {
 
 // TestBloomFilterSkipsReads tests that the Bloom filter skips unnecessary reads.
 func TestBloomFilterSkipsReads(t *testing.T) {
+	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1)
 	defer closer()
 	fs := fss[0]
-	mem := InitMemtable()
+	mem := InitMemtable(cfg)
 	mem.Put(Bytes("k1"), Bytes("v1"))
-	sstable, err := Flush(mem, fs)
+	sstable, err := Flush(cfg, mem, fs)
 	assert.NoError(t, err)
 	_, err = sstable.GetValue(Bytes("k2"))
 	assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -351,17 +355,18 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 
 // TestSSTableManager_Compact tests the compaction process in SSTableManager.
 func TestSSTableManager_Compact(t *testing.T) {
+	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 33)
 	defer closer()
-	h := &SSTableManager{openedFs: list.New()}
+	h := &SSTableManager{openedFs: list.New(), config: cfg}
 	defer h.Close()
 	h.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 	for _, fs := range fss {
-		memtable := InitMemtable()
+		memtable := InitMemtable(cfg)
 		memtable.Put(Bytes("1"), Bytes("2"))
 		memtable.Put(Bytes("3"), Bytes("4"))
 		memtable.Put(Bytes("2"), Bytes("3"))
-		_, err := Flush(memtable, fs)
+		_, err := Flush(cfg, memtable, fs)
 		assert.NoError(t, err)
 		h.levels[0].PushBack(fs)
 	}
@@ -384,30 +389,31 @@ func TestSSTableManager_Compact(t *testing.T) {
 
 // TestSSTableManager_Merge tests merging multiple SSTables.
 func TestSSTableManager_Merge(t *testing.T) {
+	cfg := testConfig()
 	ssTableManager := SSTableManager{openedFs: list.New()}
 	defer ssTableManager.Close()
 	fss, closer := initTempFileSystems(t, 4)
 	defer closer()
 	sstables := make([]SStable, 0)
-	memtable := InitMemtable()
+	memtable := InitMemtable(cfg)
 	memtable.Put(Bytes("1"), Bytes("2"))
 	memtable.Put(Bytes("2"), Bytes("3"))
 	memtable.Put(Bytes("3"), Bytes("4"))
-	sstable1, err := Flush(memtable, fss[0])
+	sstable1, err := Flush(cfg, memtable, fss[0])
 	assert.NoError(t, err)
 	sstables = append(sstables, sstable1)
 	memtable.Put(Bytes("1"), Bytes("3"))
 	memtable.Put(Bytes("2"), Bytes(nil))
 	memtable.Put(Bytes("4"), Bytes("5"))
-	sstable2, err := Flush(memtable, fss[1])
+	sstable2, err := Flush(cfg, memtable, fss[1])
 	assert.NoError(t, err)
 	sstables = append(sstables, sstable2)
 	memtable.Put(Bytes("5"), Bytes("6"))
-	sstable3, err := Flush(memtable, fss[2])
+	sstable3, err := Flush(cfg, memtable, fss[2])
 	assert.NoError(t, err)
 	sstables = append(sstables, sstable3)
 	fs := fss[3]
-	newSSTable, err := mergeSSTables(fs, sstables)
+	newSSTable, err := mergeSSTables(cfg, fs, sstables)
 	assert.NoError(t, err)
 	assert.Equal(t, 5, len(newSSTable.SparseIndex))
 	sstableIterator, err := newSSTable.Iterator()
@@ -445,23 +451,24 @@ func TestSSTableManager_Merge(t *testing.T) {
 
 // TestSSTableManager_CompactWithTombstones tests compaction handling of overwrites and tombstones.
 func TestSSTableManager_CompactWithTombstones(t *testing.T) {
-	ssTableManager := SSTableManager{openedFs: list.New()}
+	cfg := testConfig()
+	ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
 	defer ssTableManager.Close()
 	fss, closer := initTempFileSystems(t, 3)
 	defer closer()
-	mem1 := InitMemtable()
+	mem1 := InitMemtable(cfg)
 	mem1.Put(Bytes("k1"), Bytes("v1-old"))
 	mem1.Put(Bytes("k2"), Bytes("v2"))
-	_, err := Flush(mem1, fss[0])
+	_, err := Flush(cfg, mem1, fss[0])
 	assert.NoError(t, err)
-	mem2 := InitMemtable()
+	mem2 := InitMemtable(cfg)
 	mem2.Put(Bytes("k1"), Bytes("v1-new"))
 	mem2.Put(Bytes("k2"), nil)
-	_, err = Flush(mem2, fss[1])
+	_, err = Flush(cfg, mem2, fss[1])
 	assert.NoError(t, err)
-	mem3 := InitMemtable()
+	mem3 := InitMemtable(cfg)
 	mem3.Put(Bytes("k3"), Bytes("v3"))
-	_, err = Flush(mem3, fss[2])
+	_, err = Flush(cfg, mem3, fss[2])
 	assert.NoError(t, err)
 	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 	ssTableManager.levels[0].PushBack(fss[0])
@@ -470,7 +477,7 @@ func TestSSTableManager_CompactWithTombstones(t *testing.T) {
 	err = ssTableManager.Compact()
 	assert.NoError(t, err)
 	mergedFS := ssTableManager.levels[1].rootNode.next.Value
-	sstable, err := NewSSTable(mergedFS)
+	sstable, err := NewSSTable(cfg, mergedFS)
 	assert.NoError(t, err)
 	v1, err := sstable.GetValue(Bytes("k1"))
 	assert.NoError(t, err)

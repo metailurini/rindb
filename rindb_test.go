@@ -10,15 +10,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func testOptions() []Option {
+	return []Option{
+		WithDatabaseDir("testdata"),
+	}
+}
+
+func testConfig() Config {
+	return NewConfig(testOptions()...)
+}
+
 // TestRindb_Init tests the initialization of the Rindb database.
 func TestRindb_Init(t *testing.T) {
-	_, err := InitRinDB()
+	_, err := InitRinDB(testOptions()...)
 	assert.NoError(t, err)
 }
 
 // TestRindb_Put tests the Put operation of Rindb.
 func TestRindb_Put(t *testing.T) {
-	rin, err := InitRinDB()
+	rin, err := InitRinDB(testOptions()...)
 	assert.NoError(t, err)
 	t.Run("BasicPut", func(t *testing.T) {
 		err := rin.Put(Bytes("key"), Bytes("value"))
@@ -32,7 +42,8 @@ func TestRindb_Put(t *testing.T) {
 
 // TestRindb_Get tests the Get operation of Rindb.
 func TestRindb_Get(t *testing.T) {
-	rin, err := InitRinDB()
+	rin, err := InitRinDB(testOptions()...)
+	rin.config = testConfig()
 	assert.NoError(t, err)
 	key := Bytes("key")
 	err = rin.Put(key, Bytes("value"))
@@ -44,7 +55,8 @@ func TestRindb_Get(t *testing.T) {
 
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
-	rin, err := InitRinDB()
+	rin, err := InitRinDB(testOptions()...)
+	rin.config = testConfig()
 	assert.NoError(t, err)
 	key := Bytes("rm-key")
 	err = rin.Put(key, Bytes("value"))
@@ -58,7 +70,8 @@ func TestRindb_Remove(t *testing.T) {
 
 // TestRindb_FlushMemtable tests flushing the memtable to an SSTable.
 func TestRindb_FlushMemtable(t *testing.T) {
-	rin, err := InitRinDB()
+	rin, err := InitRinDB(testOptions()...)
+	rin.config = testConfig()
 	assert.NoError(t, err)
 	err = rin.Put(Bytes("key"), Bytes("value"))
 	assert.NoError(t, err)
@@ -66,13 +79,13 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	assert.NoError(t, err)
 	err = rin.Remove(Bytes("rm-key"))
 	assert.NoError(t, err)
-	ssTableManager, err := InitSSTableManager()
+	ssTableManager, err := InitSSTableManager(rin.config)
 	assert.NoError(t, err)
 	defer ssTableManager.Close()
 	newSSTableFS, err := ssTableManager.NewSSTableFS(0)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }()
-	newSStable, err := Flush(rin.memtable, newSSTableFS)
+	newSStable, err := Flush(rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
@@ -86,16 +99,17 @@ func TestRindb_FlushMemtable(t *testing.T) {
 
 // TestRindb_GetPrecedence tests that Get prioritizes Memtable over SSTables.
 func TestRindb_GetPrecedence(t *testing.T) {
-	rin, err := InitRinDB()
+	rin, err := InitRinDB(testOptions()...)
+	rin.config = testConfig()
 	assert.NoError(t, err)
-	ssTableManager, err := InitSSTableManager()
+	ssTableManager, err := InitSSTableManager(rin.config)
 	assert.NoError(t, err)
 	defer ssTableManager.Close()
 	fs, err := ssTableManager.NewSSTableFS(0)
 	assert.NoError(t, err)
-	mem := InitMemtable()
+	mem := InitMemtable(rin.config)
 	mem.Put(Bytes("k1"), Bytes("v1-sst"))
-	_, err = Flush(mem, fs)
+	_, err = Flush(rin.config, mem, fs)
 	assert.NoError(t, err)
 	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 	ssTableManager.levels[0].PushBack(fs)
@@ -108,7 +122,8 @@ func TestRindb_GetPrecedence(t *testing.T) {
 
 // TestRindb_ConcurrentCRUD tests concurrent CRUD operations on Rindb.
 func TestRindb_ConcurrentCRUD(t *testing.T) {
-	db, err := InitRinDB()
+	rin, err := InitRinDB(testOptions()...)
+	rin.config = testConfig()
 	assert.NoError(t, err)
 	var wg sync.WaitGroup
 	const numGoroutines = 10
@@ -118,20 +133,20 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 			defer wg.Done()
 			key := Bytes(fmt.Sprintf("k%d", i))
 			value := Bytes(fmt.Sprintf("v%d", i))
-			assert.NoError(t, db.Put(key, value))
-			v, err := db.Get(key)
+			assert.NoError(t, rin.Put(key, value))
+			v, err := rin.Get(key)
 			assert.NoError(t, err)
 
 			assert.Equal(t, value, v)
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 			value = Bytes(fmt.Sprintf("v%d-updated", i))
-			assert.NoError(t, db.Put(key, value))
+			assert.NoError(t, rin.Put(key, value))
 
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-			v, err = db.Get(key)
+			v, err = rin.Get(key)
 			assert.NoError(t, err)
 			assert.Equal(t, value, v)
-			assert.NoError(t, db.Remove(key))
+			assert.NoError(t, rin.Remove(key))
 		}(i)
 	}
 	wg.Wait()

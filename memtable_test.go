@@ -8,7 +8,8 @@ import (
 )
 
 func TestMemtable(t *testing.T) {
-	mem := InitMemtable()
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
 
 	for i := 0; i < 1_000; i++ {
 		key := Bytes(fmt.Sprintf("key%d", i))

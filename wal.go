@@ -8,13 +8,15 @@ import (
 
 type WAL struct {
 	*FileSystem
-	tm *TransactionManager
+	tm     *TransactionManager
+	config Config
 }
 
-func NewWAL(fs *FileSystem) WAL {
+func NewWAL(config Config, fs *FileSystem) WAL {
 	return WAL{
 		FileSystem: fs,
 		tm:         NewTransactionManager(),
+		config:     config,
 	}
 }
 
@@ -23,7 +25,7 @@ func (w *WAL) Load() (Memtable, error) {
 	if err != nil {
 		return Memtable{}, errors.Wrap(err, "failed to seek to start of file: %w")
 	}
-	mem := InitMemtable()
+	mem := InitMemtable(w.config)
 	ce := 0
 	for {
 		record, err := ReadRecord(w.file)
