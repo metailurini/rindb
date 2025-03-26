@@ -318,7 +318,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	}, nil
 }
 
-func (r Rindb) Get(key Bytes) (Bytes, error) {
+func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
@@ -340,7 +340,7 @@ func (r Rindb) Get(key Bytes) (Bytes, error) {
 
 const maxMemtableSize = 1000
 
-func (r Rindb) Put(key, value Bytes) error {
+func (r *Rindb) Put(key, value Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
@@ -380,7 +380,7 @@ func (r Rindb) Put(key, value Bytes) error {
 	return nil
 }
 
-func (r Rindb) Remove(key Bytes) error {
+func (r *Rindb) Remove(key Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
