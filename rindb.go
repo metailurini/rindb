@@ -371,10 +371,11 @@ func (r Rindb) Put(key, value Bytes) error {
 		if err != nil {
 			return err
 		}
+		fs.Close()
+		r.memtable.Clear()
 		if err := r.wal.Clean(); err != nil {
 			return err
 		}
-		fs.Close()
 	}
 	return nil
 }
