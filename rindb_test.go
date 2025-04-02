@@ -137,9 +137,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 			assert.NoError(t, fs.Close())
 		}
 	}()
-	mem := populateMemtable(rin.config, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
-	_, err = Flush(rin.config, mem, fs) // Flush memtable to the new FS
-	assert.NoError(t, err)
+	_ = createSSTable(t, rin.config, fs, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
 	// Ensure level 0 exists before pushing back
 	if len(rin.ssTableManager.levels) == 0 {
 		rin.ssTableManager.levels = append(rin.ssTableManager.levels, InitLinkedList[*FileSystem]())
