@@ -384,7 +384,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		for _, fs := range fss {
 			memtable := InitMemtable(cfg)
 			// Use unique keys to test merging
-			key := fmt.Sprintf("key-%d", len(h.levels[0].rootNode.next.Value.(*FileSystem).filePath))
+			key := fmt.Sprintf("key-%d", len(h.levels[0].rootNode.next.Value.filePath))
 			memtable.Put(Bytes(key), Bytes("value"))
 			_, err := Flush(cfg, memtable, fs)
 			assert.NoError(t, err)
