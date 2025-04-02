@@ -330,17 +330,17 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		ssm, err := InitSSTableManager(cfg)
 		assert.NoError(t, err)
 		defer ssm.Close()
-		
+
 		// Create 4 SSTables in level 0
 		for i := 0; i < 4; i++ {
 			fs, err := ssm.NewSSTableFS(0)
 			assert.NoError(t, err)
-			
+
 			mem := InitMemtable(cfg)
 			mem.Put(Bytes(fmt.Sprintf("key%d", i)), Bytes("value"))
 			_, err = Flush(cfg, mem, fs)
 			assert.NoError(t, err)
-			
+
 			ssm.levels[0].PushBack(fs)
 		}
 
@@ -371,13 +371,13 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			fs, err := ssm.NewSSTableFS(1)
 			assert.NoError(t, err)
-			
+
 			// Write minimal valid SSTable
 			mem := InitMemtable(cfg)
 			mem.Put(Bytes("key"), Bytes("value"))
 			_, err = Flush(cfg, mem, fs)
 			assert.NoError(t, err)
-			
+
 			// Expand file size to 50MB using truncate
 			assert.NoError(t, os.Truncate(fs.Path(), 50*1024*1024))
 			ssm.levels[1].PushBack(fs)
@@ -415,7 +415,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			assert.NoError(t, err)
 			ssm.levels = append(ssm.levels, InitLinkedList[*FileSystem]())
 			ssm.levels[1].PushBack(fs)
-			
+
 			assert.False(t, ssm.shouldCompact(1, ssm.levels[1]))
 		})
 	})
