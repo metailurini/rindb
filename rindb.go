@@ -118,6 +118,11 @@ func (h *SSTableManager) Close() {
 	}
 
 	for _, level := range h.levels {
+		// Usually, the levels are fully populated
+		// but it's possible that some levels are nil when testing
+		if level == nil {
+			continue
+		}
 		levelIterator := level.Iterator()
 		for levelIterator.HasNext() {
 			fs, err := levelIterator.Next()
@@ -165,139 +170,161 @@ func (h *SSTableManager) Compact() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Iterate through each level to check if compaction is needed.
-	// We iterate up to the current number of levels. Compaction might create a new level,
-	// but the check happens based on the state *before* compaction starts for that iteration.
 	for levelNumb := 0; levelNumb < len(h.levels); levelNumb++ {
-		// Check if the level exists (it might be nil if levels were skipped during creation)
 		if h.levels[levelNumb] == nil {
-			// This level doesn't exist, move to the next
 			continue
 		}
 		level := h.levels[levelNumb]
 
-		// *** Integration Point ***
-		// Check if this level meets the criteria for compaction.
 		if !h.shouldCompact(levelNumb, level) {
-			// If the level does not need compaction, skip to the next level.
-			INFO("Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len()) // Added more info to log
-			continue                                                                                                // Move to the next levelNumb
+			INFO("Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len())
+			continue
 		}
 
-		// If we reach here, the level needs compaction.
-		INFO("Level %d (size/count: %d) requires compaction.", levelNumb, level.Len()) // Added more info to log
+		INFO("Level %d (size/count: %d) requires compaction.", levelNumb, level.Len())
+		newLevelNumb := levelNumb + 1
 
-		// --- Existing Compaction Logic (with potential issues noted in comments) ---
-
-		// TODO: The compaction strategy below needs review.
-		// Standard LSM compaction usually involves merging selected files from level N
-		// with overlapping files in level N+1, not merging arbitrary batches within level N
-		// and pushing them all to N+1. Level 0 compaction is also typically different.
-
-		// For level 0, use the configured compaction threshold for batching
-		thresholdFileCount := h.config.level0CompactionThreshold
-		if levelNumb > 0 {
-			const bufferFileCount = 2
-			thresholdFileCount = levelNumb + bufferFileCount
+		if levelNumb == 0 {
+			// Level 0: Merge all SSTables into L1
+			err := h.compactLevel0(level, newLevelNumb)
+			if err != nil {
+				ERROR("Error compacting Level 0: %v", err)
+				return err
+			}
+		} else {
+			// Higher levels: Pick one SSTable and merge with overlapping L1+ SSTables
+			err := h.compactHigherLevel(level, newLevelNumb)
+			if err != nil {
+				ERROR("Error compacting Level %d: %v", levelNumb, err)
+				return err
+			}
 		}
-		pickedUpSSTable := make([]SStable, 0, thresholdFileCount)
-
-		/*
-			The comment "how can we define and detect threshold properly?"
-			is now partially addressed by the `shouldCompact` check above, which decides *if*
-			compaction runs. However, the logic *within* the compaction (which files to pick)
-			still needs refinement for a proper LSM strategy.
-		*/
-
-		levelIterator := level.Iterator()
-		// This loop iterates through ALL SSTables in the level if shouldCompact was true.
-		// This is likely NOT the desired behavior for levels > 0 in standard LSM.
-		for levelIterator.HasNext() {
-			// This batching logic seems incorrect for standard LSM.
-			// It merges fixed-size batches regardless of key ranges.
-			if len(pickedUpSSTable) == thresholdFileCount {
-				newLevelNumb := levelNumb + 1
-				INFO("Merging batch of %d SSTables from level %d into level %d", len(pickedUpSSTable), levelNumb, newLevelNumb)
-
-				// mergeSSTables removes the source files upon success.
-				err := h.mergeSSTables(newLevelNumb, pickedUpSSTable)
-				if err != nil {
-					// CRITICAL: Error handling needs improvement.
-					// If merge fails, the files in pickedUpSSTable have been removed
-					// from the level's linked list by PickNext but not physically deleted,
-					// and the new merged file might be incomplete or non-existent.
-					// The state is inconsistent. Need a recovery mechanism or rollback.
-					ERROR("Error merging SSTables during compaction: %v. State may be inconsistent.", err)
-					// For now, just return the error, but this is not robust.
-					return err
-				}
-
-				// Reset the batch
-				pickedUpSSTable = make([]SStable, 0, thresholdFileCount)
-			}
-
-			// PickNext REMOVES the file system from the linked list *before* merging.
-			// This is risky if subsequent operations fail.
-			fs, err := levelIterator.PickNext()
-			if err != nil {
-				ERROR("Error picking next SSTable from level %d iterator: %v", levelNumb, err)
-				// State might be inconsistent if some files were already picked.
-				return err
-			}
-
-			// Open the file system for the SSTable
-			if err := fs.Open(); err != nil {
-				ERROR("Error opening SSTable file %s for compaction: %v", fs.Path(), err)
-				// The file is already removed from the list. Need to handle this.
-				// Maybe try to put it back? Or log and continue? Returning is safest for now.
-				return err
-			}
-
-			// Create the SStable object (reads metadata, bloom filter, index)
-			sstable, err := NewSSTable(h.config, fs)
-			if err != nil {
-				// If NewSSTable fails (e.g., corrupted file), close the FS.
-				_ = fs.Close()
-				ERROR("Error creating SStable object for %s: %v", fs.Path(), err)
-				// File already removed from list. State inconsistent.
-				return err
-			}
-
-			// Add the successfully opened SStable to the batch.
-			pickedUpSSTable = append(pickedUpSSTable, sstable)
-		} // End of iterating through SSTables in the level
-
-		// --- Handle any remaining picked up SSTables after the loop finishes ---
-		if len(pickedUpSSTable) > 0 {
-			newLevelNumb := levelNumb + 1
-			INFO("Merging final batch of %d SSTables from level %d into level %d", len(pickedUpSSTable), levelNumb, newLevelNumb)
-			err := h.mergeSSTables(newLevelNumb, pickedUpSSTable)
-			if err != nil {
-				ERROR("Error merging final batch of SSTables during compaction: %v. State may be inconsistent.", err)
-				return err
-			}
-			// No need to reset pickedUpSSTable here.
-		}
-		// --- End of handling remaining SSTables ---
-
-		// --- Remove the original code block that put files back ---
-		/*
-			The following block was in the original code. It doesn't make sense to put
-			FileSystem objects back into the level list *after* they have been successfully
-			merged (mergeSSTables should handle their removal/cleanup). If merging failed,
-			a more robust error handling/rollback mechanism is needed than just putting
-			the FS pointers back. Removing this block.
-
-			for _, fs := range pickedUpSSTable {
-				level.PushBack(fs.FileSystem)
-			}
-		*/
-
-		// After successfully compacting levelNumb (or deciding not to),
-		// the outer loop will increment levelNumb to check the next level.
-
-	} // End of iterating through levels
+	}
 	return nil
+}
+
+func (h *SSTableManager) compactLevel0(level *LinkedList[*FileSystem], newLevelNumb int) error {
+	var sstablesToMerge []SStable
+	iter := level.Iterator()
+	for iter.HasNext() {
+		fs, err := iter.PickNext()
+		if err != nil {
+			return err
+		}
+		if err := fs.Open(); err != nil {
+			return err
+		}
+		sstable, err := NewSSTable(h.config, fs)
+		if err != nil {
+			_ = fs.Close()
+			return err
+		}
+		sstablesToMerge = append(sstablesToMerge, sstable)
+	}
+
+	// Find overlapping SSTables in the next level
+	overlappingSSTables, err := h.findOverlappingSSTables(newLevelNumb, sstablesToMerge)
+	if err != nil {
+		return err
+	}
+
+	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
+	return h.mergeSSTables(newLevelNumb, sstablesToMerge)
+}
+
+func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newLevelNumb int) error {
+	// Pick one SSTable to compact
+	iter := level.Iterator()
+	fs, err := iter.PickNext()
+	if err != nil {
+		return err
+	}
+	if err := fs.Open(); err != nil {
+		return err
+	}
+	sstable, err := NewSSTable(h.config, fs)
+	if err != nil {
+		_ = fs.Close()
+		return err
+	}
+	sstablesToMerge := []SStable{sstable}
+
+	// Find overlapping SSTables in the next level
+	overlappingSSTables, err := h.findOverlappingSSTables(newLevelNumb, sstablesToMerge)
+	if err != nil {
+		return err
+	}
+
+	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
+	err = h.mergeSSTables(newLevelNumb, sstablesToMerge)
+	if err != nil {
+		return err
+	}
+
+	// Remove overlapping SSTables from the level after successful merge
+	iter = h.levels[newLevelNumb].Iterator()
+	for iter.HasNext() {
+		fs, err := iter.Next()
+		if err != nil {
+			return err
+		}
+		for _, sst := range overlappingSSTables {
+			if fs.Path() == sst.Path() {
+				iter.RemoveCurrent()
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (h *SSTableManager) findOverlappingSSTables(levelNumb int, sources []SStable) ([]SStable, error) {
+	if levelNumb >= len(h.levels) || h.levels[levelNumb] == nil {
+		return nil, nil // No overlapping SSTables if the level doesn’t exist
+	}
+
+	// Get key range of sources
+	minKey, maxKey := getKeyRange(sources)
+	var overlapping []SStable
+	iter := h.levels[levelNumb].Iterator()
+	for iter.HasNext() {
+		fs, err := iter.Next()
+		if err != nil {
+			return nil, err
+		}
+		if err := fs.Open(); err != nil {
+			return nil, err
+		}
+		sstable, err := NewSSTable(h.config, fs)
+		if err != nil {
+			_ = fs.Close()
+			return nil, err
+		}
+		if sstable.Overlaps(minKey, maxKey) {
+			overlapping = append(overlapping, sstable)
+		} else {
+			_ = fs.Close() // Close if not overlapping
+		}
+	}
+	return overlapping, nil
+}
+
+func getKeyRange(sstables []SStable) (Bytes, Bytes) {
+	var minKey, maxKey Bytes
+	for i, sst := range sstables {
+		sstMin, sstMax := sst.GetKeyRange() // Assume SStable has GetKeyRange
+		if i == 0 {
+			minKey, maxKey = sstMin, sstMax
+		} else {
+			if minKey.Compare(sstMin) > 0 {
+				minKey = sstMin
+			}
+			if maxKey.Compare(sstMax) < 0 {
+				maxKey = sstMax
+			}
+		}
+	}
+	return minKey, maxKey
 }
 
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
