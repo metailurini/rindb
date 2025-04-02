@@ -181,7 +181,7 @@ func (h *SSTableManager) Compact() error {
 		if !h.shouldCompact(levelNumb, level) {
 			// If the level does not need compaction, skip to the next level.
 			INFO("Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len()) // Added more info to log
-			continue // Move to the next levelNumb
+			continue                                                                                                // Move to the next levelNumb
 		}
 
 		// If we reach here, the level needs compaction.
@@ -279,15 +279,15 @@ func (h *SSTableManager) Compact() error {
 
 		// --- Remove the original code block that put files back ---
 		/*
-		The following block was in the original code. It doesn't make sense to put
-		FileSystem objects back into the level list *after* they have been successfully
-		merged (mergeSSTables should handle their removal/cleanup). If merging failed,
-		a more robust error handling/rollback mechanism is needed than just putting
-		the FS pointers back. Removing this block.
+			The following block was in the original code. It doesn't make sense to put
+			FileSystem objects back into the level list *after* they have been successfully
+			merged (mergeSSTables should handle their removal/cleanup). If merging failed,
+			a more robust error handling/rollback mechanism is needed than just putting
+			the FS pointers back. Removing this block.
 
-		for _, fs := range pickedUpSSTable {
-			level.PushBack(fs.FileSystem)
-		}
+			for _, fs := range pickedUpSSTable {
+				level.PushBack(fs.FileSystem)
+			}
 		*/
 
 		// After successfully compacting levelNumb (or deciding not to),
