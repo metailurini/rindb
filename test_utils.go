@@ -43,6 +43,16 @@ func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 	return mem
 }
 
+// createSSTable is a helper function to create an SSTable for testing.
+// It populates a memtable with the given pairs and flushes it to the provided FileSystem.
+func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) SStable {
+	t.Helper() // Mark this as a test helper function
+	mem := populateMemtable(cfg, pairs...)
+	sstable, err := Flush(cfg, mem, fs)
+	assert.NoError(t, err, "Failed to flush memtable to create SSTable")
+	return sstable
+}
+
 // debugSkipList prints the contents of a SkipList for debugging.
 func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
 	DEBUG("--header--: %v", list.headNote)
