@@ -287,12 +287,13 @@ func TestRindb_Close(t *testing.T) {
 	// If SSTableManager held references to open files, we'd check those.
 	// Since SSTableManager.Close() logs closures, we trust it for now.
 
-	// Optional: Try another operation after close, it should fail
+	// Verify operations fail after close with the correct error
 	_, err = rin.Get(Bytes("key1"))
-	// The exact error might vary, but it shouldn't be nil
-	// It might fail because the lock is held, or underlying resources are closed.
-	// RWMutex doesn't directly error on RLock after Lock, but operations inside will fail.
-	// Let's refine this check if needed based on actual behavior after close.
-	// For now, we focus on the resource closure (WAL).
-	assert.Error(t, err, "Operations should fail after Close")
+	assert.ErrorIs(t, err, ErrDatabaseClosed, "Get should fail with ErrDatabaseClosed after Close")
+
+	err = rin.Put(Bytes("key2"), Bytes("value2"))
+	assert.ErrorIs(t, err, ErrDatabaseClosed, "Put should fail with ErrDatabaseClosed after Close")
+
+	err = rin.Remove(Bytes("key1"))
+	assert.ErrorIs(t, err, ErrDatabaseClosed, "Remove should fail with ErrDatabaseClosed after Close")
 }

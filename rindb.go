@@ -17,6 +17,9 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+// ErrDatabaseClosed is returned when an operation is attempted on a closed database.
+var ErrDatabaseClosed = errors.New("database is closed")
+
 // https://github.com/google/leveldb/blob/main/doc/impl.md
 
 // Rindb is the main database structure
@@ -26,6 +29,7 @@ type Rindb struct {
 	ssTableManager *SSTableManager
 	config         Config
 	mu             sync.RWMutex
+	closed         bool // Flag to indicate if the database is closed
 }
 
 // SSTableManager is storage for SSTables
@@ -518,6 +522,10 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if r.closed {
+		return nil, ErrDatabaseClosed
+	}
+
 	value, err := r.memtable.Get(key)
 	if err == nil {
 		return value, nil
@@ -533,6 +541,10 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 func (r *Rindb) Put(key, value Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.closed {
+		return ErrDatabaseClosed
+	}
 
 	record := RecordImpl{Key: key, Value: value}
 	if err := r.wal.Append(record); err != nil {
@@ -575,6 +587,10 @@ func (r *Rindb) Remove(key Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.closed {
+		return ErrDatabaseClosed
+	}
+
 	record := RecordImpl{Key: key, Value: nil}
 	if err := r.wal.Append(record); err != nil {
 		return err
@@ -586,7 +602,13 @@ func (r *Rindb) Remove(key Bytes) error {
 // Close closes the Rindb instance, ensuring all resources are released.
 func (r *Rindb) Close() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	// No defer unlock here, as we need to set the closed flag *after* unlocking potentially
+
+	// Check if already closed
+	if r.closed {
+		r.mu.Unlock() // Unlock before returning
+		return nil    // Or return ErrDatabaseClosed if preferred
+	}
 
 	// Close the WAL first
 	if err := r.wal.Close(); err != nil {
@@ -603,7 +625,12 @@ func (r *Rindb) Close() error {
 	r.ssTableManager.Close() // SSTableManager.Close currently doesn't return an error
 	INFO("SSTableManager closed.")
 
+	// Mark the database as closed *before* unlocking
+	r.closed = true
+	r.mu.Unlock() // Unlock after setting the closed flag
+
 	// Depending on error handling strategy, you might collect errors and return a combined error.
 	// For now, we prioritize closing both and log errors. If WAL close fails, that error could be returned.
-	return nil // Or return the first error encountered, e.g., the WAL error if it occurred.
+	// The first error encountered (e.g., WAL error) could be returned here if needed.
+	return nil
 }
