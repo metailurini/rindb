@@ -134,6 +134,159 @@ func TestLinkedListIterator(t *testing.T) {
 	})
 }
 
+//nolint:funlen
+func TestLinkedListRemoveCurrent(t *testing.T) {
+	t.Run("Remove node in the middle", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		values := []int{1, 2, 3, 4}
+		for _, v := range values {
+			l.PushBack(v)
+		}
+		iterator := l.Iterator()
+		_, err := iterator.Next() // Move to 1
+		assert.NoError(t, err)
+		_, err = iterator.Next() // Move to 2
+		assert.NoError(t, err)
+
+		// Remove node 2
+		err = iterator.RemoveCurrent()
+		assert.NoError(t, err)
+		assert.Equal(t, 3, l.Len())
+		assert.Equal(t, 1, iterator.Value()) // Iterator moved back to 1
+
+		// Check remaining values
+		expected := []int{1, 3, 4}
+		idx := 0
+		iterCheck := l.Iterator()
+		for iterCheck.HasNext() {
+			val, _ := iterCheck.Next()
+			assert.Equal(t, expected[idx], val)
+			idx++
+		}
+		assert.Equal(t, len(expected), idx)
+		assert.Equal(t, 4, l.lastNode.Value) // lastNode should still be 4
+	})
+
+	t.Run("Remove first node", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		l.PushBack(1)
+		l.PushBack(2)
+		iterator := l.Iterator()
+		_, err := iterator.Next() // Move to 1
+		assert.NoError(t, err)
+
+		// Remove node 1
+		err = iterator.RemoveCurrent()
+		assert.NoError(t, err)
+		assert.Equal(t, 1, l.Len())
+		assert.Equal(t, l.rootNode, iterator.runNode) // Iterator moved back to root
+
+		// Check remaining value
+		val, err := l.Iterator().Next()
+		assert.NoError(t, err)
+		assert.Equal(t, 2, val)
+		assert.Equal(t, 2, l.lastNode.Value)
+	})
+
+	t.Run("Remove last node", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		l.PushBack(1)
+		l.PushBack(2)
+		l.PushBack(3)
+		iterator := l.Iterator()
+		_, _ = iterator.Next() // -> 1
+		_, _ = iterator.Next() // -> 2
+		_, _ = iterator.Next() // -> 3
+
+		// Remove node 3
+		err := iterator.RemoveCurrent()
+		assert.NoError(t, err)
+		assert.Equal(t, 2, l.Len())
+		assert.Equal(t, 2, iterator.Value()) // Iterator moved back to 2
+		assert.Equal(t, 2, l.lastNode.Value) // lastNode updated to 2
+
+		// Check remaining values
+		expected := []int{1, 2}
+		idx := 0
+		iterCheck := l.Iterator()
+		for iterCheck.HasNext() {
+			val, _ := iterCheck.Next()
+			assert.Equal(t, expected[idx], val)
+			idx++
+		}
+		assert.Equal(t, len(expected), idx)
+	})
+
+	t.Run("Attempt to remove sentinel node", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		l.PushBack(1)
+		iterator := l.Iterator() // Iterator at sentinel
+
+		err := iterator.RemoveCurrent()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot remove root node")
+		assert.Equal(t, 1, l.Len()) // List unchanged
+	})
+
+	t.Run("Attempt to remove from empty list", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		iterator := l.Iterator() // Iterator at sentinel
+
+		err := iterator.RemoveCurrent()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot remove root node")
+		assert.Equal(t, 0, l.Len()) // List unchanged
+	})
+
+	t.Run("Attempt to remove after iterating past end (invalid state)", func(t *testing.T) {
+		// Note: This scenario shouldn't ideally happen with correct HasNext usage,
+		// but tests robustness if the iterator somehow ends up nil.
+		l := InitLinkedList[int]()
+		l.PushBack(1)
+		iterator := l.Iterator()
+		_, _ = iterator.Next() // -> 1
+		_, err := iterator.Next() // -> EOI, iterator.runNode might become nil depending on impl.
+		assert.ErrorIs(t, err, EOI)
+
+		// Force runNode to nil to simulate an invalid state post-iteration
+		iterator.runNode = nil
+
+		err = iterator.RemoveCurrent()
+		assert.ErrorIs(t, err, EOI) // Expect EOI or similar error indicating invalid state
+		assert.Equal(t, 1, l.Len()) // List unchanged
+	})
+
+	t.Run("Remove and check backward traversal", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		values := []int{1, 2, 3, 4}
+		for _, v := range values {
+			l.PushBack(v)
+		}
+		iterator := l.Iterator()
+		_, _ = iterator.Next() // -> 1
+		_, _ = iterator.Next() // -> 2
+		_, _ = iterator.Next() // -> 3
+
+		// Remove node 3
+		err := iterator.RemoveCurrent()
+		assert.NoError(t, err)
+		assert.Equal(t, 2, iterator.Value()) // Iterator is now at node 2
+
+		// Traverse backward from node 2
+		val, err := iterator.Prev()
+		assert.NoError(t, err)
+		assert.Equal(t, 1, val)
+
+		// Traverse forward from node 1
+		val, err = iterator.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, 2, val)
+		val, err = iterator.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, 4, val) // Should skip 3 and go to 4
+	})
+}
+
 func TestLinkedListConcurrentModification(t *testing.T) {
 	t.Run("PushBack during iteration", func(t *testing.T) {
 		l := InitLinkedList[int]()
