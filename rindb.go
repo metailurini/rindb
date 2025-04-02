@@ -558,10 +558,11 @@ func (r *Rindb) Put(key, value Bytes) error {
 
 	// Check size and flush if needed
 	if r.memtable.data.Len() >= r.config.maxMemtableSize {
-		// Use the Rindb instance's SSTableManager
-		if r.ssTableManager.levels[0] != nil && r.ssTableManager.levels[0].Len() > r.config.level0CompactionThreshold {
-			if err := r.ssTableManager.Compact(); err != nil {
-				return err
+		if len(r.ssTableManager.levels) > 0 {
+			if r.ssTableManager.levels[0] != nil && r.ssTableManager.levels[0].Len() > r.config.level0CompactionThreshold {
+				if err := r.ssTableManager.Compact(); err != nil {
+					return err
+				}
 			}
 		}
 
