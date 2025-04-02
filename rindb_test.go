@@ -147,7 +147,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	} else if rin.ssTableManager.levels[0] == nil {
 		rin.ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
 	}
-	rin.ssTableManager.levels[0].PushBack(fs) // Add the newly created SSTable FS to the manager
+	rin.ssTableManager.levels[0].PushBack(fs)   // Add the newly created SSTable FS to the manager
 	err = rin.Put(Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(Bytes("k1"))
