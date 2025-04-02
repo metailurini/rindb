@@ -16,6 +16,8 @@ func TestDefaultConfig(t *testing.T) {
 		{"databaseDir", cfg.databaseDir, "rindat"},
 		{"maxMemtableSize", cfg.maxMemtableSize, uint(1000)},
 		{"level0CompactionThreshold", cfg.level0CompactionThreshold, 2},
+		{"baseCompactionSizeMB", cfg.baseCompactionSizeMB, 10},
+		{"levelSizeMultiplier", cfg.levelSizeMultiplier, 10},
 		{"bloomFalsePositiveRate", cfg.bloomFalsePositiveRate, 0.01},
 		{"skipListDefaultLevel", cfg.skipListDefaultLevel, uint(2)},
 		{"skipListMaxLevel", cfg.skipListMaxLevel, uint(32)},
@@ -59,6 +61,33 @@ func TestNewConfigWithOptions(t *testing.T) {
 		{
 			name: "WithLevel0CompactionThreshold",
 			opts: []Option{WithLevel0CompactionThreshold(10)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.level0CompactionThreshold != 10 {
+					t.Errorf("level0CompactionThreshold = %v, want %v", cfg.level0CompactionThreshold, 10)
+				}
+			},
+		},
+		{
+			name: "WithBaseCompactionSizeMB",
+			opts: []Option{WithBaseCompactionSizeMB(20)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.baseCompactionSizeMB != 20 {
+					t.Errorf("baseCompactionSizeMB = %v, want %v", cfg.baseCompactionSizeMB, 20)
+				}
+			},
+		},
+		{
+			name: "WithLevelSizeMultiplier",
+			opts: []Option{WithLevelSizeMultiplier(5)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.levelSizeMultiplier != 5 {
+					t.Errorf("levelSizeMultiplier = %v, want %v", cfg.levelSizeMultiplier, 5)
+				}
+			},
+		},
+		{
+			name: "WithBloomFalsePositiveRate",
+			opts: []Option{WithBloomFalsePositiveRate(0.05)},
 			verify: func(t *testing.T, cfg Config) {
 				if cfg.level0CompactionThreshold != 10 {
 					t.Errorf("level0CompactionThreshold = %v, want %v", cfg.level0CompactionThreshold, 10)
