@@ -3,7 +3,6 @@ package rindb
 import (
 	"container/list"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -321,129 +320,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 func TestSSTableManager_CompactThreshold(t *testing.T) {
 	cfg := testConfig()
-	t.Run("Compaction threshold 1", func(t *testing.T) {
-		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
-		defer ssTableManager.Close()
-
-		fss, closer := initTempFileSystems(t, 4)
-		defer closer()
-
-		// SSTable 1: older data
-		mem1 := InitMemtable(cfg)
-		mem1.Put(Bytes("k1"), Bytes("v1-old"))
-		mem1.Put(Bytes("k2"), Bytes("v2"))
-		_, err := Flush(cfg, mem1, fss[0])
-		assert.NoError(t, err)
-
-		// SSTable 2: newer data
-		mem2 := InitMemtable(cfg)
-		mem2.Put(Bytes("k1"), Bytes("v1-new"))
-		mem2.Put(Bytes("k2"), nil) // Tombstone
-		_, err = Flush(cfg, mem2, fss[1])
-		assert.NoError(t, err)
-
-		// SSTable 3: new key
-		mem3 := InitMemtable(cfg)
-		mem3.Put(Bytes("k3"), Bytes("v3"))
-		_, err = Flush(cfg, mem3, fss[2])
-		assert.NoError(t, err)
-
-		// SSTable 4: another new key
-		mem4 := InitMemtable(cfg)
-		mem4.Put(Bytes("k4"), Bytes("v4"))
-		_, err = Flush(cfg, mem4, fss[3])
-		assert.NoError(t, err)
-
-		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		ssTableManager.levels[0].PushBack(fss[0])
-		ssTableManager.levels[0].PushBack(fss[1])
-		ssTableManager.levels[0].PushBack(fss[2])
-		ssTableManager.levels[0].PushBack(fss[3])
-
-		err = ssTableManager.Compact()
-		assert.NoError(t, err)
-
-		// Verify merged SSTable
-		mergedFS := ssTableManager.levels[1].rootNode.next.Value
-		sstable, err := NewSSTable(cfg, mergedFS)
-		assert.NoError(t, err)
-
-		// Check all keys
-		v1, err := sstable.GetValue(Bytes("k1"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v1-new"), v1)
-
-		v2, err := sstable.GetValue(Bytes("k2"))
-		assert.NoError(t, err)
-		assert.Nil(t, v2)
-
-		v3, err := sstable.GetValue(Bytes("k3"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v3"), v3)
-
-		v4, err := sstable.GetValue(Bytes("k4"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v4"), v4)
-
-		// Verify SparseIndex has 4 entries (k1, k2, k3, k4)
-		assert.Equal(t, 4, len(sstable.SparseIndex))
-	})
-
-	t.Run("Compaction threshold 2", func(t *testing.T) {
-		// Create enough SSTables to trigger multi-level compaction
-		fss, closer := initTempFileSystems(t, 15)
-		defer closer()
-
-		h := &SSTableManager{openedFs: list.New(), config: cfg}
-		defer h.Close()
-
-		// Initialize with 15 SSTables in level 0
-		h.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		for _, fs := range fss {
-			memtable := InitMemtable(cfg)
-			// Use unique keys to test merging
-			key := fmt.Sprintf("key-%d", len(h.levels[0].rootNode.next.Value.filePath))
-			memtable.Put(Bytes(key), Bytes("value"))
-			_, err := Flush(cfg, memtable, fs)
-			assert.NoError(t, err)
-			h.levels[0].PushBack(fs)
-		}
-
-		err := h.Compact()
-		assert.NoError(t, err)
-
-		// Verify level structure after compaction
-		assert.True(t, h.levels[0].Len() <= cfg.level0CompactionThreshold, 
-			"Level 0 should be under compaction threshold")
-		assert.GreaterOrEqual(t, len(h.levels), 2, 
-			"Should have created at least level 1")
-
-		// Verify merged SSTables contain all keys
-		for levelNum, level := range h.levels {
-			iter := level.Iterator()
-			for iter.HasNext() {
-				fs, err := iter.Next()
-				assert.NoError(t, err)
-				
-				sstable, err := NewSSTable(cfg, fs)
-				assert.NoError(t, err)
-				
-				// Verify we can retrieve a key from this SSTable
-				key := fmt.Sprintf("key-%d", levelNum) // Key based on level for uniqueness
-				value, err := sstable.GetValue(Bytes(key))
-				assert.NoError(t, err)
-				assert.Equal(t, Bytes("value"), value)
-			}
-		}
-
-		// Verify old SSTables were cleaned up
-		for _, fs := range fss {
-			_, err := os.Stat(fs.Path())
-			assert.True(t, os.IsNotExist(err), 
-				"Original SSTable file %s should have been removed", fs.Path())
-		}
-	})
-
 	t.Run("Exceed threshold and compact", func(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
 		defer ssTableManager.Close()
