@@ -194,9 +194,12 @@ func (h *SSTableManager) Compact() error {
 		// with overlapping files in level N+1, not merging arbitrary batches within level N
 		// and pushing them all to N+1. Level 0 compaction is also typically different.
 
-		const bufferFileCount = 2
-		// This threshold seems arbitrary and related to batching, not selection.
-		thresholdFileCount := levelNumb + bufferFileCount
+		// For level 0, use the configured compaction threshold for batching
+		thresholdFileCount := h.config.level0CompactionThreshold
+		if levelNumb > 0 {
+			const bufferFileCount = 2
+			thresholdFileCount = levelNumb + bufferFileCount
+		}
 		pickedUpSSTable := make([]SStable, 0, thresholdFileCount)
 
 		/*
