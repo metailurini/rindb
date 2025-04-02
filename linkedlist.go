@@ -96,6 +96,37 @@ func (l *LLIterator[V]) NextValue() (V, error) {
 	return l.runNode.next.Value, nil
 }
 
+// Add this method to type LLIterator[V] struct
+func (l *LLIterator[V]) RemoveCurrent() error {
+	if l.runNode == l.list.rootNode {
+		ERROR("Cannot remove root node")
+		return errors.New("cannot remove root node")
+	}
+	if l.runNode == nil {
+		ERROR("No current node to remove")
+		return EOI
+	}
+	// Connect previous to next
+	if l.runNode.prev != nil {
+		l.runNode.prev.next = l.runNode.next
+	}
+	if l.runNode.next != nil {
+		l.runNode.next.prev = l.runNode.prev
+	}
+	// If removing the last node, update lastNode
+	if l.runNode == l.list.lastNode {
+		l.list.lastNode = l.runNode.prev
+	}
+	// Move iterator back to previous node to continue iteration
+	oldNode := l.runNode
+	l.runNode = l.runNode.prev
+	l.list.len--
+	// Prevent double-free by nullifying pointers
+	oldNode.next = nil
+	oldNode.prev = nil
+	return nil
+}
+
 func (l *LLIterator[V]) RemoveNext() error {
 	if !l.HasNext() {
 		ERROR("WTF, what are you thinking about this action?")
