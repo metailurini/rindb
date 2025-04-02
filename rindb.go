@@ -21,10 +21,11 @@ import (
 
 // Rindb is the main database structure
 type Rindb struct {
-	wal      WAL
-	memtable Memtable
-	config   Config
-	mu       sync.RWMutex
+	wal            WAL
+	memtable       Memtable
+	ssTableManager *SSTableManager
+	config         Config
+	mu             sync.RWMutex
 }
 
 // SSTableManager is storage for SSTables
@@ -499,10 +500,17 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	if err != nil {
 		return Rindb{}, err
 	}
+	ssTableManager, err := InitSSTableManager(cfg)
+	if err != nil {
+		// Consider closing the WAL file system if manager init fails
+		_ = fs.Close()
+		return Rindb{}, fmt.Errorf("failed to initialize SSTable manager: %w", err)
+	}
 	return Rindb{
-		wal:      wal,
-		memtable: memtable,
-		config:   cfg,
+		wal:            wal,
+		memtable:       memtable,
+		ssTableManager: ssTableManager,
+		config:         cfg,
 	}, nil
 }
 
@@ -518,12 +526,8 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 		return nil, err
 	}
 	// Key not in memtable, check SSTables
-	ssTableManager, err := InitSSTableManager(r.config)
-	if err != nil {
-		return nil, err
-	}
-	defer ssTableManager.Close()
-	return ssTableManager.searchKey(key)
+	// Use the Rindb instance's SSTableManager
+	return r.ssTableManager.searchKey(key)
 }
 
 func (r *Rindb) Put(key, value Bytes) error {
@@ -538,19 +542,20 @@ func (r *Rindb) Put(key, value Bytes) error {
 
 	// Check size and flush if needed
 	if r.memtable.data.Len() >= r.config.maxMemtableSize {
-		ssTableManager, err := InitSSTableManager(r.config)
-		if err != nil {
-			return err
-		}
-		defer ssTableManager.Close()
-		if ssTableManager.levels[0] != nil && ssTableManager.levels[0].Len() > r.config.level0CompactionThreshold {
-			if err := ssTableManager.Compact(); err != nil {
+		// Use the Rindb instance's SSTableManager
+		if r.ssTableManager.levels[0] != nil && r.ssTableManager.levels[0].Len() > r.config.level0CompactionThreshold {
+			if err := r.ssTableManager.Compact(); err != nil {
 				return err
 			}
 		}
 
-		fs, err := ssTableManager.NewSSTableFS(0)
+		fs, err := r.ssTableManager.NewSSTableFS(0)
 		if err != nil {
+			// Attempt to close the newly created FS if there's an error during flush prep
+			// This might be redundant if Flush handles FS closure on error, but good practice.
+			if fs != nil {
+				_ = fs.Close()
+			}
 			return err
 		}
 		_, err = Flush(r.config, r.memtable, fs)

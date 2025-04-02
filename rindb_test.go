@@ -106,12 +106,11 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	assert.NoError(t, err)
 	err = rin.Remove(Bytes("rm-key"))
 	assert.NoError(t, err)
-	ssTableManager, err := InitSSTableManager(rin.config)
+	// SSTableManager is now part of rin, no need to init separately
+	// We still need a new FS for the flush operation itself
+	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(0)
 	assert.NoError(t, err)
-	defer ssTableManager.Close()
-	newSSTableFS, err := ssTableManager.NewSSTableFS(0)
-	assert.NoError(t, err)
-	defer func() { _ = newSSTableFS.Close() }()
+	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
 	newSStable, err := Flush(rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean()
@@ -127,20 +126,29 @@ func TestRindb_FlushMemtable(t *testing.T) {
 // TestRindb_GetPrecedence tests that Get prioritizes Memtable over SSTables.
 func TestRindb_GetPrecedence(t *testing.T) {
 	rin, err := InitRinDB(testOptions()...)
-	rin.config = testConfig()
+	rin.config = testConfig() // Ensure config is set if needed by test logic beyond Init
 	assert.NoError(t, err)
-	ssTableManager, err := InitSSTableManager(rin.config)
+	// SSTableManager is now part of rin
+	fs, err := rin.ssTableManager.NewSSTableFS(0) // Create FS for the initial SSTable
 	assert.NoError(t, err)
-	defer ssTableManager.Close()
-	fs, err := ssTableManager.NewSSTableFS(0)
-	assert.NoError(t, err)
+	// Defer close for the FS used in the test setup
+	defer func() {
+		if fs.IsOpened() {
+			assert.NoError(t, fs.Close())
+		}
+	}()
 	mem := InitMemtable(rin.config)
 	mem.Put(Bytes("k1"), Bytes("v1-sst"))
-	_, err = Flush(rin.config, mem, fs)
+	_, err = Flush(rin.config, mem, fs) // Flush memtable to the new FS
 	assert.NoError(t, err)
-	ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-	ssTableManager.levels[0].PushBack(fs)
-	err = rin.Put(Bytes("k1"), Bytes("v1-mem"))
+	// Ensure level 0 exists before pushing back
+	if len(rin.ssTableManager.levels) == 0 {
+		rin.ssTableManager.levels = append(rin.ssTableManager.levels, InitLinkedList[*FileSystem]())
+	} else if rin.ssTableManager.levels[0] == nil {
+		rin.ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
+	}
+	rin.ssTableManager.levels[0].PushBack(fs) // Add the newly created SSTable FS to the manager
+	err = rin.Put(Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(Bytes("k1"))
 	assert.NoError(t, err)
