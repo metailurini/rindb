@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path"
 	"sort"
@@ -139,6 +140,27 @@ func (h *SSTableManager) Close() {
 	}
 }
 
+func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSystem]) bool {
+	const (
+		level0Threshold = 4
+		baseLevelSizeMB = 10 // MB
+	)
+
+	if levelNumb == 0 {
+		return level.Len() >= level0Threshold
+	}
+	totalSize := 0
+	iter := level.Iterator()
+	for iter.HasNext() {
+		fs, _ := iter.Next()
+		info, err := os.Stat(fs.filePath)
+		if err == nil {
+			totalSize += int(info.Size() / (1024 * 1024)) // Convert to MB
+		}
+	}
+	return totalSize >= baseLevelSizeMB*int(math.Pow(10, float64(levelNumb)))
+}
+
 func (h *SSTableManager) Compact() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -202,9 +224,6 @@ func (h *SSTableManager) Compact() error {
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
 // Assumes the caller holds the necessary lock (e.g., h.mu.Lock()).
 func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStable) error {
-	// Note: No h.mu.Lock() here as it's assumed Compact() holds the lock.
-	// If this function could be called independently, a lock would be needed.
-
 	newLevelSSTable, err := h.NewSSTableFS(newLevelNumb)
 	if err != nil {
 		return err
