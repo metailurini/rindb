@@ -209,10 +209,10 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 	})
 
 	t.Run("Level0_AtThreshold", func(t *testing.T) {
-		// level0Threshold is 4
+		// level0CompactionThreshold is 2 (from testConfig)
 		paths := []string{
-			createDummyFile(t, tempDir, "l0_4.sst", 1),
-			createDummyFile(t, tempDir, "l0_5.sst", 1),
+			createDummyFile(t, tempDir, "l0_2.sst", 1), // Renamed for clarity
+			createDummyFile(t, tempDir, "l0_3.sst", 1), // Renamed for clarity
 			createDummyFile(t, tempDir, "l0_6.sst", 1),
 			createDummyFile(t, tempDir, "l0_7.sst", 1),
 		}
@@ -221,11 +221,11 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 	})
 
 	t.Run("Level0_AboveThreshold", func(t *testing.T) {
-		// level0Threshold is 4
+		// level0CompactionThreshold is 2 (from testConfig)
 		paths := []string{
-			createDummyFile(t, tempDir, "l0_8.sst", 1),
-			createDummyFile(t, tempDir, "l0_9.sst", 1),
-			createDummyFile(t, tempDir, "l0_10.sst", 1),
+			createDummyFile(t, tempDir, "l0_4.sst", 1), // Renamed for clarity
+			createDummyFile(t, tempDir, "l0_5.sst", 1), // Renamed for clarity
+			createDummyFile(t, tempDir, "l0_6.sst", 1), // Renamed for clarity
 			createDummyFile(t, tempDir, "l0_11.sst", 1),
 			createDummyFile(t, tempDir, "l0_12.sst", 1),
 		}
