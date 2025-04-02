@@ -494,10 +494,16 @@ func mergeSSTables(config Config, target *FileSystem, sources []SStable) (SStabl
 
 func InitRinDB(opts ...Option) (Rindb, error) {
 	cfg := NewConfig(opts...)
+
+	// Ensure the database directory exists
+	if err := os.MkdirAll(cfg.databaseDir, 0750); err != nil {
+		return Rindb{}, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
+	}
+
 	walPath := path.Join(cfg.databaseDir, "WAL")
 	fs, err := OpenFS(walPath)
 	if err != nil {
-		return Rindb{}, err
+		return Rindb{}, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
 	}
 	wal := NewWAL(cfg, fs)
 	memtable, err := wal.Load()
