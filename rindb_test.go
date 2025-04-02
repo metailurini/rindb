@@ -137,8 +137,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 			assert.NoError(t, fs.Close())
 		}
 	}()
-	mem := InitMemtable(rin.config)
-	mem.Put(Bytes("k1"), Bytes("v1-sst"))
+	mem := populateMemtable(rin.config, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
 	_, err = Flush(rin.config, mem, fs) // Flush memtable to the new FS
 	assert.NoError(t, err)
 	// Ensure level 0 exists before pushing back

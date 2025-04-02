@@ -34,6 +34,15 @@ func randStringBytes(n int) Bytes {
 	return b
 }
 
+// populateMemtable creates a Memtable and populates it with the given key-value pairs.
+func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
+	mem := InitMemtable(cfg)
+	for _, pair := range pairs {
+		mem.Put(pair[0], pair[1])
+	}
+	return mem
+}
+
 // debugSkipList prints the contents of a SkipList for debugging.
 func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
 	DEBUG("--header--: %v", list.headNote)
