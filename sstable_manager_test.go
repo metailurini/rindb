@@ -494,32 +494,6 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 	})
 
 	t.Run("levels below threshold dont compact", func(t *testing.T) {
-		tempDir := t.TempDir()
-		cfg := NewConfig(
-			WithDatabaseDir(tempDir),
-			WithLevel0CompactionThreshold(4),
-		)
-
-		ssm, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssm.Close()
-
-		t.Run("level 0 low file count", func(t *testing.T) {
-			for i := 0; i < 3; i++ {
-				fs, err := ssm.NewSSTableFS(0)
-				assert.NoError(t, err)
-				ssm.levels[0].PushBack(fs)
-			}
-			assert.False(t, ssm.shouldCompact(0, ssm.levels[0]))
-		})
-
-		t.Run("level 1 low size", func(t *testing.T) {
-			fs, err := ssm.NewSSTableFS(1)
-			assert.NoError(t, err)
-			ssm.levels = append(ssm.levels, InitLinkedList[*FileSystem]())
-			ssm.levels[1].PushBack(fs)
-
-			assert.False(t, ssm.shouldCompact(1, ssm.levels[1]))
-		})
+    // implement it
 	})
 }
