@@ -325,7 +325,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
 		defer ssTableManager.Close()
 
-		fss, closer := initTempFileSystems(t, 3)
+		fss, closer := initTempFileSystems(t, 4)
 		defer closer()
 
 		// SSTable 1: older data
@@ -342,16 +342,23 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		_, err = Flush(cfg, mem2, fss[1])
 		assert.NoError(t, err)
 
-		// SSTable 3: empty
+		// SSTable 3: new key
 		mem3 := InitMemtable(cfg)
 		mem3.Put(Bytes("k3"), Bytes("v3"))
 		_, err = Flush(cfg, mem3, fss[2])
+		assert.NoError(t, err)
+
+		// SSTable 4: another new key
+		mem4 := InitMemtable(cfg)
+		mem4.Put(Bytes("k4"), Bytes("v4"))
+		_, err = Flush(cfg, mem4, fss[3])
 		assert.NoError(t, err)
 
 		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ssTableManager.levels[0].PushBack(fss[0])
 		ssTableManager.levels[0].PushBack(fss[1])
 		ssTableManager.levels[0].PushBack(fss[2])
+		ssTableManager.levels[0].PushBack(fss[3])
 
 		err = ssTableManager.Compact()
 		assert.NoError(t, err)
@@ -361,14 +368,25 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		sstable, err := NewSSTable(cfg, mergedFS)
 		assert.NoError(t, err)
 
+		// Check all keys
 		v1, err := sstable.GetValue(Bytes("k1"))
 		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v1-new"), v1) // Latest value
-		fmt.Printf("v1: %s\n", v1)
+		assert.Equal(t, Bytes("v1-new"), v1)
 
 		v2, err := sstable.GetValue(Bytes("k2"))
 		assert.NoError(t, err)
-		assert.Nil(t, v2) // Tombstone preserved
+		assert.Nil(t, v2)
+
+		v3, err := sstable.GetValue(Bytes("k3"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v3"), v3)
+
+		v4, err := sstable.GetValue(Bytes("k4"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v4"), v4)
+
+		// Verify SparseIndex has 4 entries (k1, k2, k3, k4)
+		assert.Equal(t, 4, len(sstable.SparseIndex))
 	})
 
 	t.Run("Compaction threshold 2", func(t *testing.T) {
