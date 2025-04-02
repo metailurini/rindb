@@ -321,7 +321,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	value, err := r.memtable.Get(key)
 	if err == nil {
 		return value, nil
@@ -343,7 +343,7 @@ const maxMemtableSize = 1000
 func (r *Rindb) Put(key, value Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	record := RecordImpl{Key: key, Value: value}
 	if err := r.wal.Append(record); err != nil {
 		return err
@@ -383,7 +383,7 @@ func (r *Rindb) Put(key, value Bytes) error {
 func (r *Rindb) Remove(key Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	record := RecordImpl{Key: key, Value: nil}
 	if err := r.wal.Append(record); err != nil {
 		return err
