@@ -137,7 +137,7 @@ func (h *SSTableManager) Close() {
 			}
 
 			if !fs.IsOpened() {
-				INFO("File %s is already closed", fs.Path())
+				WARN("File %s is already closed", fs.Path())
 				continue
 			}
 
@@ -539,8 +539,6 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	if !errors.Is(err, ErrKeyNotFound) {
 		return nil, err
 	}
-	// Key not in memtable, check SSTables
-	// Use the Rindb instance's SSTableManager
 	return r.ssTableManager.searchKey(key)
 }
 
