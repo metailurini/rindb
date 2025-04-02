@@ -45,24 +45,29 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		defer closer()
 
 		sstables := make([]SStable, 0)
-		memtable := InitMemtable(cfg)
 
-		memtable.Put(Bytes("1"), Bytes("2"))
-		memtable.Put(Bytes("2"), Bytes("3"))
-		memtable.Put(Bytes("3"), Bytes("4"))
-		sstable1, err := Flush(cfg, memtable, fss[0])
+		memtable1 := populateMemtable(cfg,
+			[2]Bytes{Bytes("1"), Bytes("2")},
+			[2]Bytes{Bytes("2"), Bytes("3")},
+			[2]Bytes{Bytes("3"), Bytes("4")},
+		)
+		sstable1, err := Flush(cfg, memtable1, fss[0])
 		assert.NoError(t, err)
 		sstables = append(sstables, sstable1)
 
-		memtable.Put(Bytes("1"), Bytes("3"))
-		memtable.Put(Bytes("2"), Bytes(nil))
-		memtable.Put(Bytes("4"), Bytes("5"))
-		sstable2, err := Flush(cfg, memtable, fss[1])
+		memtable2 := populateMemtable(cfg,
+			[2]Bytes{Bytes("1"), Bytes("3")},
+			[2]Bytes{Bytes("2"), Bytes(nil)},
+			[2]Bytes{Bytes("4"), Bytes("5")},
+		)
+		sstable2, err := Flush(cfg, memtable2, fss[1])
 		assert.NoError(t, err)
 		sstables = append(sstables, sstable2)
 
-		memtable.Put(Bytes("5"), Bytes("6"))
-		sstable3, err := Flush(cfg, memtable, fss[2])
+		memtable3 := populateMemtable(cfg,
+			[2]Bytes{Bytes("5"), Bytes("6")},
+		)
+		sstable3, err := Flush(cfg, memtable3, fss[2])
 		assert.NoError(t, err)
 		sstables = append(sstables, sstable3)
 
@@ -134,10 +139,9 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.NoError(t, err)
 		defer fs.Close()
 
-		mem := InitMemtable(cfg)
 		key := Bytes("level0-key")
 		value := Bytes("level0-value")
-		mem.Put(key, value)
+		mem := populateMemtable(cfg, [2]Bytes{key, value})
 		_, err = Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 
@@ -168,10 +172,9 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs1, err := ssTableManager.NewSSTableFS(1)
 		assert.NoError(t, err)
 		defer fs1.Close()
-		mem1 := InitMemtable(cfg)
 		key := randStringBytes(10)
 		oldValue := Bytes("old-value")
-		mem1.Put(key, oldValue)
+		mem1 := populateMemtable(cfg, [2]Bytes{key, oldValue})
 		_, err = Flush(cfg, mem1, fs1)
 		assert.NoError(t, err)
 
@@ -179,9 +182,8 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs0, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs0.Close()
-		mem0 := InitMemtable(cfg)
 		newValue := Bytes("new-value")
-		mem0.Put(key, newValue)
+		mem0 := populateMemtable(cfg, [2]Bytes{key, newValue})
 		_, err = Flush(cfg, mem0, fs0)
 		assert.NoError(t, err)
 
@@ -219,8 +221,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
-		mem := InitMemtable(cfg)
-		mem.Put(Bytes("some-key"), Bytes("some-value"))
+		mem := populateMemtable(cfg, [2]Bytes{Bytes("some-key"), Bytes("some-value")})
 		_, err = Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 
@@ -254,10 +255,9 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
-		mem := InitMemtable(cfg)
 		key := Bytes("single-key")
 		value := Bytes("single-value")
-		mem.Put(key, value)
+		mem := populateMemtable(cfg, [2]Bytes{key, value})
 		_, err = Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
@@ -277,10 +277,9 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs1, err := ssTableManager.NewSSTableFS(1)
 		assert.NoError(t, err)
 		defer fs1.Close()
-		mem1 := InitMemtable(cfg)
 		key := Bytes("tombstone-key")
 		value := Bytes("original-value")
-		mem1.Put(key, value)
+		mem1 := populateMemtable(cfg, [2]Bytes{key, value})
 		_, err = Flush(cfg, mem1, fs1)
 		assert.NoError(t, err)
 
@@ -288,8 +287,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs0, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs0.Close()
-		mem0 := InitMemtable(cfg)
-		mem0.Put(key, nil) // Tombstone
+		mem0 := populateMemtable(cfg, [2]Bytes{key, nil}) // Tombstone
 		_, err = Flush(cfg, mem0, fs0)
 		assert.NoError(t, err)
 
@@ -310,8 +308,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		fs, err := ssTableManager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
-		mem := InitMemtable(cfg)
-		mem.Put(Bytes("present-key"), Bytes("present-value"))
+		mem := populateMemtable(cfg, [2]Bytes{Bytes("present-key"), Bytes("present-value")})
 		_, err = Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
@@ -346,8 +343,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			fs, err := ssm.NewSSTableFS(0)
 			assert.NoError(t, err)
 
-			mem := InitMemtable(cfg)
-			mem.Put(Bytes(fmt.Sprintf("key%d", i)), Bytes("value"))
+			mem := populateMemtable(cfg, [2]Bytes{Bytes(fmt.Sprintf("key%d", i)), Bytes("value")})
 			_, err = Flush(cfg, mem, fs)
 			assert.NoError(t, err)
 
@@ -391,8 +387,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		for i := 0; i < level0FileCount; i++ {
 			fs, err := ssm.NewSSTableFS(0)
 			assert.NoError(t, err)
-			mem := InitMemtable(cfg)
-			mem.Put(Bytes(fmt.Sprintf("l0-key%d", i)), Bytes("value"))
+			mem := populateMemtable(cfg, [2]Bytes{Bytes(fmt.Sprintf("l0-key%d", i)), Bytes("value")})
 			_, err = Flush(cfg, mem, fs)
 			assert.NoError(t, err)
 			ssm.levels[0].PushBack(fs)
@@ -406,8 +401,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		initialLevel1Files := make([]*FileSystem, level1FileCount)
 		fs1, err := ssm.NewSSTableFS(1)
 		assert.NoError(t, err)
-		mem1 := InitMemtable(cfg)
-		mem1.Put(Bytes("l1-key"), Bytes("small-value"))
+		mem1 := populateMemtable(cfg, [2]Bytes{Bytes("l1-key"), Bytes("small-value")})
 		_, err = Flush(cfg, mem1, fs1)
 		assert.NoError(t, err)
 		ssm.levels[1].PushBack(fs1)
@@ -487,12 +481,13 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			assert.NoError(t, err)
 			level1Paths[i] = fs.Path()
 
-			mem := InitMemtable(cfg) // Use the test config
+			pairs := make([][2]Bytes, recordsPerFile)
 			for j := 0; j < recordsPerFile; j++ {
 				key := Bytes(fmt.Sprintf("f%d-k%04d", i, j)) // Unique keys
 				value := randStringBytes(valueSize)
-				mem.Put(key, value)
+				pairs[j] = [2]Bytes{key, value}
 			}
+			mem := populateMemtable(cfg, pairs...) // Use the test config
 
 			_, err = Flush(cfg, mem, fs) // Use the test config
 			assert.NoError(t, err)
@@ -574,9 +569,10 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// Level 1 SSTable (Source)
 		fs1, err := ssm.NewSSTableFS(1)
 		assert.NoError(t, err)
-		mem1 := InitMemtable(cfg)
-		mem1.Put(Bytes("keyC"), Bytes("valueC_L1")) // Overwritten by L2
-		mem1.Put(Bytes("keyD"), Bytes("valueD_L1"))
+		mem1 := populateMemtable(cfg,
+			[2]Bytes{Bytes("keyC"), Bytes("valueC_L1")}, // Overwritten by L2
+			[2]Bytes{Bytes("keyD"), Bytes("valueD_L1")},
+		)
 		_, err = Flush(cfg, mem1, fs1)
 		assert.NoError(t, err)
 		ssm.levels[1].PushBack(fs1)
@@ -585,9 +581,10 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// Level 2 SSTable (Overlapping)
 		fs2Overlap, err := ssm.NewSSTableFS(2)
 		assert.NoError(t, err)
-		mem2Overlap := InitMemtable(cfg)
-		mem2Overlap.Put(Bytes("keyB"), Bytes("valueB_L2"))
-		mem2Overlap.Put(Bytes("keyC"), Bytes("valueC_L2")) // Overwrites L1's keyC
+		mem2Overlap := populateMemtable(cfg,
+			[2]Bytes{Bytes("keyB"), Bytes("valueB_L2")},
+			[2]Bytes{Bytes("keyC"), Bytes("valueC_L2")}, // Overwrites L1's keyC
+		)
 		_, err = Flush(cfg, mem2Overlap, fs2Overlap)
 		assert.NoError(t, err)
 		ssm.levels[2].PushBack(fs2Overlap)
@@ -596,8 +593,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// Level 2 SSTable (Non-Overlapping)
 		fs2NoOverlap, err := ssm.NewSSTableFS(2)
 		assert.NoError(t, err)
-		mem2NoOverlap := InitMemtable(cfg)
-		mem2NoOverlap.Put(Bytes("keyA"), Bytes("valueA_L2"))
+		mem2NoOverlap := populateMemtable(cfg,
+			[2]Bytes{Bytes("keyA"), Bytes("valueA_L2")},
+		)
 		_, err = Flush(cfg, mem2NoOverlap, fs2NoOverlap)
 		assert.NoError(t, err)
 		ssm.levels[2].PushBack(fs2NoOverlap)
