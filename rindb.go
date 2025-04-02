@@ -582,3 +582,28 @@ func (r *Rindb) Remove(key Bytes) error {
 	r.memtable.Put(record.GetKey(), record.GetValue())
 	return nil
 }
+
+// Close closes the Rindb instance, ensuring all resources are released.
+func (r *Rindb) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Close the WAL first
+	if err := r.wal.Close(); err != nil {
+		// Log the error but attempt to close SSTableManager anyway
+		ERROR("Error closing WAL: %v", err)
+		// Optionally return the WAL error immediately, or collect errors
+		// return fmt.Errorf("error closing WAL: %w", err)
+	} else {
+		INFO("WAL closed successfully.")
+	}
+
+	// Close the SSTableManager
+	// Assuming SSTableManager.Close() handles potential errors internally or returns them
+	r.ssTableManager.Close() // SSTableManager.Close currently doesn't return an error
+	INFO("SSTableManager closed.")
+
+	// Depending on error handling strategy, you might collect errors and return a combined error.
+	// For now, we prioritize closing both and log errors. If WAL close fails, that error could be returned.
+	return nil // Or return the first error encountered, e.g., the WAL error if it occurred.
+}
