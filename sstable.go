@@ -101,6 +101,37 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	return record.GetValue(), nil
 }
 
+// GetKeyRange returns the minimum and maximum keys in the SStable.
+func (s SStable) GetKeyRange() (Bytes, Bytes) {
+	if len(s.SparseIndex) == 0 {
+		return nil, nil // Or handle as an error, depending on desired behavior
+	}
+	minKey := s.SparseIndex[0].key
+	maxKey := s.SparseIndex[len(s.SparseIndex)-1].key
+	return minKey, maxKey
+}
+
+// Overlaps checks if the SSTable’s key range overlaps with the given range [min, max].
+// Overlap occurs if sstable.min <= max AND sstable.max >= min.
+func (s SStable) Overlaps(min, max Bytes) bool {
+	sstMin, sstMax := s.GetKeyRange()
+	if sstMin == nil || sstMax == nil {
+		return false // Empty sstable cannot overlap
+	}
+
+	// Check if sstable range is entirely before the given range
+	if sstMax.Compare(min) < 0 {
+		return false
+	}
+	// Check if sstable range is entirely after the given range
+	if sstMin.Compare(max) > 0 {
+		return false
+	}
+
+	// Otherwise, there is an overlap
+	return true
+}
+
 func NewSSTable(config Config, fs *FileSystem) (SStable, error) {
 	fileInfo, err := os.Stat(fs.Path())
 	if err != nil {
