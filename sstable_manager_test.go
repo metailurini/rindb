@@ -577,3 +577,128 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.LessOrEqual(t, len(ssm.levels), 2, "No new levels should be created")
 	})
 }
+
+func TestSSTableManager_compactHigherLevel(t *testing.T) {
+	t.Run("compact level 1 into level 2 with overlap", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cfg := NewConfig(WithDatabaseDir(tempDir))
+
+		ssm, err := InitSSTableManager(cfg)
+		assert.NoError(t, err)
+		defer ssm.Close()
+
+		// Ensure levels 1 and 2 exist
+		if len(ssm.levels) < 3 {
+			ssm.levels = append(ssm.levels, make([]*LinkedList[*FileSystem], 3-len(ssm.levels))...)
+		}
+		if ssm.levels[1] == nil {
+			ssm.levels[1] = InitLinkedList[*FileSystem]()
+		}
+		if ssm.levels[2] == nil {
+			ssm.levels[2] = InitLinkedList[*FileSystem]()
+		}
+
+		// --- Create SSTables ---
+		// Level 1 SSTable (Source)
+		fs1, err := ssm.NewSSTableFS(1)
+		assert.NoError(t, err)
+		mem1 := InitMemtable(cfg)
+		mem1.Put(Bytes("keyC"), Bytes("valueC_L1")) // Overwritten by L2
+		mem1.Put(Bytes("keyD"), Bytes("valueD_L1"))
+		sst1, err := Flush(cfg, mem1, fs1)
+		assert.NoError(t, err)
+		ssm.levels[1].PushBack(fs1)
+		fs1Path := fs1.Path() // Store path for later check
+
+		// Level 2 SSTable (Overlapping)
+		fs2Overlap, err := ssm.NewSSTableFS(2)
+		assert.NoError(t, err)
+		mem2Overlap := InitMemtable(cfg)
+		mem2Overlap.Put(Bytes("keyB"), Bytes("valueB_L2"))
+		mem2Overlap.Put(Bytes("keyC"), Bytes("valueC_L2")) // Overwrites L1's keyC
+		_, err = Flush(cfg, mem2Overlap, fs2Overlap)
+		assert.NoError(t, err)
+		ssm.levels[2].PushBack(fs2Overlap)
+		fs2OverlapPath := fs2Overlap.Path() // Store path for later check
+
+		// Level 2 SSTable (Non-Overlapping)
+		fs2NoOverlap, err := ssm.NewSSTableFS(2)
+		assert.NoError(t, err)
+		mem2NoOverlap := InitMemtable(cfg)
+		mem2NoOverlap.Put(Bytes("keyA"), Bytes("valueA_L2"))
+		_, err = Flush(cfg, mem2NoOverlap, fs2NoOverlap)
+		assert.NoError(t, err)
+		ssm.levels[2].PushBack(fs2NoOverlap)
+		fs2NoOverlapPath := fs2NoOverlap.Path() // Store path for later check
+
+		// --- Act ---
+		// Manually call compactHigherLevel (Compact() would normally pick the SSTable)
+		err = ssm.compactHigherLevel(1, ssm.levels[1], 2)
+		assert.NoError(t, err)
+
+		// --- Assert ---
+		// 1. Original files removed?
+		_, err = os.Stat(fs1Path)
+		assert.True(t, os.IsNotExist(err), "Level 1 source SSTable file should be removed")
+		_, err = os.Stat(fs2OverlapPath)
+		assert.True(t, os.IsNotExist(err), "Level 2 overlapping SSTable file should be removed")
+		_, err = os.Stat(fs2NoOverlapPath)
+		assert.NoError(t, err, "Level 2 non-overlapping SSTable file should still exist")
+
+		// 2. Level lists updated?
+		assert.Equal(t, 0, ssm.levels[1].Len(), "Level 1 should be empty after compaction")
+		assert.Equal(t, 2, ssm.levels[2].Len(), "Level 2 should have 2 files (non-overlapping + new merged)")
+
+		// 3. Find the new and old files in Level 2
+		var newMergedFS, oldNonOverlappingFS *FileSystem
+		iter2 := ssm.levels[2].Iterator()
+		for iter2.HasNext() {
+			fs, _ := iter2.Next()
+			if fs.Path() == fs2NoOverlapPath {
+				oldNonOverlappingFS = fs
+			} else {
+				newMergedFS = fs // Assume the other one is the new one
+			}
+		}
+		assert.NotNil(t, newMergedFS, "New merged SSTable FS should be found in level 2")
+		assert.NotNil(t, oldNonOverlappingFS, "Old non-overlapping SSTable FS should be found in level 2")
+		assert.Equal(t, fs2NoOverlapPath, oldNonOverlappingFS.Path())
+
+		// 4. Verify content of the new merged SSTable
+		err = newMergedFS.Open()
+		assert.NoError(t, err)
+		defer newMergedFS.Close()
+		mergedSSTable, err := NewSSTable(cfg, newMergedFS)
+		assert.NoError(t, err)
+
+		// Expected merged content: A(L2), B(L2), C(L2), D(L1)
+		assert.Equal(t, 4, len(mergedSSTable.SparseIndex), "Merged SSTable should have 4 keys")
+
+		val, err := mergedSSTable.GetValue(Bytes("keyA")) // Should not be present
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, val)
+
+		val, err = mergedSSTable.GetValue(Bytes("keyB"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("valueB_L2"), val)
+
+		val, err = mergedSSTable.GetValue(Bytes("keyC"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("valueC_L2"), val) // L2 value takes precedence
+
+		val, err = mergedSSTable.GetValue(Bytes("keyD"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("valueD_L1"), val)
+
+		// 5. Verify content of the non-overlapping SSTable (should be unchanged)
+		err = oldNonOverlappingFS.Open()
+		assert.NoError(t, err)
+		defer oldNonOverlappingFS.Close()
+		nonOverlappingSSTable, err := NewSSTable(cfg, oldNonOverlappingFS)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
+		val, err = nonOverlappingSSTable.GetValue(Bytes("keyA"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("valueA_L2"), val)
+	})
+}
