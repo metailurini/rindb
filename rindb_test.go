@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -176,4 +177,76 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// TestRindb_Put_FlushOnMaxSize tests that the memtable is flushed when maxMemtableSize is reached.
+func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
+	tempDir := t.TempDir()
+	maxSize := uint(3) // Set a small memtable size for testing
+	opts := []Option{
+		WithDatabaseDir(tempDir),
+		WithMaxMemtableSize(maxSize),
+	}
+	cfg := NewConfig(opts...)
+
+	rin, err := InitRinDB(opts...)
+	assert.NoError(t, err)
+	// Note: InitRinDB loads WAL, so memtable might not be empty initially if WAL existed.
+	// We'll rely on the Put logic to trigger the flush regardless of initial state.
+
+	// Insert items up to the max size
+	keys := make([]Bytes, 0, maxSize+1)
+	for i := 0; i < int(maxSize); i++ {
+		key := Bytes(fmt.Sprintf("key%d", i))
+		value := Bytes(fmt.Sprintf("value%d", i))
+		keys = append(keys, key)
+		err = rin.Put(key, value)
+		assert.NoError(t, err)
+		// Memtable size should increase until flush
+		assert.LessOrEqual(t, rin.memtable.data.Len(), maxSize, "Memtable size should be <= maxSize before flush")
+	}
+
+	// At this point, memtable should be full (or close if WAL loaded some)
+	assert.Equal(t, maxSize, rin.memtable.data.Len(), "Memtable should be full before the triggering Put")
+
+	// Insert one more item to trigger the flush
+	triggerKey := Bytes(fmt.Sprintf("key%d", maxSize))
+	triggerValue := Bytes(fmt.Sprintf("value%d", maxSize))
+	keys = append(keys, triggerKey)
+	err = rin.Put(triggerKey, triggerValue)
+	assert.NoError(t, err)
+
+	// Memtable should be cleared after flush
+	assert.Equal(t, uint(0), rin.memtable.data.Len(), "Memtable should be empty after flush")
+
+	// Verify an SSTable file was created in level 0
+	files, err := os.ReadDir(cfg.databaseDir)
+	assert.NoError(t, err)
+	foundSSTable := false
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "l00_") && strings.HasSuffix(file.Name(), ".sst") {
+			foundSSTable = true
+			// Check if the SSTable is not empty (basic check)
+			info, statErr := file.Info()
+			assert.NoError(t, statErr)
+			assert.Greater(t, info.Size(), int64(0), "SSTable file should not be empty")
+			break
+		}
+	}
+	assert.True(t, foundSSTable, "Level 0 SSTable file should exist after flush")
+
+	// Verify all keys can still be retrieved (from the new SSTable)
+	for i, key := range keys {
+		expectedValue := Bytes(fmt.Sprintf("value%d", i))
+		value, getErr := rin.Get(key)
+		assert.NoError(t, getErr, "Error getting key %s after flush", string(key))
+		assert.Equal(t, expectedValue, value, "Value mismatch for key %s after flush", string(key))
+	}
+
+	// Verify WAL was cleaned (optional but good)
+	walInfo, err := os.Stat(filepath.Join(cfg.databaseDir, "WAL"))
+	assert.NoError(t, err)
+	// Check if WAL size is 0 or very small (metadata only) after clean
+	// This threshold might need adjustment based on WAL implementation details
+	assert.LessOrEqual(t, walInfo.Size(), int64(16), "WAL file should be empty or very small after flush and clean")
 }
