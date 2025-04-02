@@ -3,9 +3,9 @@ package rindb
 import (
 	"fmt"
 	"math/rand"
-	"sync"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 

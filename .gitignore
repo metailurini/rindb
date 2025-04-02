@@ -13,3 +13,4 @@ obj/
 # test data
 testdata/*
 !testdata/.keep
+.aider*
