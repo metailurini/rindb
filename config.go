@@ -48,6 +48,8 @@ func DefaultConfig() Config {
 		databaseDir:               "rindat",
 		maxMemtableSize:           1000,
 		level0CompactionThreshold: 2,
+		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
+		levelSizeMultiplier:       10, // Default: Level N threshold = base * (multiplier^N)
 		bloomFalsePositiveRate:    0.01,
 		skipListDefaultLevel:      2,
 		skipListMaxLevel:          32,
