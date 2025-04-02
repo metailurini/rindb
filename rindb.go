@@ -165,59 +165,135 @@ func (h *SSTableManager) Compact() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	levelNumb := 0
-	for levelNumb != len(h.levels) {
-		// Check if the level exists before accessing it
-		if levelNumb >= len(h.levels) || h.levels[levelNumb] == nil {
-			// This level doesn't exist or is nil, move to the next
-			levelNumb++
+	// Iterate through each level to check if compaction is needed.
+	// We iterate up to the current number of levels. Compaction might create a new level,
+	// but the check happens based on the state *before* compaction starts for that iteration.
+	for levelNumb := 0; levelNumb < len(h.levels); levelNumb++ {
+		// Check if the level exists (it might be nil if levels were skipped during creation)
+		if h.levels[levelNumb] == nil {
+			// This level doesn't exist, move to the next
 			continue
 		}
 		level := h.levels[levelNumb]
 
+		// *** Integration Point ***
+		// Check if this level meets the criteria for compaction.
+		if !h.shouldCompact(levelNumb, level) {
+			// If the level does not need compaction, skip to the next level.
+			INFO("Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len()) // Added more info to log
+			continue // Move to the next levelNumb
+		}
+
+		// If we reach here, the level needs compaction.
+		INFO("Level %d (size/count: %d) requires compaction.", levelNumb, level.Len()) // Added more info to log
+
+		// --- Existing Compaction Logic (with potential issues noted in comments) ---
+
+		// TODO: The compaction strategy below needs review.
+		// Standard LSM compaction usually involves merging selected files from level N
+		// with overlapping files in level N+1, not merging arbitrary batches within level N
+		// and pushing them all to N+1. Level 0 compaction is also typically different.
+
 		const bufferFileCount = 2
+		// This threshold seems arbitrary and related to batching, not selection.
 		thresholdFileCount := levelNumb + bufferFileCount
 		pickedUpSSTable := make([]SStable, 0, thresholdFileCount)
 
 		/*
-			how can we define and detect threshold properly?
+			The comment "how can we define and detect threshold properly?"
+			is now partially addressed by the `shouldCompact` check above, which decides *if*
+			compaction runs. However, the logic *within* the compaction (which files to pick)
+			still needs refinement for a proper LSM strategy.
 		*/
 
 		levelIterator := level.Iterator()
+		// This loop iterates through ALL SSTables in the level if shouldCompact was true.
+		// This is likely NOT the desired behavior for levels > 0 in standard LSM.
 		for levelIterator.HasNext() {
+			// This batching logic seems incorrect for standard LSM.
+			// It merges fixed-size batches regardless of key ranges.
 			if len(pickedUpSSTable) == thresholdFileCount {
 				newLevelNumb := levelNumb + 1
+				INFO("Merging batch of %d SSTables from level %d into level %d", len(pickedUpSSTable), levelNumb, newLevelNumb)
 
+				// mergeSSTables removes the source files upon success.
 				err := h.mergeSSTables(newLevelNumb, pickedUpSSTable)
 				if err != nil {
+					// CRITICAL: Error handling needs improvement.
+					// If merge fails, the files in pickedUpSSTable have been removed
+					// from the level's linked list by PickNext but not physically deleted,
+					// and the new merged file might be incomplete or non-existent.
+					// The state is inconsistent. Need a recovery mechanism or rollback.
+					ERROR("Error merging SSTables during compaction: %v. State may be inconsistent.", err)
+					// For now, just return the error, but this is not robust.
 					return err
 				}
 
-				pickedUpSSTable = make([]SStable, 0)
+				// Reset the batch
+				pickedUpSSTable = make([]SStable, 0, thresholdFileCount)
 			}
 
+			// PickNext REMOVES the file system from the linked list *before* merging.
+			// This is risky if subsequent operations fail.
 			fs, err := levelIterator.PickNext()
 			if err != nil {
+				ERROR("Error picking next SSTable from level %d iterator: %v", levelNumb, err)
+				// State might be inconsistent if some files were already picked.
 				return err
 			}
 
+			// Open the file system for the SSTable
 			if err := fs.Open(); err != nil {
+				ERROR("Error opening SSTable file %s for compaction: %v", fs.Path(), err)
+				// The file is already removed from the list. Need to handle this.
+				// Maybe try to put it back? Or log and continue? Returning is safest for now.
 				return err
 			}
 
+			// Create the SStable object (reads metadata, bloom filter, index)
 			sstable, err := NewSSTable(h.config, fs)
 			if err != nil {
+				// If NewSSTable fails (e.g., corrupted file), close the FS.
+				_ = fs.Close()
+				ERROR("Error creating SStable object for %s: %v", fs.Path(), err)
+				// File already removed from list. State inconsistent.
 				return err
 			}
 
+			// Add the successfully opened SStable to the batch.
 			pickedUpSSTable = append(pickedUpSSTable, sstable)
+		} // End of iterating through SSTables in the level
+
+		// --- Handle any remaining picked up SSTables after the loop finishes ---
+		if len(pickedUpSSTable) > 0 {
+			newLevelNumb := levelNumb + 1
+			INFO("Merging final batch of %d SSTables from level %d into level %d", len(pickedUpSSTable), levelNumb, newLevelNumb)
+			err := h.mergeSSTables(newLevelNumb, pickedUpSSTable)
+			if err != nil {
+				ERROR("Error merging final batch of SSTables during compaction: %v. State may be inconsistent.", err)
+				return err
+			}
+			// No need to reset pickedUpSSTable here.
 		}
+		// --- End of handling remaining SSTables ---
+
+		// --- Remove the original code block that put files back ---
+		/*
+		The following block was in the original code. It doesn't make sense to put
+		FileSystem objects back into the level list *after* they have been successfully
+		merged (mergeSSTables should handle their removal/cleanup). If merging failed,
+		a more robust error handling/rollback mechanism is needed than just putting
+		the FS pointers back. Removing this block.
 
 		for _, fs := range pickedUpSSTable {
 			level.PushBack(fs.FileSystem)
 		}
-		levelNumb += 1
-	}
+		*/
+
+		// After successfully compacting levelNumb (or deciding not to),
+		// the outer loop will increment levelNumb to check the next level.
+
+	} // End of iterating through levels
 	return nil
 }
 
