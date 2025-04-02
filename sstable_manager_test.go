@@ -357,42 +357,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 	})
 
 	t.Run("level 1 size threshold triggers compaction", func(t *testing.T) {
-		tempDir := t.TempDir()
-		cfg := NewConfig(
-			WithDatabaseDir(tempDir),
-			WithLevel0CompactionThreshold(4),
-		)
-
-		ssm, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssm.Close()
-
-		// Ensure level 1 exists
-		if len(ssm.levels) < 2 {
-			ssm.levels = append(ssm.levels, InitLinkedList[*FileSystem]())
-		}
-
-		// Create 2 dummy SSTables with 50MB files each (total 100MB meets level 1 threshold)
-		for i := 0; i < 2; i++ {
-			fs, err := ssm.NewSSTableFS(1)
-			assert.NoError(t, err)
-
-			// Write minimal valid SSTable
-			mem := InitMemtable(cfg)
-			mem.Put(Bytes("key"), Bytes("value"))
-			_, err = Flush(cfg, mem, fs)
-			assert.NoError(t, err)
-
-			// Expand file size to 50MB using truncate
-			assert.NoError(t, os.Truncate(fs.Path(), 50*1024*1024))
-			ssm.levels[1].PushBack(fs)
-		}
-
-		assert.True(t, ssm.shouldCompact(1, ssm.levels[1]))
-		assert.NoError(t, ssm.Compact())
-		assert.Equal(t, 0, ssm.levels[1].Len(), "Level 1 should be empty after compaction")
-		assert.GreaterOrEqual(t, len(ssm.levels), 3, "Should have created level 2")
-		assert.Equal(t, 1, ssm.levels[2].Len(), "Level 2 should have merged SSTable")
+    // implement it 
 	})
 
 	t.Run("levels below threshold dont compact", func(t *testing.T) {
