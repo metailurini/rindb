@@ -605,7 +605,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		mem1 := InitMemtable(cfg)
 		mem1.Put(Bytes("keyC"), Bytes("valueC_L1")) // Overwritten by L2
 		mem1.Put(Bytes("keyD"), Bytes("valueD_L1"))
-		sst1, err := Flush(cfg, mem1, fs1)
+		_, err = Flush(cfg, mem1, fs1)
 		assert.NoError(t, err)
 		ssm.levels[1].PushBack(fs1)
 		fs1Path := fs1.Path() // Store path for later check
@@ -633,7 +633,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		// --- Act ---
 		// Manually call compactHigherLevel (Compact() would normally pick the SSTable)
-		err = ssm.compactHigherLevel(1, ssm.levels[1], 2)
+		err = ssm.compactHigherLevel(ssm.levels[1], 2)
 		assert.NoError(t, err)
 
 		// --- Assert ---
@@ -671,8 +671,8 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		mergedSSTable, err := NewSSTable(cfg, newMergedFS)
 		assert.NoError(t, err)
 
-		// Expected merged content: A(L2), B(L2), C(L2), D(L1)
-		assert.Equal(t, 4, len(mergedSSTable.SparseIndex), "Merged SSTable should have 4 keys")
+		// Expected merged content: B(L2), C(L2), D(L1)
+		assert.Equal(t, 3, len(mergedSSTable.SparseIndex), "Merged SSTable should have 3 keys")
 
 		val, err := mergedSSTable.GetValue(Bytes("keyA")) // Should not be present
 		assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -684,7 +684,8 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		val, err = mergedSSTable.GetValue(Bytes("keyC"))
 		assert.NoError(t, err)
-		assert.Equal(t, Bytes("valueC_L2"), val) // L2 value takes precedence
+		// assert.Equal(t, Bytes("valueC_L2"), val) // L2 value takes precedence
+		assert.Equal(t, Bytes("valueC_L1"), val) // Level 1 is newer
 
 		val, err = mergedSSTable.GetValue(Bytes("keyD"))
 		assert.NoError(t, err)
