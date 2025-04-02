@@ -10,6 +10,13 @@ type Config struct {
 	// level0CompactionThreshold triggers compaction when level 0 has more than threshold
 	level0CompactionThreshold int
 
+	// baseCompactionSizeMB is the base size in MB for level 1 compaction threshold.
+	// Level N threshold = baseCompactionSizeMB * (levelSizeMultiplier ^ N) * 1024 * 1024 bytes.
+	baseCompactionSizeMB int
+
+	// levelSizeMultiplier is the multiplier for calculating compaction thresholds for levels > 0.
+	levelSizeMultiplier int
+
 	// bloomFalsePositiveRate sets the Bloom filter’s false positive rate.
 	bloomFalsePositiveRate float64
 
@@ -59,6 +66,14 @@ func WithMaxMemtableSize(size uint) Option {
 
 func WithLevel0CompactionThreshold(threshold int) Option {
 	return func(c *Config) { c.level0CompactionThreshold = threshold }
+}
+
+func WithBaseCompactionSizeMB(size int) Option {
+	return func(c *Config) { c.baseCompactionSizeMB = size }
+}
+
+func WithLevelSizeMultiplier(multiplier int) Option {
+	return func(c *Config) { c.levelSizeMultiplier = multiplier }
 }
 
 func WithBloomFalsePositiveRate(rate float64) Option {
