@@ -487,8 +487,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		for _, sst := range level1SSTables {
 			// File should already be closed by mergeSSTables implicitly via os.Remove
 			// Let's ensure the SStable object's reference is closed if needed
-			if sst.FileSystem != nil && sst.FileSystem.IsOpened() {
-				sst.FileSystem.Close()
+			if sst.FileSystem != nil && sst.IsOpened() {
+				sst.Close()
 			}
 		}
 	})
