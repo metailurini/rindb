@@ -146,24 +146,47 @@ func (h *SSTableManager) Close() {
 }
 
 func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSystem]) bool {
-	const (
-		level0Threshold = 4
-		baseLevelSizeMB = 10 // MB
-	)
+	// No longer need internal constants
+
+	if level == nil || level.Len() == 0 {
+		return false // Cannot compact an empty or non-existent level
+	}
 
 	if levelNumb == 0 {
-		return level.Len() >= level0Threshold
+		// Use the config value for L0 threshold
+		return level.Len() >= h.config.level0CompactionThreshold
 	}
-	totalSize := 0
+
+	// Calculate total size in Bytes for higher levels
+	var totalSizeBytes int64 // Use int64 to avoid overflow
 	iter := level.Iterator()
 	for iter.HasNext() {
-		fs, _ := iter.Next()
-		info, err := os.Stat(fs.filePath)
-		if err == nil {
-			totalSize += int(info.Size() / (1024 * 1024)) // Convert to MB
+		fs, err := iter.Next() // Use Next, no need to PickNext here
+		if err != nil {
+			ERROR("Error iterating level %d for size check: %v", levelNumb, err)
+			continue // Skip problematic entries
 		}
+		info, err := os.Stat(fs.filePath)
+		if err != nil {
+			// Log error if file cannot be stated, might indicate an issue
+			ERROR("Error stating file %s for size check: %v", fs.filePath, err)
+			continue // Skip files we can't stat
+		}
+		totalSizeBytes += info.Size()
 	}
-	return totalSize >= baseLevelSizeMB*int(math.Pow(10, float64(levelNumb)))
+
+	// Calculate the threshold for this level using config values
+	// Ensure multiplier is at least 1 to avoid issues with Pow(0) or negative powers
+	multiplier := h.config.levelSizeMultiplier
+	if multiplier < 1 {
+		WARN("levelSizeMultiplier is %d, using 1 instead for threshold calculation.", multiplier)
+		multiplier = 1 // Prevent multiplier < 1
+	}
+	// Use float64 for Pow, then convert threshold to int64 bytes for comparison
+	levelThresholdBytes := int64(h.config.baseCompactionSizeMB) * int64(math.Pow(float64(multiplier), float64(levelNumb))) * 1024 * 1024
+
+	// Compare total bytes with threshold bytes
+	return totalSizeBytes >= levelThresholdBytes
 }
 
 func (h *SSTableManager) Compact() error {
