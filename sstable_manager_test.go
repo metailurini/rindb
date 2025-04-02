@@ -126,8 +126,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 	})
 
 	t.Run("Key in level 0 only", func(t *testing.T) {
-		// TODO: Fix this test
-		t.Skip("Skipping TestSSTableManager_SearchKey")
 		ssTableManager, err := InitSSTableManager(cfg)
 		assert.NoError(t, err)
 		defer ssTableManager.Close()
@@ -144,7 +142,11 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.NoError(t, err)
 
 		if len(ssTableManager.levels) == 0 {
+			// If the levels slice is empty, add a new list for level 0
 			ssTableManager.levels = append(ssTableManager.levels, InitLinkedList[*FileSystem]())
+		} else if ssTableManager.levels[0] == nil {
+			// If the slice has space but level 0 is nil (less likely here, but good practice)
+			ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
 		}
 		ssTableManager.levels[0].PushBack(fs)
 
