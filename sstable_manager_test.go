@@ -331,6 +331,11 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.NoError(t, err)
 		defer ssm.Close()
 
+		// Initialize level 0 if needed
+		if len(ssm.levels) == 0 {
+			ssm.levels = append(ssm.levels, InitLinkedList[*FileSystem]())
+		}
+
 		// Create 4 SSTables in level 0
 		for i := 0; i < 4; i++ {
 			fs, err := ssm.NewSSTableFS(0)
