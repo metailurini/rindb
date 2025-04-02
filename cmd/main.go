@@ -15,6 +15,7 @@ func main() {
 		return
 	}
 	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, exit")
+	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
