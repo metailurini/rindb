@@ -256,23 +256,43 @@ func (h *SSTableManager) compactLevel0(level *LinkedList[*FileSystem], newLevelN
 }
 
 func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newLevelNumb int) error {
-	// Pick one SSTable to compact
+	// Pick *all* SSTables from the source level to compact
+	var sstablesToMerge []SStable
 	iter := level.Iterator()
-	fs, err := iter.PickNext()
-	if err != nil {
-		return err
+	for iter.HasNext() {
+		fs, err := iter.PickNext() // Removes from the source level list
+		if err != nil {
+			// Attempt to close any already opened SSTables before returning error
+			for _, sst := range sstablesToMerge {
+				_ = sst.Close()
+			}
+			return fmt.Errorf("error picking next SSTable from level: %w", err)
+		}
+		if err := fs.Open(); err != nil {
+			// Attempt to close any already opened SSTables before returning error
+			for _, sst := range sstablesToMerge {
+				_ = sst.Close()
+			}
+			return fmt.Errorf("error opening picked SSTable %s: %w", fs.Path(), err)
+		}
+		sstable, err := NewSSTable(h.config, fs)
+		if err != nil {
+			_ = fs.Close()
+			// Attempt to close any already opened SSTables before returning error
+			for _, sst := range sstablesToMerge {
+				_ = sst.Close()
+			}
+			return fmt.Errorf("error creating SStable object for %s: %w", fs.Path(), err)
+		}
+		sstablesToMerge = append(sstablesToMerge, sstable)
 	}
-	if err := fs.Open(); err != nil {
-		return err
-	}
-	sstable, err := NewSSTable(h.config, fs)
-	if err != nil {
-		_ = fs.Close()
-		return err
-	}
-	sstablesToMerge := []SStable{sstable}
 
-	// Find overlapping SSTables in the next level
+	if len(sstablesToMerge) == 0 {
+		WARN("compactHigherLevel called on an empty or already processed level.")
+		return nil // Nothing to merge
+	}
+
+	// Find overlapping SSTables in the next level based on the combined range of source SSTables
 	overlappingSSTables, err := h.findOverlappingSSTables(newLevelNumb, sstablesToMerge)
 	if err != nil {
 		return err
