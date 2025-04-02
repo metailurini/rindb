@@ -76,3 +76,7 @@ func WithSkipListMaxLevel(maxLevel uint) Option {
 func WithSkipListP(p float64) Option {
 	return func(c *Config) { c.skipListP = p }
 }
+
+func WithDatabaseDir(dir string) Option {
+	return func(c *Config) { c.databaseDir = dir }
+}
