@@ -89,15 +89,6 @@ func TestNewConfigWithOptions(t *testing.T) {
 			name: "WithBloomFalsePositiveRate",
 			opts: []Option{WithBloomFalsePositiveRate(0.05)},
 			verify: func(t *testing.T, cfg Config) {
-				if cfg.level0CompactionThreshold != 10 {
-					t.Errorf("level0CompactionThreshold = %v, want %v", cfg.level0CompactionThreshold, 10)
-				}
-			},
-		},
-		{
-			name: "WithBloomFalsePositiveRate",
-			opts: []Option{WithBloomFalsePositiveRate(0.05)},
-			verify: func(t *testing.T, cfg Config) {
 				if cfg.bloomFalsePositiveRate != 0.05 {
 					t.Errorf("bloomFalsePositiveRate = %v, want %v", cfg.bloomFalsePositiveRate, 0.05)
 				}
