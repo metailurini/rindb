@@ -10,8 +10,8 @@ func TestDefaultConfig(t *testing.T) {
 
 	tests := []struct {
 		name string
-		got  interface{}
-		want interface{}
+		got  any
+		want any
 	}{
 		{"databaseDir", cfg.databaseDir, "rindat"},
 		{"maxMemtableSize", cfg.maxMemtableSize, uint(1000)},
