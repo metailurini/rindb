@@ -244,7 +244,7 @@ func TestLinkedListRemoveCurrent(t *testing.T) {
 		l := InitLinkedList[int]()
 		l.PushBack(1)
 		iterator := l.Iterator()
-		_, _ = iterator.Next() // -> 1
+		_, _ = iterator.Next()    // -> 1
 		_, err := iterator.Next() // -> EOI, iterator.runNode might become nil depending on impl.
 		assert.ErrorIs(t, err, EOI)
 
