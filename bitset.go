@@ -1,6 +1,8 @@
 package rindb
 
-import "log"
+import (
+	"log"
+)
 
 const (
 	bitSize = 64
