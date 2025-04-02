@@ -526,8 +526,6 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	return ssTableManager.searchKey(key)
 }
 
-const maxMemtableSize = 1000
-
 func (r *Rindb) Put(key, value Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
