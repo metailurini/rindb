@@ -288,7 +288,6 @@ func mergeSSTables(config Config, target *FileSystem, sources []SStable) (SStabl
 			if err != nil {
 				return SStable{}, err
 			}
-			// TODO: add logic/test ignore deleted record
 			memtable.Put(record.GetKey(), record.GetValue())
 		}
 	}
