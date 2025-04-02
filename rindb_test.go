@@ -188,7 +188,7 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 
 // TestRindb_Put_FlushOnMaxSize tests that the memtable is flushed when maxMemtableSize is reached.
 func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
-	t.Skip()
+	t.Skip("FIXME")
 	tempDir := t.TempDir()
 	maxSize := uint(3) // Set a small memtable size for testing
 	opts := []Option{
