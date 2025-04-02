@@ -4,11 +4,37 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// createDummyFile creates a file of the specified size in MB.
+func createDummyFile(t *testing.T, dir string, fileName string, sizeMB int) string {
+	t.Helper()
+	filePath := filepath.Join(dir, fileName)
+	sizeBytes := int64(sizeMB) * 1024 * 1024
+	file, err := os.Create(filePath)
+	assert.NoError(t, err)
+	defer func() { assert.NoError(t, file.Close()) }()
+
+	// Seek to the desired size - 1 and write a single byte
+	if sizeBytes > 0 {
+		_, err = file.Seek(sizeBytes-1, 0)
+		assert.NoError(t, err)
+		_, err = file.Write([]byte{0})
+		assert.NoError(t, err)
+	} else {
+		// Ensure the file is empty if sizeMB is 0
+		err = file.Truncate(0)
+		assert.NoError(t, err)
+	}
+
+	return filePath
+}
 
 func testOptions() []Option {
 	return []Option{
@@ -150,4 +176,116 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// TestSSTableManager_shouldCompact tests the logic for deciding when to compact a level.
+func TestSSTableManager_shouldCompact(t *testing.T) {
+	cfg := testConfig()
+	// Use t.TempDir() for automatic cleanup
+	tempDir := t.TempDir()
+	cfg.databaseDir = tempDir // Override databaseDir for this test
+
+	manager, err := InitSSTableManager(cfg)
+	assert.NoError(t, err)
+
+	// Helper to create a FileSystem linked list
+	createLevelList := func(filePaths ...string) *LinkedList[*FileSystem] {
+		list := InitLinkedList[*FileSystem]()
+		for _, p := range filePaths {
+			list.PushBack(&FileSystem{filePath: p})
+		}
+		return list
+	}
+
+	t.Run("Level0_BelowThreshold", func(t *testing.T) {
+		// level0Threshold is 4
+		paths := []string{
+			createDummyFile(t, tempDir, "l0_1.sst", 1),
+			createDummyFile(t, tempDir, "l0_2.sst", 1),
+			createDummyFile(t, tempDir, "l0_3.sst", 1),
+		}
+		levelList := createLevelList(paths...)
+		assert.False(t, manager.shouldCompact(0, levelList))
+	})
+
+	t.Run("Level0_AtThreshold", func(t *testing.T) {
+		// level0Threshold is 4
+		paths := []string{
+			createDummyFile(t, tempDir, "l0_4.sst", 1),
+			createDummyFile(t, tempDir, "l0_5.sst", 1),
+			createDummyFile(t, tempDir, "l0_6.sst", 1),
+			createDummyFile(t, tempDir, "l0_7.sst", 1),
+		}
+		levelList := createLevelList(paths...)
+		assert.True(t, manager.shouldCompact(0, levelList))
+	})
+
+	t.Run("Level0_AboveThreshold", func(t *testing.T) {
+		// level0Threshold is 4
+		paths := []string{
+			createDummyFile(t, tempDir, "l0_8.sst", 1),
+			createDummyFile(t, tempDir, "l0_9.sst", 1),
+			createDummyFile(t, tempDir, "l0_10.sst", 1),
+			createDummyFile(t, tempDir, "l0_11.sst", 1),
+			createDummyFile(t, tempDir, "l0_12.sst", 1),
+		}
+		levelList := createLevelList(paths...)
+		assert.True(t, manager.shouldCompact(0, levelList))
+	})
+
+	t.Run("Level1_BelowThreshold", func(t *testing.T) {
+		// Threshold = 10 * 10^1 = 100 MB
+		paths := []string{
+			createDummyFile(t, tempDir, "l1_1.sst", 50),
+			createDummyFile(t, tempDir, "l1_2.sst", 49), // Total 99MB
+		}
+		levelList := createLevelList(paths...)
+		assert.False(t, manager.shouldCompact(1, levelList))
+	})
+
+	t.Run("Level1_AtThreshold", func(t *testing.T) {
+		// Threshold = 10 * 10^1 = 100 MB
+		paths := []string{
+			createDummyFile(t, tempDir, "l1_3.sst", 50),
+			createDummyFile(t, tempDir, "l1_4.sst", 50), // Total 100MB
+		}
+		levelList := createLevelList(paths...)
+		assert.True(t, manager.shouldCompact(1, levelList))
+	})
+
+	t.Run("Level1_AboveThreshold", func(t *testing.T) {
+		// Threshold = 10 * 10^1 = 100 MB
+		paths := []string{
+			createDummyFile(t, tempDir, "l1_5.sst", 50),
+			createDummyFile(t, tempDir, "l1_6.sst", 51), // Total 101MB
+		}
+		levelList := createLevelList(paths...)
+		assert.True(t, manager.shouldCompact(1, levelList))
+	})
+
+	t.Run("Level2_BelowThreshold", func(t *testing.T) {
+		// Threshold = 10 * 10^2 = 1000 MB
+		paths := []string{
+			createDummyFile(t, tempDir, "l2_1.sst", 500),
+			createDummyFile(t, tempDir, "l2_2.sst", 499), // Total 999MB
+		}
+		levelList := createLevelList(paths...)
+		assert.False(t, manager.shouldCompact(2, levelList))
+	})
+
+	t.Run("Level2_AtThreshold", func(t *testing.T) {
+		// Threshold = 10 * 10^2 = 1000 MB
+		paths := []string{
+			createDummyFile(t, tempDir, "l2_3.sst", 500),
+			createDummyFile(t, tempDir, "l2_4.sst", 500), // Total 1000MB
+		}
+		levelList := createLevelList(paths...)
+		assert.True(t, manager.shouldCompact(2, levelList))
+	})
+
+	t.Run("EmptyLevel", func(t *testing.T) {
+		levelList := createLevelList() // Empty list
+		assert.False(t, manager.shouldCompact(0, levelList))
+		assert.False(t, manager.shouldCompact(1, levelList))
+	})
 }
