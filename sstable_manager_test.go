@@ -356,19 +356,16 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.Equal(t, 1, ssm.levels[1].Len(), "Level 1 should have merged SSTable")
 	})
 
-	t.Run("level 1 size threshold triggers compaction", func(t *testing.T) {
+	// New test case using configurable thresholds
+	t.Run("level 1 size above threshold triggers compaction (lowered threshold)", func(t *testing.T) {
 		tempDir := t.TempDir()
-		// Use a smaller size for testing to avoid creating huge files
-		// Let's simulate a 1MB threshold for level 1 instead of 100MB
-		// We need to adjust the base size or the power calculation in shouldCompact
-		// For simplicity in the test, let's assume shouldCompact uses a smaller base size for testing.
-		// Or, we can create files that *actually* exceed 100MB, but that's slow.
-		// Let's stick to the logic but use smaller files and *assume* they cross a hypothetical threshold.
-		// We'll create two files, each ~600KB, to simulate crossing a 1MB threshold.
-
+		// Configure low thresholds for easy testing
+		// Level 1 threshold = 1MB * (2^1) = 2MB
 		cfg := NewConfig(
 			WithDatabaseDir(tempDir),
-			// Keep other defaults
+			WithLevel0CompactionThreshold(2), // Low L0 threshold (doesn't affect this test directly)
+			WithBaseCompactionSizeMB(1),      // Low base size: 1MB
+			WithLevelSizeMultiplier(2),       // Low multiplier: 2x per level
 		)
 
 		ssm, err := InitSSTableManager(cfg)
@@ -386,111 +383,81 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			ssm.levels[1] = InitLinkedList[*FileSystem]()
 		}
 
-		// Create 2 SSTables in level 1
 		numFiles := 2
-		recordsPerFile := 600 // Approx 600 * (10 + 1024 + 16) bytes ~ 630KB
+		// Need > 2MB total. Estimate ~1050 bytes/record (10b key, 1k val, 16b meta).
+		// 2MB / 1050 bytes/rec ≈ 1950 records. Let's use 1000 per file (total ~2.1MB).
+		recordsPerFile := 1000
+		valueSize := 1024 // 1KB values
 
+		level1Paths := make([]string, numFiles)
+		var totalSize int64
+
+		INFO("Creating SSTables for Level 1 (target > 2MB total)...")
 		for i := 0; i < numFiles; i++ {
 			fs, err := ssm.NewSSTableFS(1) // Create in level 1
 			assert.NoError(t, err)
+			level1Paths[i] = fs.Path()
 
-			mem := InitMemtable(cfg)
+			mem := InitMemtable(cfg) // Use the test config
 			for j := 0; j < recordsPerFile; j++ {
-				key := Bytes(fmt.Sprintf("file%d-key%d", i, j))
-				value := randStringBytes(1024) // 1KB value
+				key := Bytes(fmt.Sprintf("f%d-k%04d", i, j)) // Unique keys
+				value := randStringBytes(valueSize)
 				mem.Put(key, value)
 			}
-			_, err = Flush(cfg, mem, fs)
+
+			_, err = Flush(cfg, mem, fs) // Use the test config
 			assert.NoError(t, err)
+
+			info, statErr := os.Stat(fs.Path())
+			assert.NoError(t, statErr)
+			totalSize += info.Size()
+			INFO("Created Level 1 SSTable %s, size: %d bytes", fs.Path(), info.Size())
 
 			ssm.levels[1].PushBack(fs)
+			err = fs.Close() // Close after flush, Compact will reopen if needed
+			assert.NoError(t, err)
 		}
 
-		// *** Simulate a lower threshold for testing ***
-		// The actual threshold is 100MB. We check if our files *would* trigger compaction
-		// if the threshold was, say, 1MB.
-		// This requires modifying shouldCompact or accepting this test doesn't *strictly*
-		// test the 100MB limit but the *mechanism* of size-based compaction.
-		// Let's assume the mechanism works and test the flow.
+		// Calculate the threshold used in this test
+		level1ThresholdBytes := int64(cfg.baseCompactionSizeMB) * int64(math.Pow(float64(cfg.levelSizeMultiplier), 1.0)) * 1024 * 1024
+		INFO("Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
+			totalSize, float64(totalSize)/(1024*1024),
+			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
-		// Calculate actual size to confirm it's non-trivial
-		var totalSize int64
-		iter := ssm.levels[1].Iterator()
-		for iter.HasNext() {
-			fs, _ := iter.Next()
-			info, err := os.Stat(fs.Path())
-			assert.NoError(t, err)
-			totalSize += info.Size()
-		}
-		INFO("Level 1 total size: %d bytes", totalSize)
-		// Assert the size is roughly what we expect (e.g., > 1MB)
-		assert.Greater(t, totalSize, int64(1*1024*1024), "Total size should be > 1MB for test validity")
+		// Sanity check: Ensure total size exceeds the *lowered* threshold
+		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
+		assert.Equal(t, numFiles, ssm.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
 
-		// We *expect* shouldCompact to be true based on the *real* threshold logic,
-		// even though our test files are smaller. If shouldCompact's logic changes,
-		// this test might need adjustment. For now, we assume the logic is fixed.
-		// Let's *force* the test condition by temporarily adjusting the threshold logic
-		// ONLY for this test scenario if needed, or mock it.
-		// Given the current structure, let's proceed assuming the *real* threshold
-		// logic applies, and this test verifies the *compaction flow* when triggered.
-		// We'll manually check if the size *would* trigger the real threshold (it won't).
-		// So, this test as written *won't* trigger compaction based on size.
-
-		// --- REVISED APPROACH: Test the *flow* by manually triggering ---
-		// Since creating 100MB is slow, let's manually call mergeSSTables
-		// to simulate what Compact() *would* do if the threshold *was* met.
-		// This tests the merge logic and level transition.
-
-		// 1. Get the FileSystem objects from level 1
-		level1Files := make([]*FileSystem, 0, ssm.levels[1].Len())
-		level1SSTables := make([]SStable, 0, ssm.levels[1].Len())
-		iter1 := ssm.levels[1].Iterator()
-		for iter1.HasNext() {
-			fs, _ := iter1.Next()
-			level1Files = append(level1Files, fs)
-			// Open FS to create SStable object
-			err := fs.Open()
-			assert.NoError(t, err)
-			sstable, err := NewSSTable(cfg, fs)
-			assert.NoError(t, err)
-			level1SSTables = append(level1SSTables, sstable)
-			// Keep FS open for mergeSSTables
-		}
-
-		// 2. Manually call mergeSSTables to simulate compaction trigger
-		err = ssm.mergeSSTables(2, level1SSTables) // Merge into level 2
+		// Act: Call Compact(). This should trigger compaction for Level 1 based on size.
+		INFO("Calling Compact()...")
+		err = ssm.Compact()
 		assert.NoError(t, err)
+		INFO("Compact() finished.")
 
-		// 3. Assert level 1 is now empty (files were removed by mergeSSTables)
-		// We need to update the list in the manager manually since Compact() wasn't called
-		ssm.levels[1] = InitLinkedList[*FileSystem]() // Simulate removal
+		// Assert:
+		// 1. Level 1 should now be empty.
+		assert.Equal(t, 0, ssm.levels[1].Len(), "Level 1 should be empty after compaction")
 
-		// 4. Assert level 2 exists and has 1 file
+		// 2. Level 2 should exist and contain exactly one merged SSTable.
 		assert.GreaterOrEqual(t, len(ssm.levels), 3, "Should have created level 2")
-		assert.NotNil(t, ssm.levels[2], "Level 2 should not be nil")
+		assert.NotNil(t, ssm.levels[2], "Level 2 list should exist")
 		assert.Equal(t, 1, ssm.levels[2].Len(), "Level 2 should have 1 merged SSTable")
 
-		// 5. Verify the content of the merged SSTable (optional, but good)
-		mergedFs, err := ssm.levels[2].Iterator().Next()
-		assert.NoError(t, err)
-		err = mergedFs.Open()
-		assert.NoError(t, err)
-		mergedSSTable, err := NewSSTable(cfg, mergedFs)
-		assert.NoError(t, err)
-		// Check total number of keys (should be sum of unique keys)
-		expectedKeys := numFiles * recordsPerFile
-		assert.Equal(t, expectedKeys, len(mergedSSTable.SparseIndex), "Merged SSTable index size mismatch")
-		err = mergedFs.Close()
-		assert.NoError(t, err)
-
-		// Close the original level 1 FS objects (which are now associated with closed files)
-		for _, sst := range level1SSTables {
-			// File should already be closed by mergeSSTables implicitly via os.Remove
-			// Let's ensure the SStable object's reference is closed if needed
-			if sst.FileSystem != nil && sst.IsOpened() {
-				sst.Close()
-			}
+		// 3. Check if the original Level 1 files were removed.
+		for _, p := range level1Paths {
+			_, err = os.Stat(p)
+			assert.True(t, os.IsNotExist(err), "Original file %s should have been removed", p)
 		}
+
+		// 4. (Optional) Verify the content/size of the merged Level 2 SSTable
+		iter2 := ssm.levels[2].Iterator()
+		mergedFs, err := iter2.Next()
+		assert.NoError(t, err)
+		mergedInfo, err := os.Stat(mergedFs.Path())
+		assert.NoError(t, err)
+		INFO("Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
+		// Check if size is roughly the sum of originals (minus overhead/duplicates, should be close)
+		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
 
 	t.Run("levels below threshold dont compact", func(t *testing.T) {
