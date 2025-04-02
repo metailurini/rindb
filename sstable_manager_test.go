@@ -320,7 +320,8 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 func TestSSTableManager_CompactThreshold(t *testing.T) {
 	cfg := testConfig()
-	t.Run("Exceed threshold and compact", func(t *testing.T) {
+
+	t.Run("level 0 exceeds file count threshold", func(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
 		defer ssTableManager.Close()
 
@@ -345,5 +346,95 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.True(t, ssTableManager.levels[0].Len() <= 2, "Level 0 should have ≤ 2 SSTables")
 		assert.NotNil(t, ssTableManager.levels[1], "Level 1 should exist")
 		assert.Greater(t, ssTableManager.levels[1].Len(), 0, "Level 1 should have SSTables")
+	})
+
+	t.Run("level 0 at threshold triggers compaction", func(t *testing.T) {
+		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
+		defer ssTableManager.Close()
+
+		fss, closer := initTempFileSystems(t, 4) // Exactly at threshold
+		defer closer()
+
+		for i, fs := range fss {
+			mem := InitMemtable(cfg)
+			mem.Put(Bytes(fmt.Sprintf("k%d", i)), Bytes(fmt.Sprintf("v%d", i)))
+			_, err := Flush(cfg, mem, fs)
+			assert.NoError(t, err)
+		}
+
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		for _, fs := range fss {
+			ssTableManager.levels[0].PushBack(fs)
+		}
+
+		err := ssTableManager.Compact()
+		assert.NoError(t, err)
+
+		assert.Equal(t, 0, ssTableManager.levels[0].Len(), "Level 0 should be empty after compaction")
+		assert.Equal(t, 1, ssTableManager.levels[1].Len(), "Level 1 should have merged SSTable")
+	})
+
+	t.Run("level 0 below threshold no compaction", func(t *testing.T) {
+		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
+		defer ssTableManager.Close()
+
+		fss, closer := initTempFileSystems(t, 3) // Below threshold
+		defer closer()
+
+		for i, fs := range fss {
+			mem := InitMemtable(cfg)
+			mem.Put(Bytes(fmt.Sprintf("k%d", i)), Bytes(fmt.Sprintf("v%d", i)))
+			_, err := Flush(cfg, mem, fs)
+			assert.NoError(t, err)
+		}
+
+		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		for _, fs := range fss {
+			ssTableManager.levels[0].PushBack(fs)
+		}
+
+		err := ssTableManager.Compact()
+		assert.NoError(t, err)
+
+		assert.Equal(t, 3, ssTableManager.levels[0].Len(), "Level 0 should retain all SSTables when below threshold")
+		assert.Nil(t, ssTableManager.levels[1], "Level 1 should not exist without compaction")
+	})
+
+	t.Run("higher level size-based compaction", func(t *testing.T) {
+		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
+		defer ssTableManager.Close()
+
+		// Create 2 SSTables in level 1 with simulated size
+		fss, closer := initTempFileSystems(t, 2)
+		defer closer()
+
+		// Write dummy data and truncate files to simulate 5MB each (total 10MB)
+		for _, fs := range fss {
+			mem := InitMemtable(cfg)
+			mem.Put(Bytes("key"), Bytes(strings.Repeat("x", 1024*1024))) // 1MB value
+			_, err := Flush(cfg, mem, fs)
+			assert.NoError(t, err)
+			
+			// Truncate to simulate 5MB file size (5*1024*1024 bytes)
+			err = os.Truncate(fs.Path(), 5*1024*1024)
+			assert.NoError(t, err)
+		}
+
+		// Initialize level 1 with our test files
+		ssTableManager.levels = []*LinkedList[*FileSystem]{
+			nil, // Level 0
+			InitLinkedList[*FileSystem](), // Level 1
+		}
+		for _, fs := range fss {
+			ssTableManager.levels[1].PushBack(fs)
+		}
+
+		err := ssTableManager.Compact()
+		assert.NoError(t, err)
+
+		// Verify level 1 is compacted into level 2
+		assert.Equal(t, 0, ssTableManager.levels[1].Len(), "Level 1 should be empty after compaction")
+		assert.NotNil(t, ssTableManager.levels[2], "Level 2 should exist after compaction")
+		assert.Greater(t, ssTableManager.levels[2].Len(), 0, "Level 2 should have merged SSTable")
 	})
 }
