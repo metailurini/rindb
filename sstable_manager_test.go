@@ -426,12 +426,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			assert.NoError(t, err)
 			level1Paths[i] = fs.Path()
 
-			pairs := make([][2]Bytes, recordsPerFile)
-			for j := 0; j < recordsPerFile; j++ {
-				key := Bytes(fmt.Sprintf("f%d-k%04d", i, j)) // Unique keys
-				value := randStringBytes(valueSize)
-				pairs[j] = [2]Bytes{key, value}
-			}
+			pairs := generateKeyValuePairs(recordsPerFile, 10, valueSize)
 			_ = createSSTable(t, cfg, fs, pairs...)
 
 			info, statErr := os.Stat(fs.Path())
