@@ -26,7 +26,7 @@ func TestLinkedListPushBack(t *testing.T) {
 		}
 		assert.Equal(t, len(slice), l.Len())
 
-		assertIteratorValues(t, l.Iterator(), slice)
+		assertLinkedListContents(t, l, slice)
 	})
 }
 
@@ -149,7 +149,7 @@ func TestLinkedListRemoveCurrent(t *testing.T) {
 
 		// Check remaining values
 		expected := []int{1, 3, 4}
-		assertIteratorValues(t, l.Iterator(), expected)
+		assertLinkedListContents(t, l, expected)
 		assert.Equal(t, 4, l.lastNode.Value) // lastNode should still be 4
 	})
 
@@ -193,7 +193,7 @@ func TestLinkedListRemoveCurrent(t *testing.T) {
 
 		// Check remaining values
 		expected := []int{1, 2}
-		assertIteratorValues(t, l.Iterator(), expected)
+		assertLinkedListContents(t, l, expected)
 	})
 
 	t.Run("Attempt to remove sentinel node", func(t *testing.T) {

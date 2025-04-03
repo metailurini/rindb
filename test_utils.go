@@ -204,3 +204,10 @@ func assertIteratorValues[T comparable](t *testing.T, iter Iterator[T], expected
 	_, err := iter.Next()
 	assert.ErrorIs(t, err, EOI, "Iterator should return EOI after iterating through all expected values")
 }
+
+// assertLinkedListContents checks if the contents of a LinkedList match the expected slice.
+func assertLinkedListContents[T comparable](t *testing.T, l *LinkedList[T], expected []T) {
+	t.Helper()
+	assert.Equal(t, len(expected), l.Len(), "LinkedList length does not match expected length")
+	assertIteratorValues(t, l.Iterator(), expected)
+}
