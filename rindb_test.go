@@ -243,6 +243,9 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 			info, statErr := file.Info()
 			assert.NoError(t, statErr)
 			assert.Greater(t, info.Size(), int64(0), "SSTable file should not be empty")
+			// Use assertFileExists for a more direct check of existence
+			assertFileExists(t, filepath.Join(cfg.databaseDir, file.Name()))
+			foundSSTable = true
 			break
 		}
 	}
@@ -259,8 +262,10 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	}
 
 	// Verify WAL was cleaned (optional but good)
-	walInfo, err := os.Stat(filepath.Join(cfg.databaseDir, "WAL"))
-	assert.NoError(t, err)
+	walPath := filepath.Join(cfg.databaseDir, "WAL")
+	assertFileExists(t, walPath) // Check it exists first
+	walInfo, err := os.Stat(walPath)
+	assert.NoError(t, err) // Should not error if assertFileExists passed
 	// Check if WAL size is 0 or very small (metadata only) after clean
 	// This threshold might need adjustment based on WAL implementation details
 	assert.LessOrEqual(t, walInfo.Size(), int64(16), "WAL file should be empty or very small after flush and clean")

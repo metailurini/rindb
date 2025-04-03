@@ -82,6 +82,20 @@ func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) 
 	return sstable
 }
 
+// assertFileExists checks if a file exists at the given path and fails the test if not.
+func assertFileExists(t *testing.T, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	assert.NoError(t, err, "Expected file '%s' to exist, but got error: %v", path, err)
+}
+
+// assertFileNotExists checks if a file does not exist at the given path and fails the test if it does.
+func assertFileNotExists(t *testing.T, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	assert.True(t, os.IsNotExist(err), "Expected file '%s' to not exist, but it does (or another error occurred: %v)", path, err)
+}
+
 // debugSkipList prints the contents of a SkipList for debugging.
 func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
 	DEBUG("--header--: %v", list.headNote)
