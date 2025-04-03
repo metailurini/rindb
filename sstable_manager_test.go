@@ -41,7 +41,8 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
 		defer ssTableManager.Close()
 
-		fss, closer := initTempFileSystems(t, 4)
+		// No initial content needed for these files
+		fss, closer := initTempFileSystems(t, 4, nil)
 		defer closer()
 
 		sstables := make([]SStable, 0, 3)

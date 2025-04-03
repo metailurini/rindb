@@ -33,7 +33,7 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 // TestWAL_Clean tests cleaning the WAL.
 func TestWAL_Clean(t *testing.T) {
 	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1)
+	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
 	w := NewWAL(cfg, fs)
@@ -54,7 +54,7 @@ func TestWAL_Clean(t *testing.T) {
 // TestWAL_AppendAndLoad tests appending and loading records from the WAL.
 func TestWAL_AppendAndLoad(t *testing.T) {
 	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1)
+	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
 	w := NewWAL(cfg, fs)
@@ -93,7 +93,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 // TestWALCrashRecovery tests WAL recovery after a crash.
 func TestWALCrashRecovery(t *testing.T) {
 	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1)
+	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
 	w := NewWAL(cfg, fs)
