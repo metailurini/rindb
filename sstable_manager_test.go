@@ -73,40 +73,14 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		sstableIterator, err := newSSTable.Iterator()
 		assert.NoError(t, err)
 
-		assert.True(t, sstableIterator.HasNext())
-		record, err := sstableIterator.Next()
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("1"), record.GetKey())
-		assert.Equal(t, Bytes("3"), record.GetValue())
-
-		assert.True(t, sstableIterator.HasNext())
-		record, err = sstableIterator.Next()
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("2"), record.GetKey())
-		assert.Equal(t, Bytes(nil), record.GetValue())
-
-		assert.True(t, sstableIterator.HasNext())
-		record, err = sstableIterator.Next()
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("3"), record.GetKey())
-		assert.Equal(t, Bytes("4"), record.GetValue())
-
-		assert.True(t, sstableIterator.HasNext())
-		record, err = sstableIterator.Next()
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("4"), record.GetKey())
-		assert.Equal(t, Bytes("5"), record.GetValue())
-
-		assert.True(t, sstableIterator.HasNext())
-		record, err = sstableIterator.Next()
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("5"), record.GetKey())
-		assert.Equal(t, Bytes("6"), record.GetValue())
-
-		assert.False(t, sstableIterator.HasNext())
-		record, err = sstableIterator.Next()
-		assert.ErrorIs(t, err, EOI)
-		assert.Nil(t, record)
+		expectedRecords := []Record{
+			RecordImpl{Key: Bytes("1"), Value: Bytes("3")},
+			RecordImpl{Key: Bytes("2"), Value: nil}, // Tombstone
+			RecordImpl{Key: Bytes("3"), Value: Bytes("4")},
+			RecordImpl{Key: Bytes("4"), Value: Bytes("5")},
+			RecordImpl{Key: Bytes("5"), Value: Bytes("6")},
+		}
+		assertIteratorRecords(t, sstableIterator, expectedRecords)
 	})
 }
 

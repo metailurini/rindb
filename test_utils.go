@@ -69,3 +69,42 @@ func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
 		r = r.Next()
 	}
 }
+
+// assertIteratorRecords iterates through an Iterator[Record] and asserts that the records match the expected slice.
+func assertIteratorRecords(t *testing.T, iter Iterator[Record], expected []Record) {
+	t.Helper()
+	idx := 0
+	for iter.HasNext() {
+		record, err := iter.Next()
+		assert.NoError(t, err, "Iterator Next() returned an unexpected error at index %d", idx)
+		if idx >= len(expected) {
+			assert.Failf(t, "Iterator returned more records than expected", "Got extra record: Key=%s, Value=%s", record.GetKey(), record.GetValue())
+			return // Stop further checks if lengths mismatch
+		}
+		assert.Equal(t, expected[idx].GetKey(), record.GetKey(), "Key mismatch at index %d", idx)
+		assert.Equal(t, expected[idx].GetValue(), record.GetValue(), "Value mismatch at index %d for key %s", idx, record.GetKey())
+		idx++
+	}
+	assert.Equal(t, len(expected), idx, "Number of records iterated does not match expected count")
+	_, err := iter.Next()
+	assert.ErrorIs(t, err, EOI, "Iterator should return EOI after iterating through all expected records")
+}
+
+// assertIteratorValues iterates through a generic Iterator[T] and asserts that the values match the expected slice.
+func assertIteratorValues[T comparable](t *testing.T, iter Iterator[T], expected []T) {
+	t.Helper()
+	idx := 0
+	for iter.HasNext() {
+		value, err := iter.Next()
+		assert.NoError(t, err, "Iterator Next() returned an unexpected error at index %d", idx)
+		if idx >= len(expected) {
+			assert.Failf(t, "Iterator returned more values than expected", "Got extra value: %v", value)
+			return // Stop further checks if lengths mismatch
+		}
+		assert.Equal(t, expected[idx], value, "Value mismatch at index %d", idx)
+		idx++
+	}
+	assert.Equal(t, len(expected), idx, "Number of values iterated does not match expected count")
+	_, err := iter.Next()
+	assert.ErrorIs(t, err, EOI, "Iterator should return EOI after iterating through all expected values")
+}
