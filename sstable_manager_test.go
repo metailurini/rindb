@@ -466,8 +466,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 		// 3. Check if the original Level 1 files were removed.
 		for _, p := range level1Paths {
-			_, err = os.Stat(p)
-			assert.True(t, os.IsNotExist(err), "Original file %s should have been removed", p)
+			assertFileNotExists(t, p)
 		}
 
 		// 4. (Optional) Verify the content/size of the merged Level 2 SSTable
@@ -539,12 +538,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		// --- Assert ---
 		// 1. Original files removed?
-		_, err = os.Stat(fs1Path)
-		assert.True(t, os.IsNotExist(err), "Level 1 source SSTable file should be removed")
-		_, err = os.Stat(fs2OverlapPath)
-		assert.True(t, os.IsNotExist(err), "Level 2 overlapping SSTable file should be removed")
-		_, err = os.Stat(fs2NoOverlapPath)
-		assert.NoError(t, err, "Level 2 non-overlapping SSTable file should still exist")
+		assertFileNotExists(t, fs1Path)
+		assertFileNotExists(t, fs2OverlapPath)
+		assertFileExists(t, fs2NoOverlapPath)
 
 		// 2. Level lists updated?
 		assert.Equal(t, 0, ssm.levels[1].Len(), "Level 1 should be empty after compaction")
