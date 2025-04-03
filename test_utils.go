@@ -51,6 +51,18 @@ func randStringBytes(n int) Bytes {
 	return b
 }
 
+// generateKeyValuePairs creates n random key-value pairs with specified sizes.
+func generateKeyValuePairs(n int, keySize, valueSize int) [][2]Bytes {
+	pairs := make([][2]Bytes, n)
+	for i := 0; i < n; i++ {
+		pairs[i] = [2]Bytes{
+			randStringBytes(keySize),
+			randStringBytes(valueSize),
+		}
+	}
+	return pairs
+}
+
 // populateMemtable creates a Memtable and populates it with the given key-value pairs.
 func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 	mem := InitMemtable(cfg)

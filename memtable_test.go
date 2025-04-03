@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,18 +8,13 @@ import (
 
 func TestMemtable_Basic(t *testing.T) {
 	cfg := testConfig()
-	pairs := make([][2]Bytes, 1_000)
-	for i := 0; i < 1_000; i++ {
-		pairs[i] = [2]Bytes{
-			Bytes(fmt.Sprintf("key%d", i)),
-			Bytes(fmt.Sprintf("value%d", i)),
-		}
-	}
+	pairs := generateKeyValuePairs(1000, 10, 20)
 	mem := populateMemtable(cfg, pairs...)
 
-	for i := 0; i < 1_000; i++ {
-		key := Bytes(fmt.Sprintf("key%d", i))
-		expectedValue := Bytes(fmt.Sprintf("value%d", i))
+	// Verify generated pairs
+	for _, pair := range pairs {
+		key := pair[0]
+		expectedValue := pair[1]
 		got, err := mem.Get(key)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedValue, got)
@@ -29,32 +23,28 @@ func TestMemtable_Basic(t *testing.T) {
 
 func TestMemtable_Tombstone(t *testing.T) {
 	cfg := testConfig()
-	pairs := make([][2]Bytes, 1_000)
-	for i := 0; i < 1_000; i++ {
-		pairs[i] = [2]Bytes{
-			Bytes(fmt.Sprintf("key%d", i)),
-			Bytes(fmt.Sprintf("value%d", i)),
-		}
-	}
+	pairs := generateKeyValuePairs(1000, 10, 20)
 	mem := populateMemtable(cfg, pairs...)
 
-	// Add tombstones
-	for i := 0; i < 1_000; i++ {
+	// Add tombstones for every 3rd generated key
+	tombstoneKeys := make(map[string]struct{})
+	for i, pair := range pairs {
 		if i%3 == 0 {
-			key := Bytes(fmt.Sprintf("key%d", i))
+			key := pair[0]
 			mem.Put(key, nil) // Add tombstone
+			tombstoneKeys[string(key)] = struct{}{}
 		}
 	}
 
-	// Verify values and tombstones
-	for i := 0; i < 1_000; i++ {
-		key := Bytes(fmt.Sprintf("key%d", i))
-		expectedValue := Bytes(fmt.Sprintf("value%d", i))
+	// Verify values and tombstones using the original generated pairs
+	for _, pair := range pairs {
+		key := pair[0]
+		expectedValue := pair[1]
 
 		got, err := mem.Get(key)
 		assert.NoError(t, err)
 
-		if i%3 == 0 {
+		if _, isTombstone := tombstoneKeys[string(key)]; isTombstone {
 			assert.Nil(t, got, "Expected nil (tombstone) for key %s", string(key))
 		} else {
 			assert.Equal(t, expectedValue, got, "Value mismatch for key %s", string(key))

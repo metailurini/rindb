@@ -200,12 +200,15 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	// Note: InitRinDB loads WAL, so memtable might not be empty initially if WAL existed.
 	// We'll rely on the Put logic to trigger the flush regardless of initial state.
 
+	// Generate pairs slightly more than max size
+	numPairsToGenerate := int(maxSize + 1)
+	// Use small key/value sizes for efficiency in this test
+	pairs := generateKeyValuePairs(numPairsToGenerate, 5, 10)
+
 	// Insert items up to the max size
-	keys := make([]Bytes, 0, maxSize+1)
 	for i := 0; i < int(maxSize); i++ {
-		key := Bytes(fmt.Sprintf("key%d", i))
-		value := Bytes(fmt.Sprintf("value%d", i))
-		keys = append(keys, key)
+		key := pairs[i][0]
+		value := pairs[i][1]
 		err = rin.Put(key, value)
 		assert.NoError(t, err)
 		// Memtable size should increase until flush
@@ -215,15 +218,19 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	// At this point, memtable should be full (or close if WAL loaded some)
 	assert.Equal(t, maxSize, rin.memtable.data.Len(), "Memtable should be full before the triggering Put")
 
-	// Insert one more item to trigger the flush
-	triggerKey := Bytes(fmt.Sprintf("key%d", maxSize))
-	triggerValue := Bytes(fmt.Sprintf("value%d", maxSize))
-	keys = append(keys, triggerKey)
+	// Insert one more item (the last generated pair) to trigger the flush
+	triggerKey := pairs[maxSize][0]
+	triggerValue := pairs[maxSize][1]
 	err = rin.Put(triggerKey, triggerValue)
 	assert.NoError(t, err)
 
 	// Memtable should be cleared after flush
-	assert.Equal(t, uint(0), rin.memtable.data.Len(), "Memtable should be empty after flush")
+	// Note: The trigger item is added *after* the flush, so memtable size should be 1
+	assert.Equal(t, uint(1), rin.memtable.data.Len(), "Memtable should contain only the trigger item after flush")
+	// Verify the trigger item is indeed in the memtable
+	memVal, memErr := rin.memtable.Get(triggerKey)
+	assert.NoError(t, memErr)
+	assert.Equal(t, triggerValue, memVal)
 
 	// Verify an SSTable file was created in level 0
 	files, err := os.ReadDir(cfg.databaseDir)
@@ -241,12 +248,14 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	}
 	assert.True(t, foundSSTable, "Level 0 SSTable file should exist after flush")
 
-	// Verify all keys can still be retrieved (from the new SSTable)
-	for i, key := range keys {
-		expectedValue := Bytes(fmt.Sprintf("value%d", i))
+	// Verify all generated keys can still be retrieved
+	// The first `maxSize` keys should be in the SSTable, the last one in the memtable
+	for i, pair := range pairs {
+		key := pair[0]
+		expectedValue := pair[1]
 		value, getErr := rin.Get(key)
 		assert.NoError(t, getErr, "Error getting key %s after flush", string(key))
-		assert.Equal(t, expectedValue, value, "Value mismatch for key %s after flush", string(key))
+		assert.Equal(t, expectedValue, value, "Value mismatch for key %s after flush (pair index %d)", string(key), i)
 	}
 
 	// Verify WAL was cleaned (optional but good)
