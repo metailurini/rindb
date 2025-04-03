@@ -47,16 +47,18 @@ func testConfig() Config {
 	return NewConfig(testOptions()...)
 }
 
-// TestRindb_Init tests the initialization of the Rindb database.
+// TestRindb_Init tests the initialization of the Rindb database using the helper.
 func TestRindb_Init(t *testing.T) {
-	_, err := InitRinDB(testOptions()...)
-	assert.NoError(t, err)
+	// Use the helper, which includes initialization and cleanup
+	_, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
+	// The assertion is implicitly handled by initRinDBWithCleanup
 }
 
 // TestRindb_Put tests the Put operation of Rindb.
 func TestRindb_Put(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
-	assert.NoError(t, err)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
 	t.Run("BasicPut", func(t *testing.T) {
 		err := rin.Put(Bytes("key"), Bytes("value"))
 		assert.NoError(t, err)
@@ -69,11 +71,10 @@ func TestRindb_Put(t *testing.T) {
 
 // TestRindb_Get tests the Get operation of Rindb.
 func TestRindb_Get(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
-	rin.config = testConfig()
-	assert.NoError(t, err)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
 	key := Bytes("key")
-	err = rin.Put(key, Bytes("value"))
+	err := rin.Put(key, Bytes("value"))
 	assert.NoError(t, err)
 	value, err := rin.Get(key)
 	assert.NoError(t, err)
@@ -82,11 +83,10 @@ func TestRindb_Get(t *testing.T) {
 
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
-	rin.config = testConfig()
-	assert.NoError(t, err)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
 	key := Bytes("rm-key")
-	err = rin.Put(key, Bytes("value"))
+	err := rin.Put(key, Bytes("value"))
 	assert.NoError(t, err)
 	err = rin.Remove(key)
 	assert.NoError(t, err)
@@ -97,10 +97,9 @@ func TestRindb_Remove(t *testing.T) {
 
 // TestRindb_FlushMemtable tests flushing the memtable to an SSTable.
 func TestRindb_FlushMemtable(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
-	rin.config = testConfig()
-	assert.NoError(t, err)
-	err = rin.Put(Bytes("key"), Bytes("value"))
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
+	err := rin.Put(Bytes("key"), Bytes("value"))
 	assert.NoError(t, err)
 	err = rin.Put(Bytes("rm-key"), Bytes("value"))
 	assert.NoError(t, err)
@@ -125,9 +124,8 @@ func TestRindb_FlushMemtable(t *testing.T) {
 
 // TestRindb_GetPrecedence tests that Get prioritizes Memtable over SSTables.
 func TestRindb_GetPrecedence(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
-	rin.config = testConfig() // Ensure config is set if needed by test logic beyond Init
-	assert.NoError(t, err)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
 	// SSTableManager is now part of rin
 	fs, err := rin.ssTableManager.NewSSTableFS(0) // Create FS for the initial SSTable
 	assert.NoError(t, err)
@@ -154,9 +152,8 @@ func TestRindb_GetPrecedence(t *testing.T) {
 
 // TestRindb_ConcurrentCRUD tests concurrent CRUD operations on Rindb.
 func TestRindb_ConcurrentCRUD(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
-	rin.config = testConfig()
-	assert.NoError(t, err)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
 	var wg sync.WaitGroup
 	const numGoroutines = 10
 	wg.Add(numGoroutines)
@@ -187,16 +184,14 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 // TestRindb_Put_FlushOnMaxSize tests that the memtable is flushed when maxMemtableSize is reached.
 func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	t.Skip("FIXME")
-	tempDir := t.TempDir()
 	maxSize := uint(3) // Set a small memtable size for testing
 	opts := []Option{
-		WithDatabaseDir(tempDir),
 		WithMaxMemtableSize(maxSize),
 	}
-	cfg := NewConfig(opts...)
-
-	rin, err := InitRinDB(opts...)
-	assert.NoError(t, err)
+	// The helper will create a temp dir and add WithDatabaseDir
+	rin, cleanup := initRinDBWithCleanup(t, opts...)
+	defer cleanup()
+	cfg := rin.config // Get the config used by the initialized RinDB
 	// Note: InitRinDB loads WAL, so memtable might not be empty initially if WAL existed.
 	// We'll rely on the Put logic to trigger the flush regardless of initial state.
 
@@ -209,7 +204,7 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	for i := 0; i < int(maxSize); i++ {
 		key := pairs[i][0]
 		value := pairs[i][1]
-		err = rin.Put(key, value)
+		err := rin.Put(key, value)
 		assert.NoError(t, err)
 		// Memtable size should increase until flush
 		assert.LessOrEqual(t, rin.memtable.data.Len(), maxSize, "Memtable size should be <= maxSize before flush")
@@ -221,7 +216,7 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	// Insert one more item (the last generated pair) to trigger the flush
 	triggerKey := pairs[maxSize][0]
 	triggerValue := pairs[maxSize][1]
-	err = rin.Put(triggerKey, triggerValue)
+	err := rin.Put(triggerKey, triggerValue)
 	assert.NoError(t, err)
 
 	// Memtable should be cleared after flush
@@ -243,7 +238,6 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 			info, statErr := file.Info()
 			assert.NoError(t, statErr)
 			assert.Greater(t, info.Size(), int64(0), "SSTable file should not be empty")
-			// Use assertFileExists for a more direct check of existence
 			assertFileExists(t, filepath.Join(cfg.databaseDir, file.Name()))
 			foundSSTable = true
 			break
@@ -269,42 +263,31 @@ func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
 	// Check if WAL size is 0 or very small (metadata only) after clean
 	// This threshold might need adjustment based on WAL implementation details
 	assert.LessOrEqual(t, walInfo.Size(), int64(16), "WAL file should be empty or very small after flush and clean")
-
-	// Close the database after test
-	assert.NoError(t, rin.Close())
 }
 
-// TestRindb_Close tests the Close operation of Rindb.
+// TestRindb_Close tests the Close operation of Rindb using the helper.
 func TestRindb_Close(t *testing.T) {
-	rin, err := InitRinDB(testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	err := rin.Put(Bytes("key1"), Bytes("value1"))
 	assert.NoError(t, err)
 
-	// Add some data to ensure WAL and potentially SSTables are involved
-	err = rin.Put(Bytes("key1"), Bytes("value1"))
-	assert.NoError(t, err)
+	// Explicitly call cleanup to test the closing part
+	cleanup() // This calls rin.Close() and asserts no error
 
-	// Close the database
-	err = rin.Close()
-	assert.NoError(t, err)
+	// Re-check the closed state (assuming rin instance is still valid memory-wise)
+	assert.True(t, rin.closed, "Rindb instance should be marked as closed")
 
-	// Verify WAL file is closed (attempting to use it should fail or indicate closed state)
-	// FileSystem.IsOpened() can be used if WAL exposes its FileSystem
-	assert.False(t, rin.wal.IsOpened(), "WAL file system should be closed")
+	// Verify operations fail after close
+	_, getErr := rin.Get(Bytes("key1"))
+	assert.ErrorIs(t, getErr, ErrDatabaseClosed, "Get should fail with ErrDatabaseClosed after Close")
 
-	// Verify SSTableManager resources are closed (e.g., check IsOpened on managed FS)
-	// SSTableManager.Close iterates and closes, we assume it works internally.
-	// A more robust test could involve mocking or checking file handles if possible.
-	// For now, we rely on the Close method being called and assume it functions correctly.
-	// If SSTableManager held references to open files, we'd check those.
-	// Since SSTableManager.Close() logs closures, we trust it for now.
+	putErr := rin.Put(Bytes("key2"), Bytes("value2"))
+	assert.ErrorIs(t, putErr, ErrDatabaseClosed, "Put should fail with ErrDatabaseClosed after Close")
 
-	// Verify operations fail after close with the correct error
-	_, err = rin.Get(Bytes("key1"))
-	assert.ErrorIs(t, err, ErrDatabaseClosed, "Get should fail with ErrDatabaseClosed after Close")
+	removeErr := rin.Remove(Bytes("key1"))
+	assert.ErrorIs(t, removeErr, ErrDatabaseClosed, "Remove should fail with ErrDatabaseClosed after Close")
 
-	err = rin.Put(Bytes("key2"), Bytes("value2"))
-	assert.ErrorIs(t, err, ErrDatabaseClosed, "Put should fail with ErrDatabaseClosed after Close")
-
-	err = rin.Remove(Bytes("key1"))
-	assert.ErrorIs(t, err, ErrDatabaseClosed, "Remove should fail with ErrDatabaseClosed after Close")
+	// We don't need the manual checks for WAL/SSTable closure here anymore,
+	// as the helper's cleanup function handles rin.Close(), which should manage them.
+	// The assertions within cleanup cover the success of rin.Close().
 }

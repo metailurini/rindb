@@ -1,12 +1,15 @@
 package rindb
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"io"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
@@ -80,6 +83,56 @@ func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) 
 	sstable, err := Flush(cfg, mem, fs)
 	assert.NoError(t, err, "Failed to flush memtable to create SSTable")
 	return sstable
+}
+
+// initRinDBWithCleanup initializes a RinDB instance for testing and returns it along with a cleanup function.
+// The cleanup function closes the database and removes its directory.
+func initRinDBWithCleanup(t *testing.T, opts ...Option) (*Rindb, func()) {
+	t.Helper()
+
+	// Apply default test options if none are provided, especially the temp dir
+	finalOpts := opts
+	hasDirOpt := false
+	var dbDir string // Declare dbDir here to be accessible later
+
+	// Check if WithDatabaseDir is already provided
+	tempCfgCheck := DefaultConfig() // Create a temporary config to check options
+	for _, opt := range opts {
+		opt(&tempCfgCheck)
+	}
+	if tempCfgCheck.databaseDir != DefaultConfig().databaseDir {
+		hasDirOpt = true
+		dbDir = tempCfgCheck.databaseDir // Use the explicitly provided dir
+	}
+
+	if !hasDirOpt {
+		dbDir = t.TempDir() // Create a unique temp dir for this test run
+		finalOpts = append(finalOpts, WithDatabaseDir(dbDir))
+	} else {
+		// Ensure the provided options are used, including the explicit dir
+		finalOpts = opts
+	}
+
+	rin, err := InitRinDB(finalOpts...)
+	assert.NoError(t, err, "Failed to initialize RinDB")
+
+	// Ensure the config used for cleanup matches the one RinDB was initialized with
+	// If an explicit dir was passed, rin.config.databaseDir should match dbDir
+	if hasDirOpt {
+		assert.Equal(t, dbDir, rin.config.databaseDir, "Database directory in config does not match provided option")
+	}
+
+	cleanup := func() {
+		// Use the database directory from the initialized RinDB's config for cleanup
+		closeErr := rin.Close()
+		// Allow ErrDatabaseClosed because cleanup might be called multiple times by defer + explicit call
+		if closeErr != nil && !errors.Is(closeErr, ErrDatabaseClosed) {
+			assert.NoError(t, closeErr, "Failed to close RinDB")
+		}
+
+	}
+
+	return &rin, cleanup
 }
 
 // assertFileExists checks if a file exists at the given path and fails the test if not.
