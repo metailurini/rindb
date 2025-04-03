@@ -52,7 +52,7 @@ func TestFileSystem(t *testing.T) {
 	})
 
 	t.Run("Check file must be opened before doing other actions", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 
 		fs := fss[0]
@@ -87,7 +87,7 @@ func TestFileSystem(t *testing.T) {
 //nolint:funlen
 func TestFileSystem_CursorPos(t *testing.T) {
 	t.Run("Get first position", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 
 		fs := fss[0]
@@ -98,7 +98,7 @@ func TestFileSystem_CursorPos(t *testing.T) {
 	})
 
 	t.Run("Get mid position", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 
 		fs := fss[0]
@@ -118,7 +118,7 @@ func TestFileSystem_CursorPos(t *testing.T) {
 	})
 
 	t.Run("Get end position", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 
 		fs := fss[0]

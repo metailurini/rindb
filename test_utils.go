@@ -6,19 +6,36 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"io"
 )
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
-func initTempFileSystems(t *testing.T, n int) ([]*FileSystem, func()) {
+// initialContents, if provided, must have length n. A nil entry means no initial content for that file.
+func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*FileSystem, func()) {
+	t.Helper()
+	if initialContents != nil && len(initialContents) != n {
+		assert.FailNow(t, "initialContents length must match n or be nil")
+	}
+
 	fss := make([]*FileSystem, 0, n)
 	tempDir := t.TempDir()
 	for i := 0; i < n; i++ {
 		fs, err := OpenFS(fmt.Sprintf("%s/test-%d", tempDir, i))
 		assert.NoError(t, err)
+
+		// Write initial content if provided for this index
+		if initialContents != nil && initialContents[i] != nil {
+			_, writeErr := fs.Write(initialContents[i])
+			assert.NoError(t, writeErr, "Failed to write initial content to temp file %d", i)
+			_, seekErr := fs.file.Seek(0, io.SeekStart) // Reset cursor to beginning
+			assert.NoError(t, seekErr, "Failed to seek to start after writing initial content to temp file %d", i)
+		}
+
 		fss = append(fss, fs)
 	}
 	return fss, func() {
 		for _, fs := range fss {
+			// Attempt to close, ignore error as it's cleanup
 			_ = fs.Close()
 		}
 	}

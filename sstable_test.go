@@ -18,7 +18,7 @@ func TestSStable(t *testing.T) {
 			}
 			assert.Equal(t, "empty memtable!", r)
 		}()
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
@@ -27,7 +27,7 @@ func TestSStable(t *testing.T) {
 	})
 	t.Run("FlushWithElements", func(t *testing.T) {
 		var sstable SStable
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
 		data := []struct {
@@ -80,7 +80,7 @@ func TestSStable(t *testing.T) {
 		}
 	})
 	t.Run("SparseIndexLoad", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
@@ -94,7 +94,7 @@ func TestSStable(t *testing.T) {
 		assert.Equal(t, sstable1.SparseIndex, sstable2.SparseIndex)
 	})
 	t.Run("SparseIndexOffsetAccuracy", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
@@ -116,7 +116,7 @@ func TestSStable(t *testing.T) {
 		}
 	})
 	t.Run("FlushToSSTable", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
@@ -141,7 +141,7 @@ func TestSStable(t *testing.T) {
 		assert.Equal(t, Bytes(nil), value)
 	})
 	t.Run("Iterator", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1)
+		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
@@ -315,7 +315,7 @@ func TestSparseIndex_GetOffset(t *testing.T) {
 // TestFlushWithTombstones tests flushing a memtable with tombstones.
 func TestFlushWithTombstones(t *testing.T) {
 	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1)
+	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
 	k1 := randStringBytes(10)
@@ -336,7 +336,7 @@ func TestFlushWithTombstones(t *testing.T) {
 // TestBloomFilterSkipsReads tests that the Bloom filter skips unnecessary reads.
 func TestBloomFilterSkipsReads(t *testing.T) {
 	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1)
+	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
 	mem := InitMemtable(cfg)
