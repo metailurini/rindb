@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"container/list"
 	"fmt"
 	"math"
 	"os"
@@ -14,11 +13,10 @@ import (
 func TestSSTableManager_LoadLevels(t *testing.T) {
 	cfg := testConfig()
 	t.Run("SSTableManager::LoadLevels", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		assert.NoError(t, ssTableManager.Compact())
-		defer ssTableManager.Close()
-		for levelNumb, level := range ssTableManager.levels {
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+		assert.NoError(t, ts.Manager.Compact())
+		for levelNumb, level := range ts.Manager.levels {
 			iterator := level.Iterator()
 			for iterator.HasNext() {
 				fs, err := iterator.Next()
@@ -33,53 +31,90 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("Key in older SSTable requires Prev() iteration", func(t *testing.T) {
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create SSTables
+		older := ts.CreateSSTable(0, map[string]string{"targetKey": "targetVal"})
+		newer := ts.CreateSSTable(0, map[string]string{"otherKey": "otherVal"})
+
+		// Add to level 0 (older first, then newer)
+		ts.AddSSTableToLevel(0, older)
+		ts.AddSSTableToLevel(0, newer)
+
+		// Verify search finds the key in older SSTable
+		result, err := ts.Manager.searchKey(Bytes("targetKey"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("targetVal"), result)
+	})
 }
 
 func TestSSTableManager_MergeSSTables(t *testing.T) {
-	cfg := testConfig()
-	t.Run("Merging sstables", func(t *testing.T) {
-		ssTableManager := SSTableManager{openedFs: list.New(), config: cfg}
-		defer ssTableManager.Close()
+	// Configure the manager to trigger compaction after 3 files in level 0
+	cfg := NewConfig(WithLevel0CompactionThreshold(3))
 
-		// No initial content needed for these files
-		fss, closer := initTempFileSystems(t, 4, nil)
-		defer closer()
+	t.Run("Merging sstables via compaction", func(t *testing.T) {
+		// Use the config with the modified threshold
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		sstables := make([]SStable, 0, 3)
+		// Create SSTables and add them to Level 0
+		sstable1 := ts.CreateSSTable(0, map[string]string{
+			"1": "2", // Will be overridden by sstable2
+			"2": "3", // Will be tombstoned by sstable2
+			"3": "4",
+		})
+		ts.AddSSTableToLevel(0, sstable1)
 
-		sstable1 := createSSTable(t, cfg, fss[0],
-			[2]Bytes{Bytes("1"), Bytes("2")},
-			[2]Bytes{Bytes("2"), Bytes("3")},
-			[2]Bytes{Bytes("3"), Bytes("4")},
-		)
-		sstables = append(sstables, sstable1)
+		sstable2 := ts.CreateSSTable(0, map[string]string{
+			"1": "3", // Overrides sstable1
+			"2": "",  // Tombstone overrides sstable1
+			"4": "5",
+		})
+		ts.AddSSTableToLevel(0, sstable2)
 
-		sstable2 := createSSTable(t, cfg, fss[1],
-			[2]Bytes{Bytes("1"), Bytes("3")},
-			[2]Bytes{Bytes("2"), Bytes(nil)}, // Tombstone
-			[2]Bytes{Bytes("4"), Bytes("5")},
-		)
-		sstables = append(sstables, sstable2)
+		sstable3 := ts.CreateSSTable(0, map[string]string{
+			"5": "6",
+		})
+		ts.AddSSTableToLevel(0, sstable3)
 
-		sstable3 := createSSTable(t, cfg, fss[2],
-			[2]Bytes{Bytes("5"), Bytes("6")},
-		)
-		sstables = append(sstables, sstable3)
+		// Verify initial state: Level 0 has 3 files
+		assert.Equal(t, 3, ts.Manager.levels[0].Len(), "Level 0 should have 3 SSTables before compaction")
 
-		fs := fss[3]
-		newSSTable, err := mergeSSTables(cfg, fs, sstables)
-		assert.NoError(t, err)
-		assert.Equal(t, 5, len(newSSTable.SparseIndex))
+		// Trigger compaction (Level 0 -> Level 1)
+		err := ts.Manager.Compact()
+		assert.NoError(t, err, "Compaction failed")
 
-		sstableIterator, err := newSSTable.Iterator()
-		assert.NoError(t, err)
+		// Verify state after compaction
+		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
+		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Manager should have at least 2 levels after compaction")
+		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist")
+		assert.Equal(t, 1, ts.Manager.levels[1].Len(), "Level 1 should have exactly one merged SSTable")
+
+		// Retrieve the merged SSTable from Level 1
+		mergedFs, err := ts.Manager.levels[1].Iterator().Next()
+		assert.NoError(t, err, "Failed to get merged FS from Level 1")
+		err = mergedFs.Open() // Ensure it's open if closed previously
+		assert.NoError(t, err, "Failed to open merged FS")
+		defer mergedFs.Close()
+
+		mergedSSTable, err := NewSSTable(ts.Manager.config, mergedFs)
+		assert.NoError(t, err, "Failed to create SStable object from merged FS")
+
+		// Verify the content of the merged SSTable
+		assert.Equal(t, 5, len(mergedSSTable.SparseIndex), "Merged SSTable sparse index length mismatch")
+
+		sstableIterator, err := mergedSSTable.Iterator()
+		assert.NoError(t, err, "Failed to get iterator for merged SSTable")
 
 		expectedRecords := []Record{
-			RecordImpl{Key: Bytes("1"), Value: Bytes("3")},
-			RecordImpl{Key: Bytes("2"), Value: nil}, // Tombstone
-			RecordImpl{Key: Bytes("3"), Value: Bytes("4")},
-			RecordImpl{Key: Bytes("4"), Value: Bytes("5")},
-			RecordImpl{Key: Bytes("5"), Value: Bytes("6")},
+			RecordImpl{Key: Bytes("1"), Value: Bytes("3")}, // sstable2 value
+			RecordImpl{Key: Bytes("2"), Value: nil},        // sstable2 tombstone
+			RecordImpl{Key: Bytes("3"), Value: Bytes("4")}, // sstable1 value
+			RecordImpl{Key: Bytes("4"), Value: Bytes("5")}, // sstable2 value
+			RecordImpl{Key: Bytes("5"), Value: Bytes("6")}, // sstable3 value
 		}
 		assertIteratorRecords(t, sstableIterator, expectedRecords)
 	})
@@ -87,24 +122,32 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 
 func TestSSTableManager_SearchKey(t *testing.T) {
 	cfg := testConfig()
-	t.Run("Key in memtable, absent in SSTables", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
+	t.Run("Key absent in empty SSTables", func(t *testing.T) {
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
+		// Ensure levels are initialized but empty (as done by NewTestRindbSetup)
+		assert.NotNil(t, ts.Manager, "Manager should not be nil")
+		assert.NotNil(t, ts.Manager.levels, "Manager levels slice should not be nil")
+		// Setup ensures at least 3 levels exist and are non-nil lists
+		assert.GreaterOrEqual(t, len(ts.Manager.levels), 3, "Manager should have at least 3 levels")
+		assert.NotNil(t, ts.Manager.levels[0], "Manager level 0 list should not be nil")
+		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty initially")
+
+		// Search for a random key in an empty manager
 		key := randStringBytes(10)
+		result, err := ts.Manager.searchKey(key)
 
-		result, err := ssTableManager.searchKey(key)
-		assert.ErrorIs(t, err, ErrKeyNotFound)
-		assert.Nil(t, result)
+		// Assertions remain the same: expect key not found
+		assert.ErrorIs(t, err, ErrKeyNotFound, "Expected ErrKeyNotFound when searching empty manager")
+		assert.Nil(t, result, "Expected nil result when key is not found")
 	})
 
 	t.Run("Key in level 0 only", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		fs, err := ssTableManager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
 
@@ -112,31 +155,26 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		value := Bytes("level0-value")
 		_ = createSSTable(t, cfg, fs, [2]Bytes{key, value})
 
-		if len(ssTableManager.levels) == 0 {
+		if len(ts.Manager.levels) == 0 {
 			// If the levels slice is empty, add a new list for level 0
-			ssTableManager.levels = append(ssTableManager.levels, InitLinkedList[*FileSystem]())
-		} else if ssTableManager.levels[0] == nil {
+			ts.Manager.levels = append(ts.Manager.levels, InitLinkedList[*FileSystem]())
+		} else if ts.Manager.levels[0] == nil {
 			// If the slice has space but level 0 is nil (less likely here, but good practice)
-			ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
+			ts.Manager.levels[0] = InitLinkedList[*FileSystem]()
 		}
-		ssTableManager.levels[0].PushBack(fs)
+		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ssTableManager.searchKey(key)
+		result, err := ts.Manager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
 
 	t.Run("Key in level 1 overridden by level 0", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		backupLevels := ssTableManager.levels
-		defer func() {
-			ssTableManager.levels = backupLevels
-			ssTableManager.Close()
-		}()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
 		// Level 1: older value
-		fs1, err := ssTableManager.NewSSTableFS(1)
+		fs1, err := ts.Manager.NewSSTableFS(1)
 		assert.NoError(t, err)
 		defer fs1.Close()
 		key := randStringBytes(10)
@@ -144,96 +182,82 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, oldValue})
 
 		// Level 0: newer value
-		fs0, err := ssTableManager.NewSSTableFS(0)
+		fs0, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs0.Close()
 		newValue := Bytes("new-value")
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, newValue})
 
-		// Backup old levels
-		oldLevels := ssTableManager.levels
-
 		// Override levels with new values
-		ssTableManager.levels = []*LinkedList[*FileSystem]{
+		ts.Manager.levels = []*LinkedList[*FileSystem]{
 			InitLinkedList[*FileSystem](),
 			InitLinkedList[*FileSystem](),
 		}
 
-		ssTableManager.levels[0].PushBack(fs0)
-		ssTableManager.levels[1].PushBack(fs1)
-		assert.Equal(t, 1, ssTableManager.levels[0].Len())
-		assert.Equal(t, 1, ssTableManager.levels[1].Len())
+		ts.Manager.levels[0].PushBack(fs0)
+		ts.Manager.levels[1].PushBack(fs1)
+		assert.Equal(t, 1, ts.Manager.levels[0].Len())
+		assert.Equal(t, 1, ts.Manager.levels[1].Len())
 
-		result, err := ssTableManager.searchKey(key)
+		result, err := ts.Manager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Equal(t, newValue, result)
-
-		// Restore old levels
-		ssTableManager.levels = oldLevels
 	})
 
 	t.Run("Key not found in any level", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		backupLevels := ssTableManager.levels
-		defer func() {
-			ssTableManager.levels = backupLevels
-			ssTableManager.Close()
-		}()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		fs, err := ssTableManager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("some-key"), Bytes("some-value")})
 
 		// Override levels with new values
-		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		ssTableManager.levels[0].PushBack(fs)
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ts.Manager.levels[0].PushBack(fs)
 
 		missingKey := randStringBytes(10)
-		result, err := ssTableManager.searchKey(missingKey)
+		result, err := ts.Manager.searchKey(missingKey)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
 	t.Run("Empty SSTableManager", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		ssTableManager.levels = nil // Explicitly empty
+		ts.Manager.levels = nil // Explicitly empty
 
-		result, err := ssTableManager.searchKey(Bytes("any-key"))
+		result, err := ts.Manager.searchKey(Bytes("any-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
 	t.Run("Single SSTable in level 0", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		fs, err := ssTableManager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
 		key := Bytes("single-key")
 		value := Bytes("single-value")
 		_ = createSSTable(t, cfg, fs, [2]Bytes{key, value})
-		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		ssTableManager.levels[0].PushBack(fs)
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ssTableManager.searchKey(key)
+		result, err := ts.Manager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
 
 	t.Run("Tombstone in level 0 overrides level 1", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
 		// Level 1: original value
-		fs1, err := ssTableManager.NewSSTableFS(1)
+		fs1, err := ts.Manager.NewSSTableFS(1)
 		assert.NoError(t, err)
 		defer fs1.Close()
 		key := Bytes("tombstone-key")
@@ -241,34 +265,33 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, value})
 
 		// Level 0: tombstone
-		fs0, err := ssTableManager.NewSSTableFS(0)
+		fs0, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs0.Close()
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
 
-		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]()}
-		ssTableManager.levels[0].PushBack(fs0)
-		ssTableManager.levels[1].PushBack(fs1)
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]()}
+		ts.Manager.levels[0].PushBack(fs0)
+		ts.Manager.levels[1].PushBack(fs1)
 
-		result, err := ssTableManager.searchKey(key)
+		result, err := ts.Manager.searchKey(key)
 		assert.NoError(t, err)
 		assert.Nil(t, result) // Tombstone returns nil value
 	})
 
 	t.Run("Bloom filter skips irrelevant SSTables", func(t *testing.T) {
-		ssTableManager, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssTableManager.Close()
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		fs, err := ssTableManager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
 		defer fs.Close()
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("present-key"), Bytes("present-value")})
-		ssTableManager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		ssTableManager.levels[0].PushBack(fs)
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ts.Manager.levels[0].PushBack(fs)
 
 		// Key not in Bloom filter
-		result, err := ssTableManager.searchKey(Bytes("absent-key"))
+		result, err := ts.Manager.searchKey(Bytes("absent-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -276,93 +299,67 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 func TestSSTableManager_CompactThreshold(t *testing.T) {
 	t.Run("level 0 file count triggers compaction", func(t *testing.T) {
-		tempDir := t.TempDir()
-		cfg := NewConfig(
-			WithDatabaseDir(tempDir),
-			WithLevel0CompactionThreshold(4),
-		)
+		cfg := NewConfig(WithLevel0CompactionThreshold(4))
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		ssm, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssm.Close()
-
-		// Initialize level 0 if needed
-		if len(ssm.levels) == 0 {
-			ssm.levels = append(ssm.levels, InitLinkedList[*FileSystem]())
-		}
-
-		// Create 4 SSTables in level 0
+		// Create 4 SSTables in level 0 using the setup helper
 		for i := 0; i < 4; i++ {
-			fs, err := ssm.NewSSTableFS(0)
-			assert.NoError(t, err)
-			_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes(fmt.Sprintf("key%d", i)), Bytes("value")})
-			ssm.levels[0].PushBack(fs)
+			_ = ts.CreateSSTable(0, map[string]string{
+				fmt.Sprintf("key%d", i): "value",
+			})
+			// AddSSTableToLevel is implicitly handled by CreateSSTable if we modify it,
+			// or we add them manually if CreateSSTable doesn't. Assuming manual for now.
+			// Let's refine CreateSSTable in test_utils.go later if needed.
+			// For now, let's assume CreateSSTable just creates the file, and we add it.
+			// Find the FS created by CreateSSTable (this is a bit awkward, needs helper improvement)
+			// A better approach: ts.CreateSSTable should return the FS or SStable object.
+			// Let's assume ts.CreateSSTable returns *SStable for now (needs change in test_utils.go)
+			sstable := ts.CreateSSTable(0, map[string]string{fmt.Sprintf("key%d", i): "value"})
+			ts.AddSSTableToLevel(0, sstable) // Add the created sstable's FS to the level
 		}
 
-		assert.True(t, ssm.shouldCompact(0, ssm.levels[0]))
-		assert.NoError(t, ssm.Compact())
-		assert.Equal(t, 0, ssm.levels[0].Len(), "Level 0 should be empty after compaction")
-		assert.GreaterOrEqual(t, len(ssm.levels), 2, "Should have created level 1")
-		assert.Equal(t, 1, ssm.levels[1].Len(), "Level 1 should have merged SSTable")
+		assert.True(t, ts.Manager.shouldCompact(0, ts.Manager.levels[0]))
+		assert.NoError(t, ts.Manager.Compact())
+		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
+		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Should have created level 1")
+		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist") // Added check
+		assert.Equal(t, 1, ts.Manager.levels[1].Len(), "Level 1 should have merged SSTable")
 	})
 
 	t.Run("levels below threshold dont compact", func(t *testing.T) {
-		tempDir := t.TempDir()
 		threshold := 4
-		cfg := NewConfig(
-			WithDatabaseDir(tempDir),
-			WithLevel0CompactionThreshold(threshold),
-		)
-
-		ssm, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssm.Close()
-
-		// Ensure levels 0 and 1 exist for the test setup
-		if len(ssm.levels) < 2 {
-			ssm.levels = append(ssm.levels, make([]*LinkedList[*FileSystem], 2-len(ssm.levels))...)
-		}
-		if ssm.levels[0] == nil {
-			ssm.levels[0] = InitLinkedList[*FileSystem]()
-		}
-		if ssm.levels[1] == nil {
-			ssm.levels[1] = InitLinkedList[*FileSystem]()
-		}
+		cfg := NewConfig(WithLevel0CompactionThreshold(threshold))
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
 		// --- Test Level 0 ---
-		// Add files less than threshold
 		level0FileCount := threshold - 1
 		initialLevel0Files := make([]*FileSystem, level0FileCount)
 		for i := 0; i < level0FileCount; i++ {
-			fs, err := ssm.NewSSTableFS(0)
-			assert.NoError(t, err)
-			_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes(fmt.Sprintf("l0-key%d", i)), Bytes("value")})
-			ssm.levels[0].PushBack(fs)
-			initialLevel0Files[i] = fs // Keep track for assertion
+			sstable := ts.CreateSSTable(0, map[string]string{fmt.Sprintf("l0-key%d", i): "value"})
+			ts.AddSSTableToLevel(0, sstable)
+			initialLevel0Files[i] = sstable.FileSystem // Keep track for assertion
 		}
-		assert.Equal(t, level0FileCount, ssm.levels[0].Len(), "Pre-check: Level 0 should have %d files", level0FileCount)
+		assert.Equal(t, level0FileCount, ts.Manager.levels[0].Len(), "Pre-check: Level 0 should have %d files", level0FileCount)
 
 		// --- Test Level 1 ---
-		// Add a small file (guaranteed below size threshold)
 		level1FileCount := 1
 		initialLevel1Files := make([]*FileSystem, level1FileCount)
-		fs1, err := ssm.NewSSTableFS(1)
-		assert.NoError(t, err)
-		_ = createSSTable(t, cfg, fs1, [2]Bytes{Bytes("l1-key"), Bytes("small-value")})
-		ssm.levels[1].PushBack(fs1)
-		initialLevel1Files[0] = fs1
-		assert.Equal(t, level1FileCount, ssm.levels[1].Len(), "Pre-check: Level 1 should have %d file", level1FileCount)
+		sstable1 := ts.CreateSSTable(1, map[string]string{"l1-key": "small-value"})
+		ts.AddSSTableToLevel(1, sstable1)
+		initialLevel1Files[0] = sstable1.FileSystem
+		assert.Equal(t, level1FileCount, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d file", level1FileCount)
 
 		// --- Act ---
-		err = ssm.Compact()
+		err := ts.Manager.Compact()
 		assert.NoError(t, err)
 
 		// --- Assert ---
 		// Level 0 should be unchanged
-		assert.Equal(t, level0FileCount, ssm.levels[0].Len(), "Level 0 count should remain %d after compact", level0FileCount)
-		// Verify the actual files are the same (optional, but good sanity check)
-		currentLevel0Files := make([]*FileSystem, 0, ssm.levels[0].Len())
-		iter0 := ssm.levels[0].Iterator()
+		assert.Equal(t, level0FileCount, ts.Manager.levels[0].Len(), "Level 0 count should remain %d after compact", level0FileCount)
+		currentLevel0Files := make([]*FileSystem, 0, ts.Manager.levels[0].Len())
+		iter0 := ts.Manager.levels[0].Iterator()
 		for iter0.HasNext() {
 			f, _ := iter0.Next()
 			currentLevel0Files = append(currentLevel0Files, f)
@@ -370,50 +367,30 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.ElementsMatch(t, initialLevel0Files, currentLevel0Files, "Level 0 files should be the same instances")
 
 		// Level 1 should be unchanged
-		assert.Equal(t, level1FileCount, ssm.levels[1].Len(), "Level 1 count should remain %d after compact", level1FileCount)
-		// Verify the actual files are the same
-		currentLevel1Files := make([]*FileSystem, 0, ssm.levels[1].Len())
-		iter1 := ssm.levels[1].Iterator()
+		assert.Equal(t, level1FileCount, ts.Manager.levels[1].Len(), "Level 1 count should remain %d after compact", level1FileCount)
+		currentLevel1Files := make([]*FileSystem, 0, ts.Manager.levels[1].Len())
+		iter1 := ts.Manager.levels[1].Iterator()
 		for iter1.HasNext() {
 			f, _ := iter1.Next()
 			currentLevel1Files = append(currentLevel1Files, f)
 		}
 		assert.ElementsMatch(t, initialLevel1Files, currentLevel1Files, "Level 1 files should be the same instances")
 
-		// No higher levels should have been created
-		assert.LessOrEqual(t, len(ssm.levels), 2, "No new levels should be created")
+		// No higher levels should have been created beyond the initial setup (usually 3 levels in setup)
+		assert.LessOrEqual(t, len(ts.Manager.levels), 3, "No new levels beyond initial setup should be created")
 	})
 
-	// New test case using configurable thresholds
 	t.Run("level 1 size above threshold triggers compaction (lowered threshold)", func(t *testing.T) {
-		tempDir := t.TempDir()
 		// Configure low thresholds for easy testing
-		// Level 1 threshold = 1MB * (2^1) = 2MB
 		cfg := NewConfig(
-			WithDatabaseDir(tempDir),
-			WithLevel0CompactionThreshold(2), // Low L0 threshold (doesn't affect this test directly)
+			WithLevel0CompactionThreshold(2), // Low L0 threshold
 			WithBaseCompactionSizeMB(1),      // Low base size: 1MB
-			WithLevelSizeMultiplier(2),       // Low multiplier: 2x per level
+			WithLevelSizeMultiplier(2),       // Low multiplier: 2x per level -> L1 threshold = 1 * 2^1 = 2MB
 		)
-
-		ssm, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssm.Close()
-
-		// Ensure levels 0 and 1 exist
-		if len(ssm.levels) < 2 {
-			ssm.levels = append(ssm.levels, make([]*LinkedList[*FileSystem], 2-len(ssm.levels))...)
-		}
-		if ssm.levels[0] == nil {
-			ssm.levels[0] = InitLinkedList[*FileSystem]()
-		}
-		if ssm.levels[1] == nil {
-			ssm.levels[1] = InitLinkedList[*FileSystem]()
-		}
+		ts := NewTestRindbSetup(t, &cfg) // Setup will use a temp dir
+		defer ts.Cleanup()
 
 		numFiles := 2
-		// Need > 2MB total. Estimate ~1050 bytes/record (10b key, 1k val, 16b meta).
-		// 2MB / 1050 bytes/rec ≈ 1950 records. Let's use 1000 per file (total ~2.1MB).
 		recordsPerFile := 1000
 		valueSize := 1024 // 1KB values
 
@@ -422,55 +399,53 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 		INFO("Creating SSTables for Level 1 (target > 2MB total)...")
 		for i := 0; i < numFiles; i++ {
-			fs, err := ssm.NewSSTableFS(1) // Create in level 1
-			assert.NoError(t, err)
-			level1Paths[i] = fs.Path()
-
+			// Use ts.CreateSSTable which uses the manager's config and FS creation
+			kvs := make(map[string]string)
 			pairs := generateKeyValuePairs(recordsPerFile, 10, valueSize)
-			_ = createSSTable(t, cfg, fs, pairs...)
+			for _, p := range pairs {
+				kvs[string(p[0])] = string(p[1])
+			}
+			sstable := ts.CreateSSTable(1, kvs) // Create in level 1
+			ts.AddSSTableToLevel(1, sstable)    // Add to manager's level list
 
-			info, statErr := os.Stat(fs.Path())
+			level1Paths[i] = sstable.FileSystem.Path()
+			info, statErr := os.Stat(sstable.FileSystem.Path())
 			assert.NoError(t, statErr)
 			totalSize += info.Size()
-			INFO("Created Level 1 SSTable %s, size: %d bytes", fs.Path(), info.Size())
-
-			ssm.levels[1].PushBack(fs)
-			err = fs.Close() // Close after flush, Compact will reopen if needed
-			assert.NoError(t, err)
+			INFO("Created Level 1 SSTable %s, size: %d bytes", sstable.FileSystem.Path(), info.Size())
+			// No need to manually close FS, ts.Cleanup() handles it
 		}
 
 		// Calculate the threshold used in this test
-		level1ThresholdBytes := int64(cfg.baseCompactionSizeMB) * int64(math.Pow(float64(cfg.levelSizeMultiplier), 1.0)) * 1024 * 1024
+		level1ThresholdBytes := int64(ts.Manager.config.baseCompactionSizeMB) * int64(math.Pow(float64(ts.Manager.config.levelSizeMultiplier), 1.0)) * 1024 * 1024
 		INFO("Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
 			totalSize, float64(totalSize)/(1024*1024),
 			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
 		// Sanity check: Ensure total size exceeds the *lowered* threshold
 		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
-		assert.Equal(t, numFiles, ssm.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
+		assert.Equal(t, numFiles, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
 
-		// Act: Call Compact(). This should trigger compaction for Level 1 based on size.
 		INFO("Calling Compact()...")
-		err = ssm.Compact()
+		err := ts.Manager.Compact()
 		assert.NoError(t, err)
 		INFO("Compact() finished.")
 
 		// Assert:
 		// 1. Level 1 should now be empty.
-		assert.Equal(t, 0, ssm.levels[1].Len(), "Level 1 should be empty after compaction")
+		assert.Equal(t, 0, ts.Manager.levels[1].Len(), "Level 1 should be empty after compaction")
+		assert.GreaterOrEqual(t, len(ts.Manager.levels), 3, "Should have created level 2")
+		assert.NotNil(t, ts.Manager.levels[2], "Level 2 list should exist")
+		assert.Equal(t, 1, ts.Manager.levels[2].Len(), "Level 2 should have 1 merged SSTable")
 
 		// 2. Level 2 should exist and contain exactly one merged SSTable.
-		assert.GreaterOrEqual(t, len(ssm.levels), 3, "Should have created level 2")
-		assert.NotNil(t, ssm.levels[2], "Level 2 list should exist")
-		assert.Equal(t, 1, ssm.levels[2].Len(), "Level 2 should have 1 merged SSTable")
-
 		// 3. Check if the original Level 1 files were removed.
 		for _, p := range level1Paths {
 			assertFileNotExists(t, p)
 		}
 
 		// 4. (Optional) Verify the content/size of the merged Level 2 SSTable
-		iter2 := ssm.levels[2].Iterator()
+		iter2 := ts.Manager.levels[2].Iterator()
 		mergedFs, err := iter2.Next()
 		assert.NoError(t, err)
 		mergedInfo, err := os.Stat(mergedFs.Path())
@@ -483,72 +458,52 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 func TestSSTableManager_compactHigherLevel(t *testing.T) {
 	t.Run("compact level 1 into level 2 with overlap", func(t *testing.T) {
-		tempDir := t.TempDir()
-		cfg := NewConfig(WithDatabaseDir(tempDir))
+		cfg := NewConfig() // Use default config, setup will provide temp dir
+		ts := NewTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
 
-		ssm, err := InitSSTableManager(cfg)
-		assert.NoError(t, err)
-		defer ssm.Close()
-
-		// Ensure levels 1 and 2 exist
-		if len(ssm.levels) < 3 {
-			ssm.levels = append(ssm.levels, make([]*LinkedList[*FileSystem], 3-len(ssm.levels))...)
-		}
-		if ssm.levels[1] == nil {
-			ssm.levels[1] = InitLinkedList[*FileSystem]()
-		}
-		if ssm.levels[2] == nil {
-			ssm.levels[2] = InitLinkedList[*FileSystem]()
-		}
-
-		// --- Create SSTables ---
+		// --- Create SSTables using TestRindbSetup ---
 		// Level 1 SSTable (Source)
-		fs1, err := ssm.NewSSTableFS(1)
-		assert.NoError(t, err)
-		_ = createSSTable(t, cfg, fs1,
-			[2]Bytes{Bytes("keyC"), Bytes("valueC_L1")}, // Overwritten by L2
-			[2]Bytes{Bytes("keyD"), Bytes("valueD_L1")},
-		)
-		ssm.levels[1].PushBack(fs1)
-		fs1Path := fs1.Path() // Store path for later check
+		sstable1 := ts.CreateSSTable(1, map[string]string{
+			"keyC": "valueC_L1", // Overwritten by L2
+			"keyD": "valueD_L1",
+		})
+		ts.AddSSTableToLevel(1, sstable1)
+		fs1Path := sstable1.FileSystem.Path() // Store path for later check
 
 		// Level 2 SSTable (Overlapping)
-		fs2Overlap, err := ssm.NewSSTableFS(2)
-		assert.NoError(t, err)
-		_ = createSSTable(t, cfg, fs2Overlap,
-			[2]Bytes{Bytes("keyB"), Bytes("valueB_L2")},
-			[2]Bytes{Bytes("keyC"), Bytes("valueC_L2")}, // Overwrites L1's keyC
-		)
-		ssm.levels[2].PushBack(fs2Overlap)
-		fs2OverlapPath := fs2Overlap.Path() // Store path for later check
+		sstable2Overlap := ts.CreateSSTable(2, map[string]string{
+			"keyB": "valueB_L2",
+			"keyC": "valueC_L2", // Overwrites L1's keyC
+		})
+		ts.AddSSTableToLevel(2, sstable2Overlap)
+		fs2OverlapPath := sstable2Overlap.FileSystem.Path() // Store path for later check
 
 		// Level 2 SSTable (Non-Overlapping)
-		fs2NoOverlap, err := ssm.NewSSTableFS(2)
-		assert.NoError(t, err)
-		_ = createSSTable(t, cfg, fs2NoOverlap,
-			[2]Bytes{Bytes("keyA"), Bytes("valueA_L2")},
-		)
-		ssm.levels[2].PushBack(fs2NoOverlap)
-		fs2NoOverlapPath := fs2NoOverlap.Path() // Store path for later check
+		sstable2NoOverlap := ts.CreateSSTable(2, map[string]string{
+			"keyA": "valueA_L2",
+		})
+		ts.AddSSTableToLevel(2, sstable2NoOverlap)
+		fs2NoOverlapPath := sstable2NoOverlap.FileSystem.Path() // Store path for later check
 
 		// --- Act ---
-		// Manually call compactHigherLevel (Compact() would normally pick the SSTable)
-		err = ssm.compactHigherLevel(ssm.levels[1], 2)
+		// Manually call compactHigherLevel using the manager from the setup
+		err := ts.Manager.compactHigherLevel(ts.Manager.levels[1], 2)
 		assert.NoError(t, err)
 
 		// --- Assert ---
 		// 1. Original files removed?
 		assertFileNotExists(t, fs1Path)
 		assertFileNotExists(t, fs2OverlapPath)
-		assertFileExists(t, fs2NoOverlapPath)
+		assertFileExists(t, fs2NoOverlapPath) // Non-overlapping file should remain
 
 		// 2. Level lists updated?
-		assert.Equal(t, 0, ssm.levels[1].Len(), "Level 1 should be empty after compaction")
-		assert.Equal(t, 2, ssm.levels[2].Len(), "Level 2 should have 2 files (non-overlapping + new merged)")
+		assert.Equal(t, 0, ts.Manager.levels[1].Len(), "Level 1 should be empty after compaction")
+		assert.Equal(t, 2, ts.Manager.levels[2].Len(), "Level 2 should have 2 files (non-overlapping + new merged)")
 
 		// 3. Find the new and old files in Level 2
 		var newMergedFS, oldNonOverlappingFS *FileSystem
-		iter2 := ssm.levels[2].Iterator()
+		iter2 := ts.Manager.levels[2].Iterator()
 		for iter2.HasNext() {
 			fs, _ := iter2.Next()
 			if fs.Path() == fs2NoOverlapPath {
@@ -562,13 +517,13 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		assert.Equal(t, fs2NoOverlapPath, oldNonOverlappingFS.Path())
 
 		// 4. Verify content of the new merged SSTable
-		err = newMergedFS.Open()
+		err = newMergedFS.Open() // Ensure FS is open
 		assert.NoError(t, err)
-		defer newMergedFS.Close()
-		mergedSSTable, err := NewSSTable(cfg, newMergedFS)
+		// No need to defer close here, ts.Cleanup() handles it
+		mergedSSTable, err := NewSSTable(ts.Manager.config, newMergedFS)
 		assert.NoError(t, err)
 
-		// Expected merged content: B(L2), C(L2), D(L1)
+		// Expected merged content: B(L2), C(L1 - newer), D(L1)
 		assert.Equal(t, 3, len(mergedSSTable.SparseIndex), "Merged SSTable should have 3 keys")
 
 		val, err := mergedSSTable.GetValue(Bytes("keyA")) // Should not be present
@@ -581,18 +536,17 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		val, err = mergedSSTable.GetValue(Bytes("keyC"))
 		assert.NoError(t, err)
-		// assert.Equal(t, Bytes("valueC_L2"), val) // L2 value takes precedence
-		assert.Equal(t, Bytes("valueC_L1"), val) // Level 1 is newer
+		assert.Equal(t, Bytes("valueC_L1"), val) // Level 1 is newer, takes precedence
 
 		val, err = mergedSSTable.GetValue(Bytes("keyD"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueD_L1"), val)
 
 		// 5. Verify content of the non-overlapping SSTable (should be unchanged)
-		err = oldNonOverlappingFS.Open()
+		err = oldNonOverlappingFS.Open() // Ensure FS is open
 		assert.NoError(t, err)
-		defer oldNonOverlappingFS.Close()
-		nonOverlappingSSTable, err := NewSSTable(cfg, oldNonOverlappingFS)
+		// No need to defer close here, ts.Cleanup() handles it
+		nonOverlappingSSTable, err := NewSSTable(ts.Manager.config, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
 		val, err = nonOverlappingSSTable.GetValue(Bytes("keyA"))
@@ -603,110 +557,134 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 // TestSSTableManager_shouldCompact tests the logic for deciding when to compact a level.
 func TestSSTableManager_shouldCompact(t *testing.T) {
-	cfg := testConfig()
-	// Use t.TempDir() for automatic cleanup
-	tempDir := t.TempDir()
-	cfg.databaseDir = tempDir // Override databaseDir for this test
+	cfg := testConfig() // Use default test config, setup will override dir
+	ts := NewTestRindbSetup(t, &cfg)
+	defer ts.Cleanup()
 
-	manager, err := InitSSTableManager(cfg)
-	assert.NoError(t, err)
-
-	// Helper to create a FileSystem linked list
+	// Helper to create a FileSystem linked list (using dummy files)
 	createLevelList := func(filePaths ...string) *LinkedList[*FileSystem] {
 		list := InitLinkedList[*FileSystem]()
 		for _, p := range filePaths {
+			// Create a FileSystem object pointing to the dummy path
+			// Note: These FS objects won't be properly opened/closed,
+			// but it's okay for testing the shouldCompact logic which only needs paths/sizes.
 			list.PushBack(&FileSystem{filePath: p})
 		}
 		return list
 	}
 
+	// Use ts.TempDir for creating dummy files
+	tempDir := ts.TempDir
+
+	// --- Level 0 Tests (File Count Based) ---
+	// Note: Level 0 threshold is set by WithLevel0CompactionThreshold,
+	// which defaults to 2 in testConfig() used by the TestRindbSetup.
+	// These tests verify the file count logic.
+
 	t.Run("Level0_BelowThreshold", func(t *testing.T) {
-		// level0Threshold is 4
+		// level0Threshold is 2 (from testConfig -> DefaultConfig)
 		paths := []string{
-			createDummyFile(t, tempDir, "l0_1.sst", 1),
+			CreateDummyFile(t, tempDir, "l0_1.sst", 1), // 1 file < 2
 		}
 		levelList := createLevelList(paths...)
-		assert.False(t, manager.shouldCompact(0, levelList))
+		assert.False(t, ts.Manager.shouldCompact(0, levelList))
 	})
 
 	t.Run("Level0_AtThreshold", func(t *testing.T) {
-		// level0CompactionThreshold is 2 (from testConfig)
+		// level0Threshold is 2
 		paths := []string{
-			createDummyFile(t, tempDir, "l0_2.sst", 1), // Renamed for clarity
-			createDummyFile(t, tempDir, "l0_3.sst", 1), // Renamed for clarity
-			createDummyFile(t, tempDir, "l0_6.sst", 1),
-			createDummyFile(t, tempDir, "l0_7.sst", 1),
+			CreateDummyFile(t, tempDir, "l0_2.sst", 1),
+			CreateDummyFile(t, tempDir, "l0_3.sst", 1), // 2 files == 2
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, manager.shouldCompact(0, levelList))
+		assert.True(t, ts.Manager.shouldCompact(0, levelList))
 	})
 
 	t.Run("Level0_AboveThreshold", func(t *testing.T) {
-		// level0CompactionThreshold is 2 (from testConfig)
+		// level0Threshold is 2
 		paths := []string{
-			createDummyFile(t, tempDir, "l0_4.sst", 1), // Renamed for clarity
-			createDummyFile(t, tempDir, "l0_5.sst", 1), // Renamed for clarity
-			createDummyFile(t, tempDir, "l0_6.sst", 1), // Renamed for clarity
-			createDummyFile(t, tempDir, "l0_11.sst", 1),
-			createDummyFile(t, tempDir, "l0_12.sst", 1),
+			CreateDummyFile(t, tempDir, "l0_4.sst", 1),
+			CreateDummyFile(t, tempDir, "l0_5.sst", 1),
+			CreateDummyFile(t, tempDir, "l0_6.sst", 1), // 3 files > 2
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, manager.shouldCompact(0, levelList))
+		assert.True(t, ts.Manager.shouldCompact(0, levelList))
 	})
 
-	t.Run("Level1_BelowThreshold", func(t *testing.T) {
-		// Threshold = 10 * 10^1 = 100 MB
+	// --- Higher Level Tests (Size Based) ---
+	// Configure the manager specifically for these tests with lower thresholds
+	cfgLowThreshold := NewConfig(
+		WithBaseCompactionSizeMB(1), // 1MB base size
+		WithLevelSizeMultiplier(2),  // 2x multiplier per level
+	)
+	tsLowThreshold := NewTestRindbSetup(t, &cfgLowThreshold) // Use a separate setup with the low threshold config
+	defer tsLowThreshold.Cleanup()
+	tempDirLow := tsLowThreshold.TempDir // Use the temp dir from the low threshold setup
+
+	t.Run("Level1_BelowThreshold (1MB base, 2x mult)", func(t *testing.T) {
+		// Threshold = base(1MB) * multiplier(2)^1 = 2 MB
 		paths := []string{
-			createDummyFile(t, tempDir, "l1_1.sst", 50),
-			createDummyFile(t, tempDir, "l1_2.sst", 49), // Total 99MB
+			CreateDummyFile(t, tempDirLow, "l1_1.sst", 1), // Total 1MB < 2MB
 		}
 		levelList := createLevelList(paths...)
-		assert.False(t, manager.shouldCompact(1, levelList))
+		assert.False(t, tsLowThreshold.Manager.shouldCompact(1, levelList))
 	})
 
-	t.Run("Level1_AtThreshold", func(t *testing.T) {
-		// Threshold = 10 * 10^1 = 100 MB
+	t.Run("Level1_AtThreshold (1MB base, 2x mult)", func(t *testing.T) {
+		// Threshold = 2 MB
 		paths := []string{
-			createDummyFile(t, tempDir, "l1_3.sst", 50),
-			createDummyFile(t, tempDir, "l1_4.sst", 50), // Total 100MB
+			CreateDummyFile(t, tempDirLow, "l1_2.sst", 1),
+			CreateDummyFile(t, tempDirLow, "l1_3.sst", 1), // Total 2MB == 2MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, manager.shouldCompact(1, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(1, levelList))
 	})
 
-	t.Run("Level1_AboveThreshold", func(t *testing.T) {
-		// Threshold = 10 * 10^1 = 100 MB
+	t.Run("Level1_AboveThreshold (1MB base, 2x mult)", func(t *testing.T) {
+		// Threshold = 2 MB
 		paths := []string{
-			createDummyFile(t, tempDir, "l1_5.sst", 50),
-			createDummyFile(t, tempDir, "l1_6.sst", 51), // Total 101MB
+			CreateDummyFile(t, tempDirLow, "l1_4.sst", 1),
+			CreateDummyFile(t, tempDirLow, "l1_5.sst", 2), // Total 3MB > 2MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, manager.shouldCompact(1, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(1, levelList))
 	})
 
-	t.Run("Level2_BelowThreshold", func(t *testing.T) {
-		// Threshold = 10 * 10^2 = 1000 MB
+	t.Run("Level2_BelowThreshold (1MB base, 2x mult)", func(t *testing.T) {
+		// Threshold = base(1MB) * multiplier(2)^2 = 4 MB
 		paths := []string{
-			createDummyFile(t, tempDir, "l2_1.sst", 500),
-			createDummyFile(t, tempDir, "l2_2.sst", 499), // Total 999MB
+			CreateDummyFile(t, tempDirLow, "l2_1.sst", 2),
+			CreateDummyFile(t, tempDirLow, "l2_2.sst", 1), // Total 3MB < 4MB
 		}
 		levelList := createLevelList(paths...)
-		assert.False(t, manager.shouldCompact(2, levelList))
+		assert.False(t, tsLowThreshold.Manager.shouldCompact(2, levelList))
 	})
 
-	t.Run("Level2_AtThreshold", func(t *testing.T) {
-		// Threshold = 10 * 10^2 = 1000 MB
+	t.Run("Level2_AtThreshold (1MB base, 2x mult)", func(t *testing.T) {
+		// Threshold = 4 MB
 		paths := []string{
-			createDummyFile(t, tempDir, "l2_3.sst", 500),
-			createDummyFile(t, tempDir, "l2_4.sst", 500), // Total 1000MB
+			CreateDummyFile(t, tempDirLow, "l2_3.sst", 2),
+			CreateDummyFile(t, tempDirLow, "l2_4.sst", 2), // Total 4MB == 4MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, manager.shouldCompact(2, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(2, levelList))
+	})
+
+	t.Run("Level2_AboveThreshold (1MB base, 2x mult)", func(t *testing.T) {
+		// Threshold = 4 MB
+		paths := []string{
+			CreateDummyFile(t, tempDirLow, "l2_5.sst", 3),
+			CreateDummyFile(t, tempDirLow, "l2_6.sst", 2), // Total 5MB > 4MB
+		}
+		levelList := createLevelList(paths...)
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(2, levelList))
 	})
 
 	t.Run("EmptyLevel", func(t *testing.T) {
+		// Use the original setup (ts) as it doesn't matter which config for empty levels
 		levelList := createLevelList() // Empty list
-		assert.False(t, manager.shouldCompact(0, levelList))
-		assert.False(t, manager.shouldCompact(1, levelList))
+		assert.False(t, ts.Manager.shouldCompact(0, levelList))
+		assert.False(t, ts.Manager.shouldCompact(1, levelList))
+		assert.False(t, ts.Manager.shouldCompact(2, levelList)) // Check level 2 as well
 	})
 }
