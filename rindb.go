@@ -425,6 +425,10 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 		iterator := h.levels[levelNumb].IteratorFromBottom()
 		fs := iterator.Value()
 		for {
+			if fs == nil {
+				break
+			}
+
 			if err := fs.Open(); err != nil {
 				return nil, err
 			}
