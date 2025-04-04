@@ -7,7 +7,8 @@ import (
 	"io"
 )
 
-var byteOrder = binary.LittleEndian
+// Use BigEndian for consistent cross-platform encoding/decoding
+var byteOrder = binary.BigEndian
 
 const mdByteSize = 8
 
