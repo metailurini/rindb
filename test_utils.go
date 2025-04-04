@@ -53,21 +53,21 @@ func NewTestRindbSetup(t *testing.T, cfg *Config) *TestRindbSetup {
 		if finalCfg.levelSizeMultiplier == 0 {
 			finalCfg.levelSizeMultiplier = defaultCfg.levelSizeMultiplier
 		}
-		if finalCfg.bloomFalsePositiveRate == 0.0 { // Check float zero value
+		if finalCfg.bloomFalsePositiveRate == 0.0 {
 			finalCfg.bloomFalsePositiveRate = defaultCfg.bloomFalsePositiveRate
 		}
 		if finalCfg.skipListDefaultLevel == 0 {
 			finalCfg.skipListDefaultLevel = defaultCfg.skipListDefaultLevel
 		}
-		if finalCfg.skipListMaxLevel == 0 { // Correct field name
-			finalCfg.skipListMaxLevel = defaultCfg.skipListMaxLevel // Correct field name
+		if finalCfg.skipListMaxLevel == 0 {
+			finalCfg.skipListMaxLevel = defaultCfg.skipListMaxLevel
 		}
-		if finalCfg.skipListP == 0.0 { // Check float zero value
+		if finalCfg.skipListP == 0.0 {
 			finalCfg.skipListP = defaultCfg.skipListP
 		}
 	}
 
-	manager, err := InitSSTableManager(finalCfg) // Use the correctly prepared config
+	manager, err := InitSSTableManager(finalCfg)
 	assert.NoError(t, err)
 
 	// Ensure at least 3 levels exist for common test requirements.
@@ -143,7 +143,7 @@ func GenerateTestData(n int, includeTombstone bool) map[string][]byte {
 	data := make(map[string][]byte)
 	for i := 0; i < n; i++ {
 		key := fmt.Sprintf("key%d", i)
-		value := randStringBytes(100) // Assuming randStringBytes exists in rindb
+		value := randStringBytes(100)
 		data[key] = value
 	}
 	if includeTombstone {
