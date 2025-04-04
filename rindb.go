@@ -197,7 +197,10 @@ func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSys
 func (h *SSTableManager) Compact() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	INFO("Starting compaction check across %d levels", len(h.levels))
 
+  var err error
+	compactionOccurred := false // Track if any compaction actually happened
 	for levelNumb := 0; levelNumb < len(h.levels); levelNumb++ {
 		if h.levels[levelNumb] == nil {
 			continue
@@ -214,19 +217,29 @@ func (h *SSTableManager) Compact() error {
 
 		if levelNumb == 0 {
 			// Level 0: Merge all SSTables into L1
-			err := h.compactLevel0(level, newLevelNumb)
+			err = h.compactLevel0(level, newLevelNumb)
 			if err != nil {
 				ERROR("Error compacting Level 0: %v", err)
 				return err
 			}
 		} else {
 			// Higher levels: Pick one SSTable and merge with overlapping L1+ SSTables
-			err := h.compactHigherLevel(level, newLevelNumb)
+			err = h.compactHigherLevel(level, newLevelNumb)
 			if err != nil {
 				ERROR("Error compacting Level %d: %v", levelNumb, err)
 				return err
 			}
 		}
+		// If compaction happened for this level, set the flag
+		if err == nil { // Assuming err is nil if compaction was successful or skipped appropriately
+			compactionOccurred = true // Or set based on actual merge/compact calls succeeding
+		}
+	}
+
+	if compactionOccurred {
+		INFO("Compaction process completed.")
+	} else {
+		INFO("No levels required compaction.")
 	}
 	return nil
 }
@@ -521,6 +534,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 		_ = fs.Close()
 		return Rindb{}, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
+	INFO("Initialized RinDB with database directory %s", cfg.databaseDir)
 	return Rindb{
 		wal:            wal,
 		memtable:       memtable,
@@ -563,13 +577,17 @@ func (r *Rindb) Put(key, value Bytes) error {
 
 	// Check size and flush if needed
 	if r.memtable.data.Len() >= r.config.maxMemtableSize {
-		if len(r.ssTableManager.levels) > 0 {
-			if r.ssTableManager.levels[0] != nil && r.ssTableManager.levels[0].Len() > r.config.level0CompactionThreshold {
-				if err := r.ssTableManager.Compact(); err != nil {
-					return err
-				}
+		// Check if L0 compaction threshold is met *before* flushing the memtable
+		// This logic might need refinement depending on exact compaction strategy
+		if len(r.ssTableManager.levels) > 0 && r.ssTableManager.levels[0] != nil && r.ssTableManager.levels[0].Len() >= r.config.level0CompactionThreshold {
+			INFO("Level 0 size %d meets threshold %d, triggering compaction before memtable flush", r.ssTableManager.levels[0].Len(), r.config.level0CompactionThreshold)
+			if err := r.ssTableManager.Compact(); err != nil {
+				ERROR("Compaction failed during Put operation: %v", err)
+				return fmt.Errorf("compaction failed during put: %w", err) // Return error if compaction fails
 			}
 		}
+
+		INFO("Memtable size %d reached threshold %d, flushing to new L0 SSTable.", r.memtable.data.Len(), r.config.maxMemtableSize)
 
 		fs, err := r.ssTableManager.NewSSTableFS(0)
 		if err != nil {
@@ -642,5 +660,6 @@ func (r *Rindb) Close() error {
 	// Depending on error handling strategy, you might collect errors and return a combined error.
 	// For now, we prioritize closing both and log errors. If WAL close fails, that error could be returned.
 	// The first error encountered (e.g., WAL error) could be returned here if needed.
+	INFO("RinDB closed successfully")
 	return nil
 }
