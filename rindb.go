@@ -425,6 +425,7 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 		iterator := h.levels[levelNumb].IteratorFromBottom()
 		fs := iterator.Value()
 		for {
+			// No more file systems in this level
 			if fs == nil {
 				break
 			}
