@@ -5,12 +5,172 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"io"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// TestRindbSetup encapsulates setup and cleanup logic for rindb tests.
+type TestRindbSetup struct {
+	T            *testing.T
+	Manager      *SSTableManager
+	TempDir      string
+	Levels       []*LinkedList[*FileSystem]
+	CleanupFuncs []func()
+}
+
+// NewTestRindbSetup initializes a new test setup for rindb with a temporary directory and manager.
+func NewTestRindbSetup(t *testing.T, cfg *Config) *TestRindbSetup {
+	tempDir := t.TempDir()
+	var finalCfg Config           // Use a value type to copy
+	defaultCfg := DefaultConfig() // Get default values
+
+	if cfg == nil {
+		// If no config provided, use the default one with the temp dir
+		finalCfg = defaultCfg
+		finalCfg.databaseDir = tempDir
+	} else {
+		// If a config is provided, copy it and override the databaseDir
+		finalCfg = *cfg                // Copy the provided config
+		finalCfg.databaseDir = tempDir // Override the directory
+
+		// Ensure essential default values are applied if the provided config missed them
+		// (e.g., if a user created a Config struct manually without using NewConfig)
+		// Check against zero values and assign defaults if necessary.
+		if finalCfg.maxMemtableSize == 0 {
+			finalCfg.maxMemtableSize = defaultCfg.maxMemtableSize
+		}
+		if finalCfg.level0CompactionThreshold == 0 {
+			finalCfg.level0CompactionThreshold = defaultCfg.level0CompactionThreshold
+		}
+		if finalCfg.baseCompactionSizeMB == 0 {
+			finalCfg.baseCompactionSizeMB = defaultCfg.baseCompactionSizeMB
+		}
+		if finalCfg.levelSizeMultiplier == 0 {
+			finalCfg.levelSizeMultiplier = defaultCfg.levelSizeMultiplier
+		}
+		if finalCfg.bloomFalsePositiveRate == 0.0 { // Check float zero value
+			finalCfg.bloomFalsePositiveRate = defaultCfg.bloomFalsePositiveRate
+		}
+		if finalCfg.skipListDefaultLevel == 0 {
+			finalCfg.skipListDefaultLevel = defaultCfg.skipListDefaultLevel
+		}
+		if finalCfg.skipListMaxLevel == 0 { // Correct field name
+			finalCfg.skipListMaxLevel = defaultCfg.skipListMaxLevel // Correct field name
+		}
+		if finalCfg.skipListP == 0.0 { // Check float zero value
+			finalCfg.skipListP = defaultCfg.skipListP
+		}
+	}
+
+	manager, err := InitSSTableManager(finalCfg) // Use the correctly prepared config
+	assert.NoError(t, err)
+
+	// Ensure at least 3 levels exist for common test requirements.
+	// This loop correctly handles cases where manager.levels might be initialized
+	// with some levels already loaded from disk.
+	minLevels := 3
+	if len(manager.levels) < minLevels {
+		needed := minLevels - len(manager.levels)
+		for i := 0; i < needed; i++ {
+			manager.levels = append(manager.levels, InitLinkedList[*FileSystem]())
+		}
+	}
+	// Ensure existing levels up to minLevels are not nil
+	for i := 0; i < minLevels && i < len(manager.levels); i++ {
+		if manager.levels[i] == nil {
+			manager.levels[i] = InitLinkedList[*FileSystem]()
+		}
+	}
+
+	cleanup := func() {
+		manager.Close()
+	}
+
+	return &TestRindbSetup{
+		T:            t,
+		Manager:      manager, // Manager now has the correct config
+		TempDir:      tempDir,
+		Levels:       manager.levels,
+		CleanupFuncs: []func(){cleanup},
+	}
+}
+
+// AddCleanup adds a cleanup function to be called at the end of the test.
+func (ts *TestRindbSetup) AddCleanup(f func()) {
+	ts.CleanupFuncs = append(ts.CleanupFuncs, f)
+}
+
+// Cleanup runs all deferred cleanup functions.
+func (ts *TestRindbSetup) Cleanup() {
+	for i := len(ts.CleanupFuncs) - 1; i >= 0; i-- {
+		ts.CleanupFuncs[i]()
+	}
+}
+
+// NewSSTableFS creates a new FileSystem for a given level with automatic cleanup.
+func (ts *TestRindbSetup) NewSSTableFS(level int) *FileSystem {
+	fs, err := ts.Manager.NewSSTableFS(level)
+	assert.NoError(ts.T, err)
+	ts.AddCleanup(func() { fs.Close() })
+	return fs
+}
+
+// CreateSSTable creates an SSTable with the given key-value pairs.
+func (ts *TestRindbSetup) CreateSSTable(level int, kvs map[string]string) *SStable {
+	fs := ts.NewSSTableFS(level)
+	mem := InitMemtable(ts.Manager.config)
+	for k, v := range kvs {
+		mem.Put(Bytes(k), Bytes(v))
+	}
+	sstable, err := Flush(ts.Manager.config, mem, fs)
+	assert.NoError(ts.T, err)
+	return &sstable
+}
+
+// AddSSTableToLevel adds an SSTable to the specified level.
+func (ts *TestRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
+	fs := sstable.FileSystem
+	ts.Levels[level].PushBack(fs)
+}
+
+// GenerateTestData generates random key-value pairs for testing.
+func GenerateTestData(n int, includeTombstone bool) map[string][]byte {
+	data := make(map[string][]byte)
+	for i := 0; i < n; i++ {
+		key := fmt.Sprintf("key%d", i)
+		value := randStringBytes(100) // Assuming randStringBytes exists in rindb
+		data[key] = value
+	}
+	if includeTombstone {
+		data["tombstone"] = nil
+	}
+	return data
+}
+
+// CreateDummyFile creates a dummy file of specified size in MB for testing compaction.
+func CreateDummyFile(t *testing.T, dir, name string, sizeMB int) string {
+	path := filepath.Join(dir, name)
+	f, err := os.Create(path)
+	assert.NoError(t, err)
+	defer f.Close()
+	data := make([]byte, sizeMB*1024*1024)
+	_, err = f.Write(data)
+	assert.NoError(t, err)
+	return path
+}
+
+// AssertSSTableFileName checks if an SSTable file name follows the expected format.
+func AssertSSTableFileName(t *testing.T, path string, level int) {
+	segments := strings.Split(path, "/")
+	fileName := segments[len(segments)-1]
+	assert.True(t, strings.HasPrefix(fileName, fmt.Sprintf("l%02d_", level)))
+	assert.True(t, strings.HasSuffix(fileName, ".sst"))
+}
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
 // initialContents, if provided, must have length n. A nil entry means no initial content for that file.
