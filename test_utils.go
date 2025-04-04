@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"io"
@@ -138,20 +137,6 @@ func (ts *TestRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
 	ts.Levels[level].PushBack(fs)
 }
 
-// GenerateTestData generates random key-value pairs for testing.
-func GenerateTestData(n int, includeTombstone bool) map[string][]byte {
-	data := make(map[string][]byte)
-	for i := 0; i < n; i++ {
-		key := fmt.Sprintf("key%d", i)
-		value := randStringBytes(100)
-		data[key] = value
-	}
-	if includeTombstone {
-		data["tombstone"] = nil
-	}
-	return data
-}
-
 // CreateDummyFile creates a dummy file of specified size in MB for testing compaction.
 func CreateDummyFile(t *testing.T, dir, name string, sizeMB int) string {
 	path := filepath.Join(dir, name)
@@ -162,14 +147,6 @@ func CreateDummyFile(t *testing.T, dir, name string, sizeMB int) string {
 	_, err = f.Write(data)
 	assert.NoError(t, err)
 	return path
-}
-
-// AssertSSTableFileName checks if an SSTable file name follows the expected format.
-func AssertSSTableFileName(t *testing.T, path string, level int) {
-	segments := strings.Split(path, "/")
-	fileName := segments[len(segments)-1]
-	assert.True(t, strings.HasPrefix(fileName, fmt.Sprintf("l%02d_", level)))
-	assert.True(t, strings.HasSuffix(fileName, ".sst"))
 }
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
