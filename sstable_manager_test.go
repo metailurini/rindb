@@ -299,13 +299,6 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			_ = ts.CreateSSTable(0, map[string]string{
 				fmt.Sprintf("key%d", i): "value",
 			})
-			// AddSSTableToLevel is implicitly handled by CreateSSTable if we modify it,
-			// or we add them manually if CreateSSTable doesn't. Assuming manual for now.
-			// Let's refine CreateSSTable in test_utils.go later if needed.
-			// For now, let's assume CreateSSTable just creates the file, and we add it.
-			// Find the FS created by CreateSSTable (this is a bit awkward, needs helper improvement)
-			// A better approach: ts.CreateSSTable should return the FS or SStable object.
-			// Let's assume ts.CreateSSTable returns *SStable for now (needs change in test_utils.go)
 			sstable := ts.CreateSSTable(0, map[string]string{fmt.Sprintf("key%d", i): "value"})
 			ts.AddSSTableToLevel(0, sstable) // Add the created sstable's FS to the level
 		}
@@ -314,7 +307,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.NoError(t, ts.Manager.Compact())
 		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
 		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Should have created level 1")
-		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist") // Added check
+		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist")
 		assert.Equal(t, 1, ts.Manager.levels[1].Len(), "Level 1 should have merged SSTable")
 	})
 
@@ -397,7 +390,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 				kvs[string(p[0])] = string(p[1])
 			}
 			sstable := ts.CreateSSTable(1, kvs) // Create in level 1
-			ts.AddSSTableToLevel(1, sstable)    // Add to manager's level list
+			ts.AddSSTableToLevel(1, sstable)
 
 			level1Paths[i] = sstable.FileSystem.Path()
 			info, statErr := os.Stat(sstable.FileSystem.Path())
