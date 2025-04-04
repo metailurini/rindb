@@ -199,7 +199,7 @@ func (h *SSTableManager) Compact() error {
 	defer h.mu.Unlock()
 	INFO("Starting compaction check across %d levels", len(h.levels))
 
-  var err error
+	var err error
 	compactionOccurred := false // Track if any compaction actually happened
 	for levelNumb := 0; levelNumb < len(h.levels); levelNumb++ {
 		if h.levels[levelNumb] == nil {
@@ -437,12 +437,7 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 
 		iterator := h.levels[levelNumb].IteratorFromBottom()
 		fs := iterator.Value()
-		for {
-			// No more file systems in this level
-			if fs == nil {
-				break
-			}
-
+		for fs != nil {
 			if err := fs.Open(); err != nil {
 				return nil, err
 			}
