@@ -212,7 +212,11 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 			return SparseIndex{}, fmt.Errorf("failed to get cursor position in %s: %w", fs.Path(), err)
 		}
 	}
-	// Optional: Verify that `ret == tailSSTableOffset` here?
+	// Verify that the final cursor position matches the expected end of the sparse index data.
+	if ret != tailSSTableOffset {
+		return SparseIndex{}, fmt.Errorf("mismatched sparse index size in %s: expected end at %d, but read until %d: %w",
+			fs.Path(), tailSSTableOffset, ret, ErrMalFormedSSTable)
+	}
 	return sparseIndex, nil
 }
 
