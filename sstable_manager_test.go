@@ -12,7 +12,7 @@ import (
 
 func TestSSTableManager_LoadLevels(t *testing.T) {
 	cfg := testConfig()
-	t.Run("SSTableManager::LoadLevels", func(t *testing.T) {
+	t.Run("LoadLevels validates file names", func(t *testing.T) {
 		ts := NewTestRindbSetup(t, &cfg)
 		defer ts.Cleanup()
 		assert.NoError(t, ts.Manager.Compact())
