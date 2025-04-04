@@ -98,7 +98,6 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		assert.NoError(t, err, "Failed to get merged FS from Level 1")
 		err = mergedFs.Open() // Ensure it's open if closed previously
 		assert.NoError(t, err, "Failed to open merged FS")
-		defer mergedFs.Close()
 
 		mergedSSTable, err := NewSSTable(ts.Manager.config, mergedFs)
 		assert.NoError(t, err, "Failed to create SStable object from merged FS")
@@ -149,7 +148,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
-		defer fs.Close()
 
 		key := Bytes("level0-key")
 		value := Bytes("level0-value")
@@ -176,7 +174,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		// Level 1: older value
 		fs1, err := ts.Manager.NewSSTableFS(1)
 		assert.NoError(t, err)
-		defer fs1.Close()
 		key := randStringBytes(10)
 		oldValue := Bytes("old-value")
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, oldValue})
@@ -184,7 +181,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		// Level 0: newer value
 		fs0, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
-		defer fs0.Close()
 		newValue := Bytes("new-value")
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, newValue})
 
@@ -210,7 +206,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
-		defer fs.Close()
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("some-key"), Bytes("some-value")})
 
 		// Override levels with new values
@@ -240,7 +235,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
-		defer fs.Close()
 		key := Bytes("single-key")
 		value := Bytes("single-value")
 		_ = createSSTable(t, cfg, fs, [2]Bytes{key, value})
@@ -259,7 +253,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		// Level 1: original value
 		fs1, err := ts.Manager.NewSSTableFS(1)
 		assert.NoError(t, err)
-		defer fs1.Close()
 		key := Bytes("tombstone-key")
 		value := Bytes("original-value")
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, value})
@@ -267,7 +260,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		// Level 0: tombstone
 		fs0, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
-		defer fs0.Close()
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
 
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem](), InitLinkedList[*FileSystem]()}
@@ -285,7 +277,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		fs, err := ts.Manager.NewSSTableFS(0)
 		assert.NoError(t, err)
-		defer fs.Close()
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("present-key"), Bytes("present-value")})
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(fs)
@@ -413,7 +404,6 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			assert.NoError(t, statErr)
 			totalSize += info.Size()
 			INFO("Created Level 1 SSTable %s, size: %d bytes", sstable.FileSystem.Path(), info.Size())
-			// No need to manually close FS, ts.Cleanup() handles it
 		}
 
 		// Calculate the threshold used in this test
@@ -519,7 +509,6 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// 4. Verify content of the new merged SSTable
 		err = newMergedFS.Open() // Ensure FS is open
 		assert.NoError(t, err)
-		// No need to defer close here, ts.Cleanup() handles it
 		mergedSSTable, err := NewSSTable(ts.Manager.config, newMergedFS)
 		assert.NoError(t, err)
 
@@ -545,7 +534,6 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// 5. Verify content of the non-overlapping SSTable (should be unchanged)
 		err = oldNonOverlappingFS.Open() // Ensure FS is open
 		assert.NoError(t, err)
-		// No need to defer close here, ts.Cleanup() handles it
 		nonOverlappingSSTable, err := NewSSTable(ts.Manager.config, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
