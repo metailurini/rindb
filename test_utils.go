@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRindbSetup encapsulates setup and cleanup logic for rindb tests.
-type TestRindbSetup struct {
+// testRindbSetup encapsulates setup and cleanup logic for rindb tests.
+type testRindbSetup struct {
 	T            *testing.T
 	Manager      *SSTableManager
 	TempDir      string
@@ -22,8 +22,8 @@ type TestRindbSetup struct {
 	CleanupFuncs []func()
 }
 
-// NewTestRindbSetup initializes a new test setup for rindb with a temporary directory and manager.
-func NewTestRindbSetup(t *testing.T, cfg *Config) *TestRindbSetup {
+// newTestRindbSetup initializes a new test setup for rindb with a temporary directory and manager.
+func newTestRindbSetup(t *testing.T, cfg *Config) *testRindbSetup {
 	tempDir := t.TempDir()
 	var finalCfg Config           // Use a value type to copy
 	defaultCfg := DefaultConfig() // Get default values
@@ -90,7 +90,7 @@ func NewTestRindbSetup(t *testing.T, cfg *Config) *TestRindbSetup {
 		manager.Close()
 	}
 
-	return &TestRindbSetup{
+	return &testRindbSetup{
 		T:            t,
 		Manager:      manager, // Manager now has the correct config
 		TempDir:      tempDir,
@@ -100,28 +100,28 @@ func NewTestRindbSetup(t *testing.T, cfg *Config) *TestRindbSetup {
 }
 
 // AddCleanup adds a cleanup function to be called at the end of the test.
-func (ts *TestRindbSetup) AddCleanup(f func()) {
+func (ts *testRindbSetup) AddCleanup(f func()) {
 	ts.CleanupFuncs = append(ts.CleanupFuncs, f)
 }
 
 // Cleanup runs all deferred cleanup functions.
-func (ts *TestRindbSetup) Cleanup() {
+func (ts *testRindbSetup) Cleanup() {
 	for i := len(ts.CleanupFuncs) - 1; i >= 0; i-- {
 		ts.CleanupFuncs[i]()
 	}
 }
 
-// NewSSTableFS creates a new FileSystem for a given level with automatic cleanup.
-func (ts *TestRindbSetup) NewSSTableFS(level int) *FileSystem {
+// newSSTableFS creates a new FileSystem for a given level with automatic cleanup.
+func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
 	fs, err := ts.Manager.NewSSTableFS(level)
 	assert.NoError(ts.T, err)
 	ts.AddCleanup(func() { fs.Close() })
 	return fs
 }
 
-// CreateSSTable creates an SSTable with the given key-value pairs.
-func (ts *TestRindbSetup) CreateSSTable(level int, kvs map[string]string) *SStable {
-	fs := ts.NewSSTableFS(level)
+// createSSTable creates an SSTable with the given key-value pairs.
+func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStable {
+	fs := ts.newSSTableFS(level)
 	mem := InitMemtable(ts.Manager.config)
 	for k, v := range kvs {
 		mem.Put(Bytes(k), Bytes(v))
@@ -132,13 +132,13 @@ func (ts *TestRindbSetup) CreateSSTable(level int, kvs map[string]string) *SStab
 }
 
 // AddSSTableToLevel adds an SSTable to the specified level.
-func (ts *TestRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
+func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
 	fs := sstable.FileSystem
 	ts.Levels[level].PushBack(fs)
 }
 
-// CreateDummyFile creates a dummy file of specified size in MB for testing compaction.
-func CreateDummyFile(t *testing.T, dir, name string, sizeMB int) string {
+// createDummyFile creates a dummy file of specified size in MB for testing compaction.
+func createDummyFile(t *testing.T, dir, name string, sizeMB int) string {
 	path := filepath.Join(dir, name)
 	f, err := os.Create(path)
 	assert.NoError(t, err)
