@@ -74,6 +74,7 @@ func (t *Transaction) Commit(w io.Writer) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
+	INFO("Transaction committed successfully")
 	return nil
 }
 
@@ -92,6 +93,7 @@ func (t *Transaction) Rollback() error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
+	INFO("Transaction rolled back successfully")
 	return nil
 }
 
