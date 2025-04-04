@@ -1,11 +1,11 @@
 package rindb
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/pkg/errors"
 )
 
 const fileSystemPermission = 0o600
@@ -45,7 +45,7 @@ func (fs *FileSystem) Open() error {
 
 	file, err := os.OpenFile(filepath.Clean(fs.filePath), os.O_RDWR|os.O_CREATE, fileSystemPermission)
 	if err != nil {
-		return errors.Wrap(err, "failed to open file system: %w")
+		return fmt.Errorf("failed to open file %s: %w", fs.filePath, err)
 	}
 	fs.file = file
 	return nil
@@ -77,18 +77,20 @@ func (fs *FileSystem) Close() error {
 
 func (fs *FileSystem) Clean() error {
 	if err := fs.Close(); err != nil {
-		return errors.Wrap(err, "failed to close file system: %w")
+		return fmt.Errorf("failed to close file %s before cleaning: %w", fs.Path(), err)
 	}
 
+	// Open with truncation
 	cleanFile, err := os.OpenFile(fs.Path(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileSystemPermission)
 	if err != nil {
-		return errors.Wrap(err, "failed to clean file system: %w")
+		return fmt.Errorf("failed to open/truncate file %s for cleaning: %w", fs.Path(), err)
 	}
-
-	fs.file = cleanFile
+	fs.file = cleanFile // Assign the new file handle
 
 	if err := fs.Sync(); err != nil {
-		return errors.Wrap(err, "failed to sync file system")
+		// Close the newly opened file before returning error
+		_ = fs.Close() // Ignore close error here as we're returning the sync error
+		return fmt.Errorf("failed to sync file %s after cleaning: %w", fs.Path(), err)
 	}
 
 	return nil
@@ -114,16 +116,20 @@ func (fs *FileSystem) Rename(newPath string) error {
 
 	// TODO: add lock
 	if err := fs.file.Close(); err != nil {
-		return errors.Wrap(err, "failed to close file system: %w")
+		// If close fails, we probably shouldn't proceed with rename.
+		return fmt.Errorf("failed to close file %s before renaming: %w", fs.Path(), err)
 	}
+	fs.file = nil // Mark as closed
 
 	if err := os.Rename(fs.Path(), newPath); err != nil {
-		return errors.Wrap(err, "failed to rename file system: %w")
+		return fmt.Errorf("failed to rename file from %s to %s: %w", fs.Path(), newPath, err)
 	}
 
+	// Open the newly named file
 	newFile, err := os.OpenFile(filepath.Clean(newPath), os.O_RDWR, fileSystemPermission)
 	if err != nil {
-		return errors.Wrap(err, "failed to open file system: %w")
+		// Rename succeeded, but opening the new path failed.
+		return fmt.Errorf("failed to open renamed file %s: %w", newPath, err)
 	}
 
 	fs.file = newFile

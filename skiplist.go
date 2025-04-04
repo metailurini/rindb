@@ -7,7 +7,6 @@ import (
 )
 
 var (
-	ErrKeyNotFound   = errors.New("key not found")
 	ErrMalformedList = errors.New("the list was not init-ed properly")
 )
 

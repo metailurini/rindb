@@ -1,11 +1,16 @@
 package rindb
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
+)
 
-	"github.com/pkg/errors"
+var (
+	ErrKeyNotFound      = errors.New("key not found")
+	ErrMalFormedSSTable = errors.New("malformed sstable")
 )
 
 type (
@@ -72,8 +77,6 @@ func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
 	return 0, ErrKeyNotFound
 }
 
-var ErrMalFormedSSTable = errors.New("malformed sstable")
-
 type SStable struct {
 	*FileSystem
 	SparseIndex SparseIndex
@@ -91,12 +94,16 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	}
 
 	if _, err := s.file.Seek(offset, io.SeekStart); err != nil {
-		return nil, errors.Wrap(err, "failed to seek to offset")
+		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
-	record, err := ReadRecord(s)
+	record, err := ReadRecord(s) // s implements io.Reader via FileSystem embedding
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read record")
+		// Check for EOF specifically, might indicate corruption if seeking led here
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
+		}
+		return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
 	}
 	return record.GetValue(), nil
 }
@@ -135,16 +142,16 @@ func (s SStable) Overlaps(min, max Bytes) bool {
 func NewSSTable(config Config, fs *FileSystem) (SStable, error) {
 	fileInfo, err := os.Stat(fs.Path())
 	if err != nil {
-		return SStable{}, errors.Wrap(err, "failed to load file info")
+		return SStable{}, fmt.Errorf("failed to get file info for %s: %w", fs.Path(), err)
 	}
 	if fileInfo.Size() < mdByteSize {
-		ERROR("Failed to load file %s: %v", fs.Path(), ErrMalFormedSSTable)
+		ERROR("File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
 		return SStable{}, ErrMalFormedSSTable
 	}
 
 	sparseIndex, err := loadSparseIndex(fs)
 	if err != nil {
-		return SStable{}, errors.Wrap(err, "failed to load sparse index")
+		return SStable{}, fmt.Errorf("failed to load sparse index from %s: %w", fs.Path(), err)
 	}
 
 	bloom := NewBloomFilter(
@@ -174,32 +181,38 @@ func readTailSSTable(fs *FileSystem) (int64, error) {
 func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	tailSSTableOffset, err := readTailSSTable(fs)
 	if err != nil {
-		return SparseIndex{}, errors.Wrap(err, "failed to seek tail of sstable")
+		return SparseIndex{}, fmt.Errorf("failed to seek to tail of sstable %s: %w", fs.Path(), err)
 	}
 
 	sparseIndexOffset, err := ReadNumber(fs)
 	if err != nil {
-		return SparseIndex{}, errors.Wrap(err, "failed to read offset sparse index")
+		return SparseIndex{}, fmt.Errorf("failed to read sparse index offset from %s: %w", fs.Path(), err)
 	}
 
 	ret, err := fs.file.Seek(int64(sparseIndexOffset), io.SeekStart)
 	if err != nil {
-		return SparseIndex{}, errors.Wrap(err, "failed to seek offset of sparse index")
+		return SparseIndex{}, fmt.Errorf("failed to seek to sparse index offset %d in %s: %w", sparseIndexOffset, fs.Path(), err)
 	}
 
 	sparseIndex := SparseIndex{}
+	// Read records until the calculated end of the sparse index data
 	for ret < tailSSTableOffset {
 		record, err := ReadRecord(fs)
 		if err != nil {
-			return SparseIndex{}, errors.Wrap(err, "failed to read record")
+			// Check for EOF specifically, might indicate corruption
+			if errors.Is(err, io.EOF) {
+				return SparseIndex{}, fmt.Errorf("unexpected EOF while reading sparse index in %s: %w", fs.Path(), ErrMalFormedSSTable)
+			}
+			return SparseIndex{}, fmt.Errorf("failed to read sparse index record in %s: %w", fs.Path(), err)
 		}
 		sparseIndex = append(sparseIndex, NewKeyOffset(record.GetKey(), record.GetValue()))
 
 		ret, err = fs.CursorPos()
 		if err != nil {
-			return SparseIndex{}, errors.Wrap(err, "failed to read current cursor position")
+			return SparseIndex{}, fmt.Errorf("failed to get cursor position in %s: %w", fs.Path(), err)
 		}
 	}
+	// Optional: Verify that `ret == tailSSTableOffset` here?
 	return sparseIndex, nil
 }
 
@@ -215,9 +228,8 @@ func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 
 	r := mem.data.Head().Next()
 	for r != nil {
-		err := WriteRecord(tx, RecordImpl{r.Key, r.Value})
-		if err != nil {
-			return SStable{}, errors.Wrap(err, "failed to write record to sstable")
+		if err := WriteRecord(tx, RecordImpl{r.Key, r.Value}); err != nil {
+			return SStable{}, fmt.Errorf("failed to write record to transaction buffer: %w", err)
 		}
 		r = r.Next()
 	}
@@ -226,18 +238,17 @@ func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 
 	sparseIndex := genSparseIndex(mem)
 	for _, v := range sparseIndex {
-		err := WriteRecord(tx, v)
-		if err != nil {
-			return SStable{}, errors.Wrap(err, "failed to write index to sstable")
+		if err := WriteRecord(tx, v); err != nil {
+			return SStable{}, fmt.Errorf("failed to write sparse index entry to transaction buffer: %w", err)
 		}
 	}
 
 	if err := WriteNumber(tx, sparseIndexOffset); err != nil {
-		return SStable{}, errors.Wrap(err, "failed to write offset index to sstable")
+		return SStable{}, fmt.Errorf("failed to write sparse index offset to transaction buffer: %w", err)
 	}
 
 	if err := tx.Commit(fs); err != nil {
-		return SStable{}, errors.Wrap(err, "failed to commit transaction to file system")
+		return SStable{}, fmt.Errorf("failed to commit transaction to file system %s: %w", fs.Path(), err)
 	}
 
 	// after flushing memtable to file system successfully.
