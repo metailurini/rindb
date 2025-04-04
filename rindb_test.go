@@ -13,30 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// createDummyFile creates a file of the specified size in MB.
-func createDummyFile(t *testing.T, dir string, fileName string, sizeMB int) string {
-	t.Helper()
-	filePath := filepath.Join(dir, fileName)
-	sizeBytes := int64(sizeMB) * 1024 * 1024
-	file, err := os.Create(filePath)
-	assert.NoError(t, err)
-	defer func() { assert.NoError(t, file.Close()) }()
-
-	// Seek to the desired size - 1 and write a single byte
-	if sizeBytes > 0 {
-		_, err = file.Seek(sizeBytes-1, 0)
-		assert.NoError(t, err)
-		_, err = file.Write([]byte{0})
-		assert.NoError(t, err)
-	} else {
-		// Ensure the file is empty if sizeMB is 0
-		err = file.Truncate(0)
-		assert.NoError(t, err)
-	}
-
-	return filePath
-}
-
 func testOptions() []Option {
 	return []Option{
 		WithDatabaseDir("testdata"),
