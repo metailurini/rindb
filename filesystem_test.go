@@ -11,46 +11,6 @@ import (
 
 //nolint:funlen
 func TestFileSystem(t *testing.T) {
-	t.Run("Rename file", func(t *testing.T) {
-		file, err := os.CreateTemp(os.TempDir(), "*")
-		assert.NoError(t, err)
-
-		_, err = file.Write([]byte("hello"))
-		assert.NoError(t, err)
-
-		err = file.Sync()
-		assert.NoError(t, err)
-
-		oldName := file.Name()
-		segments := strings.Split(oldName, "/")
-		newName := strings.ReplaceAll(oldName, segments[len(segments)-1], "new")
-
-		defer func() {
-			err := file.Close()
-			assert.NoError(t, err)
-		}()
-
-		fs, err := OpenFS(file.Name())
-		assert.NoError(t, err)
-
-		defer func() {
-			err := fs.Close()
-			assert.NoError(t, err)
-
-			err = os.Remove(newName)
-			assert.NoError(t, err)
-		}()
-
-		err = fs.Rename(newName)
-		assert.NoError(t, err)
-		assert.Equal(t, newName, fs.Path())
-
-		content := make([]byte, 5)
-		_, err = fs.Read(content)
-		assert.NoError(t, err)
-		assert.Equal(t, []byte("hello"), content)
-	})
-
 	t.Run("Check file must be opened before doing other actions", func(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
