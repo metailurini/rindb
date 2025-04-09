@@ -105,38 +105,6 @@ func (fs *FileSystem) CursorPos() (int64, error) {
 	return fs.file.Seek(0, io.SeekCurrent)
 }
 
-// Rename to rename file system to a new name but
-// keep access connection to that file during runtime
-//
-// Deprecated: no more purpose to use this function
-func (fs *FileSystem) Rename(newPath string) error {
-	if !fs.IsOpened() {
-		return ErrFileNotOpened
-	}
-
-	// TODO: add lock
-	if err := fs.file.Close(); err != nil {
-		// If close fails, we probably shouldn't proceed with rename.
-		return fmt.Errorf("failed to close file %s before renaming: %w", fs.Path(), err)
-	}
-	fs.file = nil // Mark as closed
-
-	if err := os.Rename(fs.Path(), newPath); err != nil {
-		return fmt.Errorf("failed to rename file from %s to %s: %w", fs.Path(), newPath, err)
-	}
-
-	// Open the newly named file
-	newFile, err := os.OpenFile(filepath.Clean(newPath), os.O_RDWR, fileSystemPermission)
-	if err != nil {
-		// Rename succeeded, but opening the new path failed.
-		return fmt.Errorf("failed to open renamed file %s: %w", newPath, err)
-	}
-
-	fs.file = newFile
-	fs.filePath = newPath
-	return nil
-}
-
 func (fs *FileSystem) Write(p []byte) (int, error) {
 	if !fs.IsOpened() {
 		return 0, ErrFileNotOpened
