@@ -3,7 +3,6 @@ package rindb
 import (
 	"io"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,6 +40,47 @@ func TestFileSystem(t *testing.T) {
 
 		assert.NoError(t, fs.Close())
 		assert.ErrorIs(t, emptyFs.Close(), ErrFileNotOpened)
+	})
+}
+
+func TestFileSystem_Errors(t *testing.T) {
+	t.Run("OpenFS with invalid path (directory)", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp(os.TempDir(), "testdir-*")
+		assert.NoError(t, err)
+		defer os.RemoveAll(tempDir) // clean up
+
+		fs, err := OpenFS(tempDir)
+		assert.Error(t, err) // Expect an error because it's a directory
+		assert.Nil(t, fs)
+		assert.Contains(t, err.Error(), "failed to open file") // Check for specific error type if possible/needed
+	})
+}
+
+func TestFileSystem_Clean_Errors(t *testing.T) {
+	t.Run("Clean fails due to permissions error during reopen/truncate", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("initial data")})
+		defer closer()
+		fs := fss[0]
+		filePath := fs.Path()
+
+		err := fs.Close()
+		assert.NoError(t, err)
+
+		err = fs.Open()
+		assert.NoError(t, err)
+
+		// Make the file read-only after initial creation/opening
+		err = os.Chmod(filePath, 0o444)
+		assert.NoError(t, err)
+
+		// Attempt to clean - this should fail when trying to reopen with O_RDWR | O_TRUNC
+		err = fs.Clean()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to open/truncate file")
+		assert.Contains(t, err.Error(), "permission denied") // Check for the underlying OS error
+
+		// Clean up: Make writable again so defer closer() can remove it
+		_ = os.Chmod(filePath, 0o600)
 	})
 }
 
