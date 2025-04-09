@@ -28,8 +28,9 @@ type Rindb struct {
 	memtable       Memtable
 	ssTableManager *SSTableManager
 	config         Config
-	mu             sync.RWMutex
-	closed         bool // Flag to indicate if the database is closed
+	mu             sync.RWMutex   // Mutex for thread-safe access
+	wg             sync.WaitGroup // WaitGroup to track background goroutines
+	closed         bool           // Flag to indicate if the database is closed
 }
 
 // SSTableManager is storage for SSTables
@@ -47,6 +48,22 @@ func InitSSTableManager(config Config) (*SSTableManager, error) {
 		return nil, err
 	}
 	return h, nil
+}
+
+// AddSSTable registers a new SSTable file system with the manager at the specified level.
+func (h *SSTableManager) AddSSTable(levelNumb int, fs *FileSystem) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Ensure the level exists
+	for len(h.levels) <= levelNumb {
+		h.levels = append(h.levels, InitLinkedList[*FileSystem]())
+	}
+
+	// Add the new SSTable to the end of the level list
+	h.levels[levelNumb].PushBack(fs)
+	INFO("Registered new SSTable %s at level %d", fs.Path(), levelNumb)
+	return nil
 }
 
 func (h *SSTableManager) LoadLevels(dir string) error {
@@ -568,40 +585,56 @@ func (r *Rindb) Put(key, value Bytes) error {
 	if err := r.wal.Append(record); err != nil {
 		return err
 	}
-	r.memtable.Put(key, value)
+	r.memtable.Put(key, value) // This now updates the internal size estimate
 
-	// Check size and flush if needed
-	if r.memtable.data.Len() >= r.config.maxMemtableSize {
-		// Check if L0 compaction threshold is met *before* flushing the memtable
-		// This logic might need refinement depending on exact compaction strategy
-		if len(r.ssTableManager.levels) > 0 && r.ssTableManager.levels[0] != nil && r.ssTableManager.levels[0].Len() >= r.config.level0CompactionThreshold {
-			INFO("Level 0 size %d meets threshold %d, triggering compaction before memtable flush", r.ssTableManager.levels[0].Len(), r.config.level0CompactionThreshold)
-			if err := r.ssTableManager.Compact(); err != nil {
-				ERROR("Compaction failed during Put operation: %v", err)
-				return fmt.Errorf("compaction failed during put: %w", err) // Return error if compaction fails
-			}
-		}
+	// Check estimated byte size and flush if needed
+	// Cast ByteSize() to uint to match maxMemtableSize type
+	// Check estimated byte size and flush if needed
+	if uint(r.memtable.ByteSize()) >= r.config.maxMemtableSize {
+		INFO("Memtable estimated size %d reached threshold %d, flushing.", r.memtable.ByteSize(), r.config.maxMemtableSize)
 
-		INFO("Memtable size %d reached threshold %d, flushing to new L0 SSTable.", r.memtable.data.Len(), r.config.maxMemtableSize)
-
+		// Create new SSTable file system for level 0
 		fs, err := r.ssTableManager.NewSSTableFS(0)
 		if err != nil {
-			// Attempt to close the newly created FS if there's an error during flush prep
-			// This might be redundant if Flush handles FS closure on error, but good practice.
-			if fs != nil {
-				_ = fs.Close()
-			}
-			return err
+			ERROR("Failed to create new SSTable file system: %v", err)
+			return fmt.Errorf("failed to create new SSTable file system: %w", err)
 		}
+
 		_, err = Flush(r.config, r.memtable, fs)
 		if err != nil {
-			return err
+			_ = fs.Close() // Attempt to close FS on flush error
+			ERROR("Failed to flush memtable: %v", err)
+			return fmt.Errorf("failed to flush memtable: %w", err)
 		}
-		fs.Close()
+
+		// Wont close the file system here, as it will be managed by ssTableManager
+		r.ssTableManager.openedFs.PushBack(fs) // Add to opened file systems
+
+		// Register the new SSTable with ssTableManager
+		if err := r.ssTableManager.AddSSTable(0, fs); err != nil {
+			ERROR("Failed to register new SSTable %s: %v", fs.Path(), err)
+			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
+		}
+
+		// Clear the memtable and clean the WAL *after* successful flush and registration
 		r.memtable.Clear()
 		if err := r.wal.Clean(); err != nil {
-			return err
+			ERROR("Failed to clean WAL after memtable flush: %v", err)
+			return fmt.Errorf("failed to clean WAL: %w", err)
 		}
+
+		// Trigger compaction in a goroutine *after* flushing
+		INFO("Triggering background compaction check.")
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			INFO("Background compaction goroutine started.")
+			if err := r.ssTableManager.Compact(); err != nil {
+				ERROR("Background compaction failed: %v", err)
+			} else {
+				INFO("Background compaction goroutine finished.")
+			}
+		}()
 	}
 	return nil
 }
@@ -625,15 +658,26 @@ func (r *Rindb) Remove(key Bytes) error {
 // Close closes the Rindb instance, ensuring all resources are released.
 func (r *Rindb) Close() error {
 	r.mu.Lock()
-	// No defer unlock here, as we need to set the closed flag *after* unlocking potentially
-
 	// Check if already closed
 	if r.closed {
-		r.mu.Unlock() // Unlock before returning
-		return nil    // Or return ErrDatabaseClosed if preferred
+		r.mu.Unlock()
+		return ErrDatabaseClosed // Return specific error if already closed
 	}
 
-	// Close the WAL first
+	// Mark as closing immediately to prevent new operations
+	r.closed = true
+	r.mu.Unlock() // Unlock while waiting for goroutines
+
+	// Wait for any background operations (like compaction) to complete
+	INFO("Waiting for background operations to finish...")
+	r.wg.Wait()
+	INFO("Background operations finished.")
+
+	// Re-acquire lock to safely close resources
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Close the WAL
 	if err := r.wal.Close(); err != nil {
 		// Log the error but attempt to close SSTableManager anyway
 		ERROR("Error closing WAL: %v", err)
@@ -648,13 +692,6 @@ func (r *Rindb) Close() error {
 	r.ssTableManager.Close() // SSTableManager.Close currently doesn't return an error
 	INFO("SSTableManager closed.")
 
-	// Mark the database as closed *before* unlocking
-	r.closed = true
-	r.mu.Unlock() // Unlock after setting the closed flag
-
-	// Depending on error handling strategy, you might collect errors and return a combined error.
-	// For now, we prioritize closing both and log errors. If WAL close fails, that error could be returned.
-	// The first error encountered (e.g., WAL error) could be returned here if needed.
 	INFO("RinDB closed successfully")
 	return nil
 }

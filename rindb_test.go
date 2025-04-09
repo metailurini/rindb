@@ -3,9 +3,6 @@ package rindb
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -157,90 +154,6 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 	wg.Wait()
 }
 
-// TestRindb_Put_FlushOnMaxSize tests that the memtable is flushed when maxMemtableSize is reached.
-func TestRindb_Put_FlushOnMaxSize(t *testing.T) {
-	t.Skip("FIXME")
-	maxSize := uint(3) // Set a small memtable size for testing
-	opts := []Option{
-		WithMaxMemtableSize(maxSize),
-	}
-	// The helper will create a temp dir and add WithDatabaseDir
-	rin, cleanup := initRinDBWithCleanup(t, opts...)
-	defer cleanup()
-	cfg := rin.config // Get the config used by the initialized RinDB
-	// Note: InitRinDB loads WAL, so memtable might not be empty initially if WAL existed.
-	// We'll rely on the Put logic to trigger the flush regardless of initial state.
-
-	// Generate pairs slightly more than max size
-	numPairsToGenerate := int(maxSize + 1)
-	// Use small key/value sizes for efficiency in this test
-	pairs := generateKeyValuePairs(numPairsToGenerate, 5, 10)
-
-	// Insert items up to the max size
-	for i := 0; i < int(maxSize); i++ {
-		key := pairs[i][0]
-		value := pairs[i][1]
-		err := rin.Put(key, value)
-		assert.NoError(t, err)
-		// Memtable size should increase until flush
-		assert.LessOrEqual(t, rin.memtable.data.Len(), maxSize, "Memtable size should be <= maxSize before flush")
-	}
-
-	// At this point, memtable should be full (or close if WAL loaded some)
-	assert.Equal(t, maxSize, rin.memtable.data.Len(), "Memtable should be full before the triggering Put")
-
-	// Insert one more item (the last generated pair) to trigger the flush
-	triggerKey := pairs[maxSize][0]
-	triggerValue := pairs[maxSize][1]
-	err := rin.Put(triggerKey, triggerValue)
-	assert.NoError(t, err)
-
-	// Memtable should be cleared after flush
-	// Note: The trigger item is added *after* the flush, so memtable size should be 1
-	assert.Equal(t, uint(1), rin.memtable.data.Len(), "Memtable should contain only the trigger item after flush")
-	// Verify the trigger item is indeed in the memtable
-	memVal, memErr := rin.memtable.Get(triggerKey)
-	assert.NoError(t, memErr)
-	assert.Equal(t, triggerValue, memVal)
-
-	// Verify an SSTable file was created in level 0
-	files, err := os.ReadDir(cfg.databaseDir)
-	assert.NoError(t, err)
-	foundSSTable := false
-	for _, file := range files {
-		if !file.IsDir() && strings.HasPrefix(file.Name(), "l00_") && strings.HasSuffix(file.Name(), ".sst") {
-			foundSSTable = true
-			// Check if the SSTable is not empty (basic check)
-			info, statErr := file.Info()
-			assert.NoError(t, statErr)
-			assert.Greater(t, info.Size(), int64(0), "SSTable file should not be empty")
-			assertFileExists(t, filepath.Join(cfg.databaseDir, file.Name()))
-			foundSSTable = true
-			break
-		}
-	}
-	assert.True(t, foundSSTable, "Level 0 SSTable file should exist after flush")
-
-	// Verify all generated keys can still be retrieved
-	// The first `maxSize` keys should be in the SSTable, the last one in the memtable
-	for i, pair := range pairs {
-		key := pair[0]
-		expectedValue := pair[1]
-		value, getErr := rin.Get(key)
-		assert.NoError(t, getErr, "Error getting key %s after flush", string(key))
-		assert.Equal(t, expectedValue, value, "Value mismatch for key %s after flush (pair index %d)", string(key), i)
-	}
-
-	// Verify WAL was cleaned (optional but good)
-	walPath := filepath.Join(cfg.databaseDir, "WAL")
-	assertFileExists(t, walPath) // Check it exists first
-	walInfo, err := os.Stat(walPath)
-	assert.NoError(t, err) // Should not error if assertFileExists passed
-	// Check if WAL size is 0 or very small (metadata only) after clean
-	// This threshold might need adjustment based on WAL implementation details
-	assert.LessOrEqual(t, walInfo.Size(), int64(16), "WAL file should be empty or very small after flush and clean")
-}
-
 // TestRindb_Close tests the Close operation of Rindb using the helper.
 func TestRindb_Close(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
@@ -266,4 +179,61 @@ func TestRindb_Close(t *testing.T) {
 	// We don't need the manual checks for WAL/SSTable closure here anymore,
 	// as the helper's cleanup function handles rin.Close(), which should manage them.
 	// The assertions within cleanup cover the success of rin.Close().
+}
+
+// TestRindb_Put_FlushMemtableOnSizeLimit tests that the memtable is flushed
+// when its estimated byte size exceeds the configured limit during a Put operation.
+func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
+	// Configure a small maxMemtableSize (in bytes) to trigger the flush easily.
+	// The estimated size is calculated as len(key) + len(value) + 16 bytes overhead per entry.
+	// key1 ("key1", 4 bytes) + value1 ("value1-loooooooooong", 20 bytes) + 16 = 40 bytes
+	// key2 ("key2", 4 bytes) + value2 ("value2-loooooooooong", 20 bytes) + 16 = 40 bytes
+	// Total estimated size after key1 and key2 = 40 + 40 = 80 bytes.
+	// key3 ("key3", 4 bytes) + value3 ("value3-loooooooooong", 20 bytes) + 16 = 40 bytes
+	// Total estimated size after key3 = 80 + 40 = 120 bytes.
+	// Set maxMemtableSize to 80. The memtable will reach its limit after key2 is added.
+	// The Put operation for key3 should then trigger the flush.
+	smallMemtableOpts := append(testOptions(), WithMaxMemtableSize(80))
+	rin, cleanup := initRinDBWithCleanup(t, smallMemtableOpts...)
+	defer cleanup()
+
+	// Add data that will exceed the small memtable size limit
+	err := rin.Put(Bytes("key1"), Bytes("value1-loooooooooong"))
+	assert.NoError(t, err)
+	err = rin.Put(Bytes("key2"), Bytes("value2-loooooooooong"))
+	assert.NoError(t, err)
+
+	// Check size before the Put that should trigger the flush
+	sizeBeforeFlush := rin.memtable.ByteSize()
+	assert.LessOrEqual(t, uint(sizeBeforeFlush), rin.config.maxMemtableSize, "Size should be below threshold before triggering put")
+
+	// This Put should trigger the flush
+	err = rin.Put(Bytes("key3"), Bytes("value3-loooooooooong"))
+	assert.NoError(t, err)
+
+	// Assertions after the flush should have occurred
+	// 1. Memtable should be cleared (check estimated size)
+	assert.Zero(t, rin.memtable.ByteSize(), "Memtable estimated size should be zero after flush")
+
+	// 2. An L0 SSTable should have been created. Check if L0 exists and is not empty.
+	//    Don't assert exact count=1, as compaction might run concurrently in a real scenario
+	//    or if the test setup triggers it indirectly.
+	rin.ssTableManager.mu.RLock() // Lock needed to safely access levels
+	assert.True(t, len(rin.ssTableManager.levels) > 0 && rin.ssTableManager.levels[0] != nil, "Level 0 should exist after flush")
+	assert.GreaterOrEqual(t, rin.ssTableManager.levels[0].Len(), 1, "Level 0 should contain at least one SSTable after flush")
+	rin.ssTableManager.mu.RUnlock()
+
+	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
+	// We can Get the keys back to ensure they were persisted correctly
+	val1, err := rin.Get(Bytes("key1"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("value1-loooooooooong"), val1)
+
+	val2, err := rin.Get(Bytes("key2"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("value2-loooooooooong"), val2)
+
+	val3, err := rin.Get(Bytes("key3"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("value3-loooooooooong"), val3)
 }
