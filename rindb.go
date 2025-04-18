@@ -33,7 +33,12 @@ type Rindb struct {
 	closed         bool           // Flag to indicate if the database is closed
 }
 
-// SSTableManager is storage for SSTables
+// SSTableManager manages SSTable storage and compaction in a leveled structure.
+// Responsibilities:
+// - Maintains multiple levels of SSTables (L0, L1, etc.)
+// - Handles compaction across levels based on size/count thresholds
+// - Manages file handles for SSTables
+// - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
 	openedFs *list.List
 	levels   []*LinkedList[*FileSystem]
@@ -522,10 +527,30 @@ func mergeSSTables(config Config, target *FileSystem, sources []SStable) (SStabl
 	return sstable, nil
 }
 
+// InitRinDB initializes a new RinDB instance with provided configuration options.
+// Parameters:
+//
+//	opts... - Configuration options to customize database behavior
+//
+// Returns:
+//
+//	Rindb - Initialized database instance
+//	error - Any initialization error encountered
+//
+// Errors:
+//   - Filesystem errors during directory creation
+//   - WAL initialization failures
+//   - SSTable manager startup failures
+//
+// Initialization sequence:
+// 1. Create database directory structure
+// 2. Initialize Write-Ahead Log (WAL)
+// 3. Load existing memtable from WAL
+// 4. Initialize SSTable storage manager
 func InitRinDB(opts ...Option) (Rindb, error) {
 	cfg := NewConfig(opts...)
 
-	// Ensure the database directory exists
+	// Create database directory with secure permissions (0750 = owner RWX, group RX, others none)
 	if err := os.MkdirAll(cfg.databaseDir, 0750); err != nil {
 		return Rindb{}, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
@@ -655,7 +680,13 @@ func (r *Rindb) Remove(key Bytes) error {
 	return nil
 }
 
-// Close closes the Rindb instance, ensuring all resources are released.
+// Close gracefully shuts down the database instance with proper resource cleanup.
+// Sequence:
+// 1. Prevent new operations by marking as closed
+// 2. Wait for background compaction to complete
+// 3. Close WAL and SSTableManager resources
+// 4. Log final shutdown status
+// Safety: Idempotent - multiple calls will return ErrDatabaseClosed
 func (r *Rindb) Close() error {
 	r.mu.Lock()
 	// Check if already closed
