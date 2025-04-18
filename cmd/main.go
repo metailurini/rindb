@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"rindb"
 	"strings"
+
+	"github.com/metailurini/rindb"
 )
 
 func main() {
