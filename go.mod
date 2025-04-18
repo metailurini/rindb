@@ -1,4 +1,4 @@
-module rindb
+module github.com/metailurini/rindb
 
 go 1.21.6
 
