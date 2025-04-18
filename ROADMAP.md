@@ -8,13 +8,13 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Complete Documentation**:
-    - Detailed README (installation, usage, architecture).
-    - Inline comments and GoDoc for key functions (e.g., `InitRinDB`, `SSTableManager.Compact`).
+    - [ ] Detailed README (installation, usage, architecture).
+    - [ ] Inline comments and GoDoc for key functions (e.g., `InitRinDB`, `SSTableManager.Compact`).
   - **Fix Bugs and Edge Cases**:
-    - Audit tests (e.g., WAL recovery in `wal_test.go` for partial writes).
-    - Consistent error handling (e.g., propagate `ErrDatabaseClosed` in `rindb.go`).
+    - [ ] Audit tests (e.g., WAL recovery in `wal_test.go` for partial writes).
+    - [ ] Consistent error handling (e.g., propagate `ErrDatabaseClosed` in `rindb.go`).
   - **Basic CLI**:
-    - Expand `cmd/main.go` to support `put`, `get`, `remove`, `list` commands.
+    - [ ] Expand `cmd/main.go` to support `put`, `get`, `remove`, `list` commands.
 
 - **Deliverables**:
   - Comprehensive README and GoDoc.
@@ -32,21 +32,21 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Range Queries**:
-    - Add `Range(start, end Bytes) ([]Record, error)` to `Rindb` in `rindb.go`.
-    - Extend `SStable.Iterator()` in `sstable.go` for range filtering (leverages existing `sstableIterator`).
+    - [ ] Add `Range(start, end Bytes) ([]Record, error)` to `Rindb` in `rindb.go`.
+    - [ ] Extend `SStable.Iterator()` in `sstable.go` for range filtering (leverages existing `sstableIterator`).
   - **Advanced Compaction**:
-    - Implement tiered compaction in `sstable_manager.go` as an alternative to leveled compaction.
-    - Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`.
+    - [ ] Implement tiered compaction in `sstable_manager.go` as an alternative to leveled compaction.
+    - [ ] Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`.
   - **Configuration Validation**:
-    - Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
-    - Add `Config.Validate()` method.
+    - [ ] Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
+    - [ ] Add `Config.Validate()` method.
   - **Basic Metrics**:
-    - Expose stats (Memtable size via `Memtable.ByteSize()`, SSTable count from `SSTableManager.levels`) via `Stats()` in `rindb.go`.
+    - [ ] Expose stats (Memtable size via `Memtable.ByteSize()`, SSTable count from `SSTableManager.levels`) via `Stats()` in `rindb.go`.
 
 - **Deliverables**:
-  - Range query support in API and CLI.
-  - Configurable compaction strategies.
-  - Basic observability (e.g., stats output).
+  - [ ] Range query support in API and CLI.
+  - [ ] Configurable compaction strategies.
+  - [ ] Basic observability (e.g., stats output).
 
 - **Version**: `v0.3.0`
   - **Rationale**: Range queries and advanced compaction are significant new features, justifying a minor version bump. The codebase lacks these (e.g., no `Range` method in `rindb.go`, basic compaction in `SSTableManager`), so this is a natural next step.
@@ -59,16 +59,16 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Benchmarking Suite**:
-    - Add benchmarks for CRUD (`Put`, `Get`, `Remove`) and compaction in `Makefile` (e.g., extend `test-coverage` target).
-    - Compare with LevelDB/RocksDB using existing test utils (e.g., `test_utils.go`).
+    - [ ] Add benchmarks for CRUD (`Put`, `Get`, `Remove`) and compaction in `Makefile` (e.g., extend `test-coverage` target).
+    - [ ] Compare with LevelDB/RocksDB using existing test utils (e.g., `test_utils.go`).
   - **Read Optimization**:
-    - Cache SSTable sparse indexes in `SStable` (modify `sstable.go`).
-    - Parallelize `Get` searches in `SSTableManager.searchKey` using goroutines.
+    - [ ] Cache SSTable sparse indexes in `SStable` (modify `sstable.go`).
+    - [ ] Parallelize `Get` searches in `SSTableManager.searchKey` using goroutines.
   - **Write Optimization**:
-    - Batch WAL writes in `wal.go` (e.g., buffer multiple `Append` calls).
-    - Async Memtable flushes in `rindb.go` (e.g., background goroutine for `Put`).
+    - [ ] Batch WAL writes in `wal.go` (e.g., buffer multiple `Append` calls).
+    - [ ] Async Memtable flushes in `rindb.go` (e.g., background goroutine for `Put`).
   - **Memory Management**:
-    - Add memory budget in `rindb.go` to limit Memtable, Bloom filters, and index usage.
+    - [ ] Add memory budget in `rindb.go` to limit Memtable, Bloom filters, and index usage.
 
 - **Deliverables**:
   - Benchmark results in README.
@@ -86,18 +86,18 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Replication**:
-    - Add leader-follower replication in `rindb.go` using WAL streaming (extend `wal.go`).
+    - [ ] Add leader-follower replication in `rindb.go` using WAL streaming (extend `wal.go`).
   - **Backup and Restore**:
-    - Implement `Backup()` and `Restore()` in `rindb.go` (e.g., snapshot SSTables and WAL).
+    - [ ] Implement `Backup()` and `Restore()` in `rindb.go` (e.g., snapshot SSTables and WAL).
   - **Advanced Transactions**:
-    - Support multi-key transactions in `transaction_manager.go` with conflict detection.
+    - [ ] Support multi-key transactions in `transaction_manager.go` with conflict detection.
   - **CLI Enhancements**:
-    - Add `stats`, `backup`, and `config` commands to `cmd/main.go`.
+    - [ ] Add `stats`, `backup`, and `config` commands to `cmd/main.go`.
   - **Packaging**:
-    - Publish Go module with versioning (update `go.mod`).
-    - Create Docker image (add `Dockerfile`).
+    - [ ] Publish Go module with versioning (update `go.mod`).
+    - [ ] Create Docker image (add `Dockerfile`).
   - **Release v1.0**:
-    - Production-ready version with comprehensive testing.
+    - [ ] Production-ready version with comprehensive testing.
 
 - **Deliverables**:
   - Replication and backup features.
@@ -115,18 +115,18 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Bindings**:
-    - Create C or Python bindings (new files, e.g., `bindings/c/rindb.c`).
+    - [ ] Create C or Python bindings (new files, e.g., `bindings/c/rindb.c`).
   - **Plugins**:
-    - Support custom compaction/storage via interfaces in `sstable_manager.go` and `filesystem.go`.
+    - [ ] Support custom compaction/storage via interfaces in `sstable_manager.go` and `filesystem.go`.
   - **Community Engagement**:
-    - Set up GitHub Discussions and issue templates.
-    - Write tutorials and blog posts (e.g., in `docs/` directory).
+    - [ ] Set up GitHub Discussions and issue templates.
+    - [ ] Write tutorials and blog posts (e.g., in `docs/` directory).
   - **Specialized Use Cases**:
-    - Add time-series optimizations (e.g., TTL in `record.go`).
+    - [ ] Add time-series optimizations (e.g., TTL in `record.go`).
 
 - **Deliverables**:
-  - Language bindings and plugin system.
-  - Active community contributions.
+  - [ ] Language bindings and plugin system.
+  - [ ] Active community contributions.
 
 - **Version**: `v1.1.0`
   - **Rationale**: Bindings and plugins extend functionality post-v1.0 without breaking changes, fitting a minor release. Time-series support could be `v1.2.0` if significant. The codebase has no such extensions currently, making this a future enhancement.
