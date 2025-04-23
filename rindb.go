@@ -20,8 +20,6 @@ import (
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
 var ErrDatabaseClosed = errors.New("database is closed")
 
-// https://github.com/google/leveldb/blob/main/doc/impl.md
-
 // Rindb is the main database structure
 type Rindb struct {
 	wal            WAL
@@ -580,6 +578,16 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	}, nil
 }
 
+// Get retrieves the value associated with the given key from the database.
+// It first checks the memtable and then the SSTables if the key is not found in the memtable.
+// Parameters:
+//
+//	key - The key to search for.
+//
+// Returns:
+//
+//	Bytes - The value associated with the key, or nil if the key is not found.
+//	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
 func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -598,6 +606,18 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	return r.ssTableManager.searchKey(key)
 }
 
+// Put inserts or updates a key-value pair in the database.
+// The operation is first written to the Write-Ahead Log (WAL) and then applied to the memtable.
+// If the memtable size exceeds the configured threshold, it triggers a flush to an SSTable and WAL cleaning.
+// Parameters:
+//
+//	key - The key to insert or update.
+//	value - The value to associate with the key.
+//
+// Returns:
+//
+//	error - An error if the database is closed, or if an error occurs during WAL append, memtable update,
+//	        flushing, SSTable registration, or WAL cleaning.
 func (r *Rindb) Put(key, value Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -664,6 +684,15 @@ func (r *Rindb) Put(key, value Bytes) error {
 	return nil
 }
 
+// Remove deletes a key-value pair from the database by writing a tombstone record.
+// The deletion is first written to the Write-Ahead Log (WAL) and then applied to the memtable.
+// Parameters:
+//
+//	key - The key to remove.
+//
+// Returns:
+//
+//	error - An error if the database is closed, or if an error occurs during WAL append or memtable update.
 func (r *Rindb) Remove(key Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
