@@ -9,7 +9,7 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 - **Tasks**:
   - **Complete Documentation**:
     - [ ] Detailed README (installation, usage, architecture).
-    - [ ] Inline comments and GoDoc for key functions (e.g., `InitRinDB`, `SSTableManager.Compact`).
+    - [x] Inline comments and GoDoc for key functions (e.g., `InitRinDB`, `SSTableManager.Compact`).
   - **Fix Bugs and Edge Cases**:
     - [ ] Audit tests (e.g., WAL recovery in `wal_test.go` for partial writes).
     - [ ] Consistent error handling (e.g., propagate `ErrDatabaseClosed` in `rindb.go`).
