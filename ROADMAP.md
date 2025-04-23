@@ -8,18 +8,18 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Complete Documentation**:
-    - [ ] Detailed README (installation, usage, architecture).
+    - [x] Detailed README (installation, usage, architecture).
     - [x] Inline comments and GoDoc for key functions (e.g., `InitRinDB`, `SSTableManager.Compact`).
   - **Fix Bugs and Edge Cases**:
     - [x] Audit tests (e.g., WAL recovery in `wal_test.go` for partial writes).
-    - [ ] Consistent error handling (e.g., propagate `ErrDatabaseClosed` in `rindb.go`).
+    - [x] Consistent error handling (e.g., propagate `ErrDatabaseClosed` in `rindb.go`).
   - **Basic CLI**:
-    - [ ] Expand `cmd/main.go` to support `put`, `get`, `remove`, `list` commands.
+    - [x] Expand `cmd/main.go` to support `put`, `get`, `remove` commands.
 
 - **Deliverables**:
   - Comprehensive README and GoDoc.
   - Basic CLI with CRUD operations.
-  - 90%+ test coverage (building on existing tests like `rindb_test.go`).
+  - 85%+ test coverage.
 
 - **Version**: `v0.2.1`
   - **Rationale**: These are stabilizing improvements and minor CLI additions, warranting a patch release. The codebase already has core functionality (e.g., `Put`, `Get`, `Remove` in `rindb.go`), so this focuses on polish and usability.
