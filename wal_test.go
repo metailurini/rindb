@@ -119,3 +119,63 @@ func TestWALCrashRecovery(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v2"), v2)
 }
+
+// TestWALCrashRecovery_PartialWrite tests WAL recovery after a crash during a partial write.
+func TestWALCrashRecovery_PartialWrite(t *testing.T) {
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+	w := NewWAL(cfg, fs)
+
+	// Write a few complete records
+	record1 := RecordImpl{Bytes("key1"), Bytes("value1")}
+	record2 := RecordImpl{Bytes("key2"), Bytes("value2")}
+	assert.NoError(t, w.Append(record1))
+	assert.NoError(t, w.Append(record2))
+
+	// Simulate a crash during the write of a third record
+	record3 := RecordImpl{Bytes("key3"), Bytes("value3")}
+	tx := w.tm.Begin()
+	defer tx.Rollback()
+
+	// Write only the key length and value length of the third record
+	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetKey()))))
+	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetValue()))))
+
+	// Commit the partial transaction to the file
+	assert.NoError(t, tx.Commit(w.file))
+	assert.NoError(t, w.Sync())
+
+	// Truncate the file to simulate a crash before writing key/value bytes
+	fileInfo, err := w.file.Stat()
+	assert.NoError(t, err)
+	currentSize := fileInfo.Size()
+	// Truncate after writing the lengths, before writing the key
+	truncateSize := currentSize // Keep the lengths, but no key/value
+	assert.NoError(t, w.file.Truncate(truncateSize))
+	assert.NoError(t, w.Sync()) // Ensure truncation is synced
+
+	// Close and re-open the file system to simulate recovery
+	assert.NoError(t, fs.Close())
+	fs, err = OpenFS(fs.Path())
+	assert.NoError(t, err)
+	w = NewWAL(cfg, fs)
+
+	// Load the WAL and verify that only the complete records are loaded
+	mem, err := w.Load()
+	assert.NoError(t, err) // Load should ideally not return an error for partial records
+
+	// Verify records 1 and 2 are present
+	v1, err := mem.Get(Bytes("key1"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("value1"), v1)
+
+	v2, err := mem.Get(Bytes("key2"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("value2"), v2)
+
+	// Verify record 3 is NOT present
+	_, err = mem.Get(Bytes("key3"))
+	assert.Error(t, err) // Should return an error as key3 was not fully written
+}
