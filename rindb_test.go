@@ -3,6 +3,8 @@ package rindb
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -236,4 +238,113 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	val3, err := rin.Get(Bytes("key3"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value3-loooooooooong"), val3)
+}
+
+// TestInitRinDB_MaxSequenceNumber tests the sequence number initialization logic.
+func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
+	t.Run("EmptyDatabase", func(t *testing.T) {
+		opts := testOptions()
+		opts = append(opts, WithDatabaseDir(t.TempDir()))
+		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		rin, cleanup := initRinDBWithCleanup(t, opts...)
+		defer cleanup()
+
+		assert.Equal(t, rin.sequenceNumber, uint64(0), "Expected sequence number to be at least 1 for empty database")
+	})
+
+	t.Run("MemtableHasHighestSequence", func(t *testing.T) {
+		databaseDir := t.TempDir()
+		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+
+		// Manually create WAL and add records to simulate memtable content
+		walPath := path.Join(databaseDir, "WAL")
+		_ = os.RemoveAll(walPath) // delete WAL directory if it exists
+		fs, err := OpenFS(walPath)
+		assert.NoError(t, err)
+		wal := NewWAL(DefaultConfig(), fs)
+		defer func() { _ = wal.Close() }()
+
+		// Add records with sequence numbers
+		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("k1"), Value: Bytes("v1"), SequenceNumber: 10}))
+		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("k2"), Value: Bytes("v2"), SequenceNumber: 20}))
+		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("k3"), Value: Bytes("v3"), SequenceNumber: 30}))
+
+		opts := testOptions()
+		opts = append(opts, WithDatabaseDir(databaseDir))
+		rin, cleanup := initRinDBWithCleanup(t, opts...)
+		defer cleanup()
+
+		assert.Equal(t, uint64(30), rin.sequenceNumber, "Expected sequence number from memtable")
+	})
+
+	t.Run("SSTableHasHighestSequence", func(t *testing.T) {
+		opts := testOptions()
+		opts = append(opts, WithDatabaseDir(t.TempDir()))
+		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		rin, cleanup := initRinDBWithCleanup(t, opts...)
+		defer cleanup()
+
+		// Manually create an SSTable with a high sequence number
+		// Use rin.ssTableManager directly
+		fs, err := rin.ssTableManager.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer func() { _ = fs.Close() }()
+
+		// Create an SSTable with records, ensuring a high sequence number
+		mem := InitMemtable(rin.config)
+		mem.Put(RecordImpl{Key: Bytes("sk1"), Value: Bytes("sv1"), SequenceNumber: 50})
+		mem.Put(RecordImpl{Key: Bytes("sk2"), Value: Bytes("sv2"), SequenceNumber: 60})
+		_, err = Flush(rin.config, mem, fs)
+		assert.NoError(t, err)
+		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
+
+		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
+		walPath := path.Join(rin.config.databaseDir, "WAL")
+		walFs, err := OpenFS(walPath)
+		assert.NoError(t, err)
+		wal := NewWAL(rin.config, walFs)
+		defer func() { _ = wal.Close() }()
+		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("wk1"), Value: Bytes("wv1"), SequenceNumber: 5}))
+
+		assert.NoError(t, rin.Close())
+		rin, cleanup = initRinDBWithCleanup(t, opts...)
+		defer cleanup()
+
+		assert.Equal(t, uint64(60), rin.sequenceNumber, "Expected sequence number from SSTable")
+	})
+
+	t.Run("EqualMaxSequenceNumbers", func(t *testing.T) {
+		opts := testOptions()
+		opts = append(opts, WithDatabaseDir(t.TempDir()))
+		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		rin, cleanup := initRinDBWithCleanup(t, opts...)
+		defer cleanup()
+
+		// Manually create an SSTable with a high sequence number
+		// Use rin.ssTableManager directly
+		fs, err := rin.ssTableManager.NewSSTableFS(0)
+		assert.NoError(t, err)
+		defer func() { _ = fs.Close() }()
+
+		mem := InitMemtable(rin.config)
+		mem.Put(RecordImpl{Key: Bytes("sk1"), Value: Bytes("sv1"), SequenceNumber: 70})
+		_, err = Flush(rin.config, mem, fs)
+		assert.NoError(t, err)
+		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
+
+		// Create a WAL with the same highest sequence number
+		// The database directory is already created by initRinDBWithCleanup
+		walPath := path.Join(rin.config.databaseDir, "WAL")
+		walFs, err := OpenFS(walPath)
+		assert.NoError(t, err)
+		wal := NewWAL(rin.config, walFs)
+		defer func() { _ = wal.Close() }()
+		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("wk1"), Value: Bytes("wv1"), SequenceNumber: 70}))
+
+		assert.NoError(t, rin.Close())
+		rin, cleanup = initRinDBWithCleanup(t, opts...)
+		defer cleanup()
+
+		assert.Equal(t, uint64(70), rin.sequenceNumber, "Expected sequence number to be the common max")
+	})
 }
