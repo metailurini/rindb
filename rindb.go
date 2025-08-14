@@ -572,9 +572,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 		if err != nil {
 			return Rindb{}, err
 		}
-		if rec.GetSequenceNumber() > maxSeqNum {
-			maxSeqNum = rec.GetSequenceNumber()
-		}
+		maxSeqNum = max(maxSeqNum, rec.GetSequenceNumber())
 	}
 
 	ssTableManager, err := InitSSTableManager(cfg)
@@ -584,11 +582,11 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 		return Rindb{}, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
 
-	for _, level := range ssTableManager.levels {
-		if level == nil {
-			continue
-		}
-		levelIterator := level.Iterator()
+	// Only scan L0 SSTables for max sequence number during initialization.
+	// L0 SSTables contain the most recent data after the memtable.
+	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
+		level0 := ssTableManager.levels[0]
+		levelIterator := level0.Iterator()
 		for levelIterator.HasNext() {
 			fs, err := levelIterator.Next()
 			if err != nil {
@@ -606,9 +604,9 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 			if err != nil {
 				return Rindb{}, err
 			}
-			if sstSeqNum > maxSeqNum {
-				maxSeqNum = sstSeqNum
-			}
+
+			maxSeqNum = max(maxSeqNum, sstSeqNum)
+
 			if err := fs.Close(); err != nil {
 				return Rindb{}, err
 			}
