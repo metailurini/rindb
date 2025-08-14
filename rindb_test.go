@@ -243,9 +243,11 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 // TestInitRinDB_MaxSequenceNumber tests the sequence number initialization logic.
 func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 	t.Run("EmptyDatabase", func(t *testing.T) {
+		databaseDir := t.TempDir()
+		defer func() { _ = os.RemoveAll(databaseDir) }()
+
 		opts := testOptions()
-		opts = append(opts, WithDatabaseDir(t.TempDir()))
-		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		opts = append(opts, WithDatabaseDir(databaseDir))
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
@@ -278,9 +280,12 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 	})
 
 	t.Run("SSTableHasHighestSequence", func(t *testing.T) {
-		opts := testOptions()
-		opts = append(opts, WithDatabaseDir(t.TempDir()))
+		databaseDir := t.TempDir()
 		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+
+		opts := testOptions()
+		opts = append(opts, WithDatabaseDir(databaseDir))
+		defer func() { _ = os.RemoveAll(databaseDir) }()
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
@@ -314,9 +319,12 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 	})
 
 	t.Run("EqualMaxSequenceNumbers", func(t *testing.T) {
-		opts := testOptions()
-		opts = append(opts, WithDatabaseDir(t.TempDir()))
+		databaseDir := t.TempDir()
 		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+
+		opts := testOptions()
+		opts = append(opts, WithDatabaseDir(databaseDir))
+		defer func() { _ = os.RemoveAll(databaseDir) }()
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
