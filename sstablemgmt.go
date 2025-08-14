@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"path"
@@ -75,13 +74,12 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 
 		idx := strings.Index(fileName, "_")
 		if idx == -1 {
-			ERROR("Invalid sstable name: %s", fileName)
-			continue
+			return fmt.Errorf("invalid sstable name: %s", fileName)
 		}
 
-		levelNumb, err := strconv.ParseInt(fileName[1:idx], 32, 32)
+		levelNumb, err := strconv.ParseInt(fileName[1:idx], 10, 32)
 		if err != nil {
-			return err
+			return fmt.Errorf("invalid level in sstable name %s: %w", fileName, err)
 		}
 
 		extLevelNumb := int(levelNumb) + 1
@@ -395,7 +393,7 @@ func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStab
 	// remove merged sstable
 	for _, sstable := range pickedUpSSTable {
 		if err := os.Remove(sstable.Path()); err != nil {
-			log.Printf("Error removing file %s: %v", sstable.Path(), err)
+			ERROR("Error removing file %s: %v", sstable.Path(), err)
 		}
 	}
 	return nil
@@ -470,7 +468,10 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	return nil, ErrKeyNotFound
 }
 
-// getMaxSequenceNumberFromSSTables iterates through the L0 SSTables to find the maximum sequence number.
+// TODO: This is a temporary approach that only scans L0 SSTables.
+// We should scan *all* levels to find the true max sequence number.
+// The correct long-term solution is to maintain a MANIFEST file
+// that tracks global sequence number metadata across all levels.
 func getMaxSequenceNumberFromSSTables(cfg Config, ssTableManager *SSTableManager) (uint64, error) {
 	var maxSeqNum uint64
 	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
