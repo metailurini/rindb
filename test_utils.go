@@ -133,6 +133,20 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 	return &sstable
 }
 
+// createSSTableWithSequence creates an SSTable with the given key-value pairs and a starting sequence number.
+func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]string, startSeqNum uint64) *SStable {
+	fs := ts.newSSTableFS(level)
+	mem := InitMemtable(ts.Manager.config)
+	seqNum := startSeqNum
+	for k, v := range kvs {
+		mem.Put(RecordImpl{Key: Bytes(k), Value: Bytes(v), SequenceNumber: seqNum})
+		seqNum++
+	}
+	sstable, err := Flush(ts.Manager.config, mem, fs)
+	assert.NoError(ts.T, err)
+	return &sstable
+}
+
 // AddSSTableToLevel adds an SSTable to the specified level.
 func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
 	fs := sstable.FileSystem

@@ -51,6 +51,93 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 	})
 }
 
+func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("Empty or Non-existent Level 0", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Case 1: ssTableManager.levels is nil
+		ts.Manager.levels = nil
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(0), maxSeqNum)
+
+		// Case 2: ssTableManager.levels is empty slice
+		ts.Manager.levels = []*LinkedList[*FileSystem]{}
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(0), maxSeqNum)
+
+		// Case 3: Level 0 exists but is empty
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(0), maxSeqNum)
+	})
+
+	t.Run("Single SSTable in Level 0", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create an SSTable with a specific sequence number
+		sstable := ts.createSSTableWithSequence(0, map[string]string{"key1": "val1"}, 100)
+		ts.AddSSTableToLevel(0, sstable)
+
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(100), maxSeqNum)
+	})
+
+	t.Run("Multiple SSTables in Level 0", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Add SSTables with various sequence numbers
+		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k1": "v1"}, 50))
+		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k2": "v2"}, 150))
+		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k3": "v3"}, 75))
+		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k4": "v4"}, 200)) // Max
+
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(200), maxSeqNum)
+	})
+
+	t.Run("SSTables with Zero Sequence Numbers", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k1": "v1"}, 0))
+		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k2": "v2"}, 0))
+
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.NoError(t, err)
+		assert.Equal(t, uint64(0), maxSeqNum)
+	})
+
+	t.Run("Error during fs.Open", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create a dummy FS that will return an error on Open
+		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ts.Manager.levels[0].PushBack(badFs)
+
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no such file or directory")
+		assert.Equal(t, uint64(0), maxSeqNum)
+	})
+
+	// Note: Simulating errors for NewSSTable and sstable.MaxSequenceNumber
+	// would require mocking the SStable interface or modifying the NewSSTable
+	// function, which is beyond the scope of a typical unit test for this function.
+	// The current setup tests the happy path and file system errors.
+}
+
 func TestSSTableManager_MergeSSTables(t *testing.T) {
 	// Configure the manager to trigger compaction after 3 files in level 0
 	cfg := NewConfig(WithLevel0CompactionThreshold(3))
