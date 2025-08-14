@@ -35,7 +35,7 @@ func (w *WAL) Load() (Memtable, error) {
 			return Memtable{}, fmt.Errorf("failed to read record from WAL %s: %w", w.Path(), err)
 		}
 
-		mem.Put(record.GetKey(), record.GetValue())
+		mem.Put(record)
 	}
 	return mem, nil
 }

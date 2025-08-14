@@ -36,7 +36,7 @@ func TestMemtable_ByteSize(t *testing.T) {
 		value := Bytes("value1")
 		expectedSize := len(key) + len(value) + entryOverhead
 
-		mem.Put(key, value)
+		mem.Put(RecordImpl{Key: key, Value: value, SequenceNumber: 1})
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after single entry")
 	})
 
@@ -50,8 +50,8 @@ func TestMemtable_ByteSize(t *testing.T) {
 		expectedSize += len(key1) + len(value1) + entryOverhead
 		expectedSize += len(key2) + len(value2) + entryOverhead
 
-		mem.Put(key1, value1)
-		mem.Put(key2, value2)
+		mem.Put(RecordImpl{Key: key1, Value: value1, SequenceNumber: 1})
+		mem.Put(RecordImpl{Key: key2, Value: value2, SequenceNumber: 2})
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after multiple entries")
 	})
 
@@ -62,12 +62,12 @@ func TestMemtable_ByteSize(t *testing.T) {
 		value2 := Bytes("new_value_longer")
 
 		// Initial put
-		mem.Put(key, value1)
+		mem.Put(RecordImpl{Key: key, Value: value1, SequenceNumber: 1})
 		initialSize := len(key) + len(value1) + entryOverhead
 		assert.Equal(t, initialSize, mem.ByteSize(), "Size mismatch after initial put")
 
 		// Update
-		mem.Put(key, value2)
+		mem.Put(RecordImpl{Key: key, Value: value2, SequenceNumber: 2})
 		expectedSize := len(key) + len(value2) + entryOverhead // Only the latest entry size counts
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after updating entry")
 	})
@@ -78,12 +78,12 @@ func TestMemtable_ByteSize(t *testing.T) {
 		value := Bytes("value1")
 
 		// Initial put
-		mem.Put(key, value)
+		mem.Put(RecordImpl{Key: key, Value: value, SequenceNumber: 1})
 		initialSize := len(key) + len(value) + entryOverhead
 		assert.Equal(t, initialSize, mem.ByteSize(), "Size mismatch after initial put")
 
 		// Put tombstone
-		mem.Put(key, nil)
+		mem.Put(RecordImpl{Key: key, Value: nil, SequenceNumber: 2})
 		expectedSize := len(key) + 0 + entryOverhead // Value length is 0 for tombstone
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after putting tombstone")
 	})
@@ -95,8 +95,8 @@ func TestMemtable_ByteSize(t *testing.T) {
 		key2 := Bytes("key2")
 		value2 := Bytes("value2")
 
-		mem.Put(key1, value1)
-		mem.Put(key2, value2)
+		mem.Put(RecordImpl{Key: key1, Value: value1, SequenceNumber: 1})
+		mem.Put(RecordImpl{Key: key2, Value: value2, SequenceNumber: 2})
 		assert.NotEqual(t, 0, mem.ByteSize(), "Size should not be 0 before clear")
 
 		mem.Clear()
@@ -114,7 +114,7 @@ func TestMemtable_Tombstone(t *testing.T) {
 	for i, pair := range pairs {
 		if i%3 == 0 {
 			key := pair[0]
-			mem.Put(key, nil) // Add tombstone
+			mem.Put(RecordImpl{Key: key, Value: nil, SequenceNumber: uint64(i + 1001)}) // Add tombstone with higher seq num
 			tombstoneKeys[string(key)] = struct{}{}
 		}
 	}

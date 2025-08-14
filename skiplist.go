@@ -167,6 +167,34 @@ func (list *SkipList[K, V]) Len() uint {
 	return list.length
 }
 
+var _ Iterator[any] = (*slIterator[Comparable, any])(nil)
+
+type slIterator[K Comparable, V any] struct {
+	node *SLNode[K, V]
+}
+
+// HasNext implements Iterator.
+func (s *slIterator[K, V]) HasNext() bool {
+	return s.node != nil
+}
+
+// Next implements Iterator.
+func (s *slIterator[K, V]) Next() (V, error) {
+	if !s.HasNext() {
+		var empty V
+		return empty, EOI
+	}
+	value := s.node.Value
+	s.node = s.node.Next()
+	return value, nil
+}
+
+func (list *SkipList[K, V]) Iterator() Iterator[V] {
+	return &slIterator[K, V]{
+		node: list.Head().Next(),
+	}
+}
+
 func intn(m int64) int64 {
 	nBig, err := rand.Int(rand.Reader, big.NewInt(m))
 	if err != nil {
