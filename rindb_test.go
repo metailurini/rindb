@@ -256,7 +256,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 	t.Run("MemtableHasHighestSequence", func(t *testing.T) {
 		databaseDir := t.TempDir()
-		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		defer func() { _ = os.RemoveAll(databaseDir) }()
 
 		// Manually create WAL and add records to simulate memtable content
 		walPath := path.Join(databaseDir, "WAL")
@@ -267,9 +267,9 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		defer func() { _ = wal.Close() }()
 
 		// Add records with sequence numbers
-		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("k1"), Value: Bytes("v1"), SequenceNumber: 10}))
-		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("k2"), Value: Bytes("v2"), SequenceNumber: 20}))
-		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("k3"), Value: Bytes("v3"), SequenceNumber: 30}))
+		assert.NoError(t, wal.Append(NewRecord(Bytes("k1"), Bytes("v1"), 10)))
+		assert.NoError(t, wal.Append(NewRecord(Bytes("k2"), Bytes("v2"), 20)))
+		assert.NoError(t, wal.Append(NewRecord(Bytes("k3"), Bytes("v3"), 30)))
 
 		opts := testOptions()
 		opts = append(opts, WithDatabaseDir(databaseDir))
@@ -281,7 +281,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 	t.Run("SSTableHasHighestSequence", func(t *testing.T) {
 		databaseDir := t.TempDir()
-		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		defer func() { _ = os.RemoveAll(databaseDir) }()
 
 		opts := testOptions()
 		opts = append(opts, WithDatabaseDir(databaseDir))
@@ -297,8 +297,8 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Create an SSTable with records, ensuring a high sequence number
 		mem := InitMemtable(rin.config)
-		mem.Put(RecordImpl{Key: Bytes("sk1"), Value: Bytes("sv1"), SequenceNumber: 50})
-		mem.Put(RecordImpl{Key: Bytes("sk2"), Value: Bytes("sv2"), SequenceNumber: 60})
+		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 50))
+		mem.Put(NewRecord(Bytes("sk2"), Bytes("sv2"), 60))
 		_, err = Flush(rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
@@ -309,7 +309,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
-		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("wk1"), Value: Bytes("wv1"), SequenceNumber: 5}))
+		assert.NoError(t, wal.Append(NewRecord(Bytes("wk1"), Bytes("wv1"), 5)))
 
 		assert.NoError(t, rin.Close())
 		rin, cleanup = initRinDBWithCleanup(t, opts...)
@@ -320,7 +320,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 	t.Run("EqualMaxSequenceNumbers", func(t *testing.T) {
 		databaseDir := t.TempDir()
-		defer func() { _ = os.RemoveAll(t.TempDir()) }()
+		defer func() { _ = os.RemoveAll(databaseDir) }()
 
 		opts := testOptions()
 		opts = append(opts, WithDatabaseDir(databaseDir))
@@ -335,7 +335,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		defer func() { _ = fs.Close() }()
 
 		mem := InitMemtable(rin.config)
-		mem.Put(RecordImpl{Key: Bytes("sk1"), Value: Bytes("sv1"), SequenceNumber: 70})
+		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 70))
 		_, err = Flush(rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
@@ -347,7 +347,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
-		assert.NoError(t, wal.Append(RecordImpl{Key: Bytes("wk1"), Value: Bytes("wv1"), SequenceNumber: 70}))
+		assert.NoError(t, wal.Append(NewRecord(Bytes("wk1"), Bytes("wv1"), 70)))
 
 		assert.NoError(t, rin.Close())
 		rin, cleanup = initRinDBWithCleanup(t, opts...)

@@ -33,31 +33,31 @@ func Test_rw(t *testing.T) {
 	t.Run("Write key with size = 0", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
-		testKey := ""
-		testValue := "value"
+		testKey := Bytes(nil)
+		testValue := Bytes("value")
 
-		err := WriteRecord(tx, RecordImpl{Key: Bytes(testKey), Value: Bytes(testValue), SequenceNumber: 0})
+		err := WriteRecord(tx, NewRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
 		assert.NoError(t, err)
-		assert.Equal(t, testKey, string(record.GetKey()))
-		assert.Equal(t, testValue, string(record.GetValue()))
+		assert.Equal(t, Bytes(nil), record.GetKey())
+		assert.Equal(t, testValue, record.GetValue())
 	})
 
 	t.Run("Write key and value with size = 0", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
-		testKey := ""
-		testValue := ""
+		testKey := Bytes(nil)
+		testValue := Bytes(nil)
 
-		err := WriteRecord(tx, RecordImpl{Key: Bytes(testKey), Value: Bytes(testValue), SequenceNumber: 0})
+		err := WriteRecord(tx, NewRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
 		assert.NoError(t, err)
-		assert.Equal(t, testKey, string(record.GetKey()))
-		assert.Equal(t, testValue, string(record.GetValue()))
+		assert.Equal(t, testKey, record.GetKey())
+		assert.Equal(t, testValue, record.GetValue())
 	})
 
 	t.Run("Write key and value with size > 255", func(t *testing.T) {
@@ -70,7 +70,7 @@ func Test_rw(t *testing.T) {
 			testValue += fmt.Sprintf("test value %d ", i)
 		}
 
-		err := WriteRecord(tx, RecordImpl{Key: Bytes(testKey), Value: Bytes(testValue), SequenceNumber: 0})
+		err := WriteRecord(tx, NewRecord(Bytes(testKey), Bytes(testValue), 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -82,7 +82,7 @@ func Test_rw(t *testing.T) {
 	t.Run("Write key and value with size < 255", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
-		err := WriteRecord(tx, RecordImpl{Key: Bytes("key"), Value: Bytes("value"), SequenceNumber: 0})
+		err := WriteRecord(tx, NewRecord(Bytes("key"), Bytes("value"), 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)

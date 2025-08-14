@@ -64,7 +64,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	}
 
 	// Set default is 0, while inserting new record, it will automatically increase
-	// So first record's sequence number is always 1
+	// So first record's sequence number is always 1 if database is empty
 	var maxSeqNum uint64 = 0
 
 	memMaxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
