@@ -526,6 +526,54 @@ func mergeSSTables(config Config, target *FileSystem, sources []SStable) (SStabl
 	return sstable, nil
 }
 
+// getMaxSequenceNumberFromMemtable iterates through the memtable to find the maximum sequence number.
+func getMaxSequenceNumberFromMemtable(memtable Memtable) (uint64, error) {
+	var maxSeqNum uint64
+	memIterator := memtable.Iterator()
+	for memIterator.HasNext() {
+		rec, err := memIterator.Next()
+		if err != nil {
+			return 0, err
+		}
+		maxSeqNum = max(maxSeqNum, rec.GetSequenceNumber())
+	}
+	return maxSeqNum, nil
+}
+
+// getMaxSequenceNumberFromSSTables iterates through the L0 SSTables to find the maximum sequence number.
+func getMaxSequenceNumberFromSSTables(cfg Config, ssTableManager *SSTableManager) (uint64, error) {
+	var maxSeqNum uint64
+	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
+		level0 := ssTableManager.levels[0]
+		levelIterator := level0.Iterator()
+		for levelIterator.HasNext() {
+			fs, err := levelIterator.Next()
+			if err != nil {
+				return 0, err
+			}
+			if err := fs.Open(); err != nil {
+				return 0, err
+			}
+			sstable, err := NewSSTable(cfg, fs)
+			if err != nil {
+				_ = fs.Close()
+				return 0, err
+			}
+			sstSeqNum, err := sstable.MaxSequenceNumber()
+			if err != nil {
+				return 0, err
+			}
+
+			maxSeqNum = max(maxSeqNum, sstSeqNum)
+
+			if err := fs.Close(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return maxSeqNum, nil
+}
+
 // InitRinDB initializes a new RinDB instance with provided configuration options.
 // Parameters:
 //
@@ -565,14 +613,9 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 		return Rindb{}, err
 	}
 
-	var maxSeqNum uint64
-	memIterator := memtable.Iterator()
-	for memIterator.HasNext() {
-		rec, err := memIterator.Next()
-		if err != nil {
-			return Rindb{}, err
-		}
-		maxSeqNum = max(maxSeqNum, rec.GetSequenceNumber())
+	maxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
+	if err != nil {
+		return Rindb{}, err
 	}
 
 	ssTableManager, err := InitSSTableManager(cfg)
@@ -584,34 +627,11 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 
 	// Only scan L0 SSTables for max sequence number during initialization.
 	// L0 SSTables contain the most recent data after the memtable.
-	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
-		level0 := ssTableManager.levels[0]
-		levelIterator := level0.Iterator()
-		for levelIterator.HasNext() {
-			fs, err := levelIterator.Next()
-			if err != nil {
-				return Rindb{}, err
-			}
-			if err := fs.Open(); err != nil {
-				return Rindb{}, err
-			}
-			sstable, err := NewSSTable(cfg, fs)
-			if err != nil {
-				_ = fs.Close()
-				return Rindb{}, err
-			}
-			sstSeqNum, err := sstable.MaxSequenceNumber()
-			if err != nil {
-				return Rindb{}, err
-			}
-
-			maxSeqNum = max(maxSeqNum, sstSeqNum)
-
-			if err := fs.Close(); err != nil {
-				return Rindb{}, err
-			}
-		}
+	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ssTableManager)
+	if err != nil {
+		return Rindb{}, err
 	}
+	maxSeqNum = max(maxSeqNum, sstMaxSeqNum)
 
 	INFO("Initialized RinDB with database directory %s", cfg.databaseDir)
 	return Rindb{
