@@ -126,7 +126,7 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 	var seqNum uint64 = 0
 	for k, v := range kvs {
 		seqNum++
-		mem.Put(RecordImpl{Key: Bytes(k), Value: Bytes(v), SequenceNumber: seqNum})
+		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
 	}
 	sstable, err := Flush(ts.Manager.config, mem, fs)
 	assert.NoError(ts.T, err)
@@ -139,7 +139,7 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 	mem := InitMemtable(ts.Manager.config)
 	seqNum := startSeqNum
 	for k, v := range kvs {
-		mem.Put(RecordImpl{Key: Bytes(k), Value: Bytes(v), SequenceNumber: seqNum})
+		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
 		seqNum++
 	}
 	sstable, err := Flush(ts.Manager.config, mem, fs)
@@ -365,4 +365,9 @@ func assertLinkedListContents[T comparable](t *testing.T, l *LinkedList[T], expe
 	t.Helper()
 	assert.Equal(t, len(expected), l.Len(), "LinkedList length does not match expected length")
 	assertIteratorValues(t, l.Iterator(), expected)
+}
+
+// NewRecord is a helper function to create a RecordImpl instance for tests.
+func NewRecord(key, value Bytes, seq uint64) RecordImpl {
+	return RecordImpl{Key: key, Value: value, SequenceNumber: seq}
 }
