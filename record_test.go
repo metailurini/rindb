@@ -17,13 +17,13 @@ func TestCalOnDiskSize(t *testing.T) {
 	}{
 		{
 			name: "Key and value",
-			args: args{RecordImpl{Bytes("key"), Bytes("value")}},
-			want: 24,
+			args: args{RecordImpl{Bytes("key"), Bytes("value"), 1}},
+			want: 32,
 		},
 		{
 			name: "Empty key and value",
-			args: args{RecordImpl{Bytes(nil), Bytes(nil)}},
-			want: 16,
+			args: args{RecordImpl{Bytes(nil), Bytes(nil), 18446744073709551615}},
+			want: 24,
 		},
 	}
 	for _, tt := range tests {
