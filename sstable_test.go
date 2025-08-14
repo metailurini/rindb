@@ -40,8 +40,12 @@ func TestSStable(t *testing.T) {
 			{Bytes("d"), Bytes("4")},
 		}
 		mem := InitMemtable(cfg)
-		for _, v := range data {
-			mem.Put(v.key, v.value)
+		for i, v := range data {
+			mem.Put(RecordImpl{
+				Key:            v.key,
+				Value:          v.value,
+				SequenceNumber: uint64(i),
+			})
 		}
 		sstable, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
@@ -84,9 +88,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(Bytes("2"), Bytes("3"))
-		mem.Put(Bytes("1"), Bytes("2"))
-		mem.Put(Bytes("3"), Bytes("4"))
+		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
+		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
+		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 		sstable1, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		sstable2, err := NewSSTable(cfg, fs)
@@ -98,9 +102,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(Bytes("2"), Bytes("3"))
-		mem.Put(Bytes("1"), Bytes("2"))
-		mem.Put(Bytes("3"), Bytes("4"))
+		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
+		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
+		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 		_, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		sstable, err := NewSSTable(cfg, fs)
@@ -120,9 +124,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(Bytes("2"), Bytes("3"))
-		mem.Put(Bytes("1"), Bytes("2"))
-		mem.Put(Bytes("3"), Bytes("4"))
+		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
+		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
+		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 		assert.Equal(t, uint(3), mem.data.Len())
 		sstable, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
@@ -145,9 +149,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(Bytes("2"), Bytes("3"))
-		mem.Put(Bytes("1"), Bytes("2"))
-		mem.Put(Bytes("3"), Bytes("4"))
+		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
+		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
+		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 		sstable, err := Flush(cfg, mem, fs)
 		assert.NoError(t, err)
 		iterator, err := sstable.Iterator()
@@ -178,16 +182,16 @@ func TestSStable(t *testing.T) {
 func Test_genSparseIndex(t *testing.T) {
 	cfg := testConfig()
 	mem := InitMemtable(cfg)
-	mem.Put(Bytes("1"), Bytes("2"))
-	mem.Put(Bytes("2"), Bytes("3"))
-	mem.Put(Bytes("3"), Bytes("4"))
+	mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 1})
+	mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 2})
+	mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 	index := genSparseIndex(mem)
 	assert.Equal(t, Bytes("1"), index[0].key)
 	assert.Equal(t, int64(0), index[0].offset)
 	assert.Equal(t, Bytes("2"), index[1].key)
-	assert.Equal(t, int64(18), index[1].offset)
+	assert.Equal(t, int64(26), index[1].offset)
 	assert.Equal(t, Bytes("3"), index[2].key)
-	assert.Equal(t, int64(36), index[2].offset)
+	assert.Equal(t, int64(52), index[2].offset)
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
@@ -321,8 +325,8 @@ func TestFlushWithTombstones(t *testing.T) {
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	mem := InitMemtable(cfg)
-	mem.Put(k1, Bytes("v1"))
-	mem.Put(k2, nil)
+	mem.Put(RecordImpl{k1, Bytes("v1"), 1})
+	mem.Put(RecordImpl{k2, nil, 2})
 	sstable, err := Flush(cfg, mem, fs)
 	assert.NoError(t, err)
 	v1, err := sstable.GetValue(k1)
@@ -340,7 +344,7 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 	mem := InitMemtable(cfg)
-	mem.Put(Bytes("k1"), Bytes("v1"))
+	mem.Put(RecordImpl{Bytes("k1"), Bytes("v1"), 2})
 	sstable, err := Flush(cfg, mem, fs)
 	assert.NoError(t, err)
 	_, err = sstable.GetValue(Bytes("k2"))

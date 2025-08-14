@@ -59,7 +59,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 	fs := fss[0]
 	w := NewWAL(cfg, fs)
 	t.Run("SingleRecord", func(t *testing.T) {
-		err := w.Append(RecordImpl{Bytes("single_key"), Bytes("single_value")})
+		err := w.Append(RecordImpl{Bytes("single_key"), Bytes("single_value"), 1})
 		assert.NoError(t, err)
 		mem, err := w.Load()
 		assert.NoError(t, err)
@@ -73,7 +73,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		for i := 0; i < recordsSize; i++ {
 			key := Bytes(fmt.Sprintf("key.%d", i))
 			value := Bytes(fmt.Sprintf("value.%d", i))
-			records = append(records, RecordImpl{key, value})
+			records = append(records, RecordImpl{key, value, uint64(i)})
 		}
 		err := w.AppendMany(records)
 		assert.NoError(t, err)
@@ -100,8 +100,8 @@ func TestWALCrashRecovery(t *testing.T) {
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	records := []Record{
-		RecordImpl{k1, Bytes("v1")},
-		RecordImpl{k2, Bytes("v2")},
+		RecordImpl{k1, Bytes("v1"), 1},
+		RecordImpl{k2, Bytes("v2"), 2},
 	}
 	for _, r := range records {
 		assert.NoError(t, w.Append(r))
@@ -129,13 +129,13 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	w := NewWAL(cfg, fs)
 
 	// Write a few complete records
-	record1 := RecordImpl{Bytes("key1"), Bytes("value1")}
-	record2 := RecordImpl{Bytes("key2"), Bytes("value2")}
+	record1 := RecordImpl{Bytes("key1"), Bytes("value1"), 1}
+	record2 := RecordImpl{Bytes("key2"), Bytes("value2"), 2}
 	assert.NoError(t, w.Append(record1))
 	assert.NoError(t, w.Append(record2))
 
 	// Simulate a crash during the write of a third record
-	record3 := RecordImpl{Bytes("key3"), Bytes("value3")}
+	record3 := RecordImpl{Bytes("key3"), Bytes("value3"), 3}
 	tx := w.tm.Begin()
 	defer tx.Rollback()
 
