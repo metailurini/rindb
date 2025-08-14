@@ -48,6 +48,11 @@ func (k KeyOffset) GetValue() Bytes {
 	return valueLenBytes
 }
 
+// GetSequenceNumber implements Record.
+func (k KeyOffset) GetSequenceNumber() uint64 {
+	return 0
+}
+
 func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
 	headIdx := 0
 	tailIdx := len(s) - 1
@@ -224,6 +229,25 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	return sparseIndex, nil
 }
 
+func (s SStable) MaxSequenceNumber() (uint64, error) {
+	iterator, err := s.Iterator()
+	if err != nil {
+		return 0, err
+	}
+
+	var maxSeqNum uint64
+	for iterator.HasNext() {
+		record, err := iterator.Next()
+		if err != nil {
+			return 0, err
+		}
+		if record.GetSequenceNumber() > maxSeqNum {
+			maxSeqNum = record.GetSequenceNumber()
+		}
+	}
+	return maxSeqNum, nil
+}
+
 func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 	if mem.data.Len() == 0 {
 		WARN("Flushing empty memtable!")
@@ -236,7 +260,7 @@ func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 
 	r := mem.data.Head().Next()
 	for r != nil {
-		if err := WriteRecord(tx, RecordImpl{r.Key, r.Value}); err != nil {
+		if err := WriteRecord(tx, r.Value); err != nil {
 			return SStable{}, fmt.Errorf("failed to write record to transaction buffer: %w", err)
 		}
 		r = r.Next()
@@ -274,7 +298,7 @@ func genSparseIndex(mem Memtable) SparseIndex {
 	runNode := mem.data.Head().Next()
 	for runNode != nil {
 		sparseIndex = append(sparseIndex, KeyOffset{runNode.Key, cursor})
-		cursor += int64(CalOnDiskSize(toRecord(runNode)))
+		cursor += int64(CalOnDiskSize(runNode.Value))
 		runNode = runNode.Next()
 	}
 	return sparseIndex

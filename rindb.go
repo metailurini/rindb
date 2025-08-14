@@ -29,6 +29,7 @@ type Rindb struct {
 	mu             sync.RWMutex   // Mutex for thread-safe access
 	wg             sync.WaitGroup // WaitGroup to track background goroutines
 	closed         bool           // Flag to indicate if the database is closed
+	sequenceNumber uint64
 }
 
 // SSTableManager manages SSTable storage and compaction in a leveled structure.
@@ -515,7 +516,7 @@ func mergeSSTables(config Config, target *FileSystem, sources []SStable) (SStabl
 			if err != nil {
 				return SStable{}, err
 			}
-			memtable.Put(record.GetKey(), record.GetValue())
+			memtable.Put(record)
 		}
 	}
 	sstable, err := Flush(config, memtable, target)
@@ -563,18 +564,64 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	if err != nil {
 		return Rindb{}, err
 	}
+
+	var maxSeqNum uint64
+	memIterator := memtable.Iterator()
+	for memIterator.HasNext() {
+		rec, err := memIterator.Next()
+		if err != nil {
+			return Rindb{}, err
+		}
+		if rec.GetSequenceNumber() > maxSeqNum {
+			maxSeqNum = rec.GetSequenceNumber()
+		}
+	}
+
 	ssTableManager, err := InitSSTableManager(cfg)
 	if err != nil {
 		// Consider closing the WAL file system if manager init fails
 		_ = fs.Close()
 		return Rindb{}, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
+
+	for _, level := range ssTableManager.levels {
+		if level == nil {
+			continue
+		}
+		levelIterator := level.Iterator()
+		for levelIterator.HasNext() {
+			fs, err := levelIterator.Next()
+			if err != nil {
+				return Rindb{}, err
+			}
+			if err := fs.Open(); err != nil {
+				return Rindb{}, err
+			}
+			sstable, err := NewSSTable(cfg, fs)
+			if err != nil {
+				_ = fs.Close()
+				return Rindb{}, err
+			}
+			sstSeqNum, err := sstable.MaxSequenceNumber()
+			if err != nil {
+				return Rindb{}, err
+			}
+			if sstSeqNum > maxSeqNum {
+				maxSeqNum = sstSeqNum
+			}
+			if err := fs.Close(); err != nil {
+				return Rindb{}, err
+			}
+		}
+	}
+
 	INFO("Initialized RinDB with database directory %s", cfg.databaseDir)
 	return Rindb{
 		wal:            wal,
 		memtable:       memtable,
 		ssTableManager: ssTableManager,
 		config:         cfg,
+		sequenceNumber: maxSeqNum,
 	}, nil
 }
 
@@ -626,11 +673,12 @@ func (r *Rindb) Put(key, value Bytes) error {
 		return ErrDatabaseClosed
 	}
 
-	record := RecordImpl{Key: key, Value: value}
+	r.sequenceNumber++
+	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber}
 	if err := r.wal.Append(record); err != nil {
 		return err
 	}
-	r.memtable.Put(key, value) // This now updates the internal size estimate
+	r.memtable.Put(record) // This now updates the internal size estimate
 
 	// Check estimated byte size and flush if needed
 	// Cast ByteSize() to uint to match maxMemtableSize type
@@ -701,11 +749,12 @@ func (r *Rindb) Remove(key Bytes) error {
 		return ErrDatabaseClosed
 	}
 
-	record := RecordImpl{Key: key, Value: nil}
+	r.sequenceNumber++
+	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.sequenceNumber}
 	if err := r.wal.Append(record); err != nil {
 		return err
 	}
-	r.memtable.Put(record.GetKey(), record.GetValue())
+	r.memtable.Put(record)
 	return nil
 }
 

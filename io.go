@@ -32,6 +32,11 @@ func ReadRecord(storage io.Reader) (Record, error) {
 		return nil, fmt.Errorf("failed to read value length: %w", err)
 	}
 
+	sequenceNumber, err := ReadNumber(storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sequence number: %w", err)
+	}
+
 	keyBytes := bytes.NewBuffer(nil)
 
 	const defaultReadStep = uint64(255)
@@ -68,8 +73,9 @@ func ReadRecord(storage io.Reader) (Record, error) {
 	}
 
 	return RecordImpl{
-		Key:   keyBytes.Bytes(),
-		Value: valueBytes.Bytes(),
+		Key:            keyBytes.Bytes(),
+		Value:          valueBytes.Bytes(),
+		SequenceNumber: sequenceNumber,
 	}, nil
 }
 
@@ -89,6 +95,10 @@ func WriteRecord(tx *Transaction, record Record) error {
 
 	if err := WriteNumber(tx, uint64(len(record.GetValue()))); err != nil {
 		return fmt.Errorf("failed to write value length: %w", err)
+	}
+
+	if err := WriteNumber(tx, record.GetSequenceNumber()); err != nil {
+		return fmt.Errorf("failed to write sequence number: %w", err)
 	}
 
 	if _, err := tx.Write(record.GetKey()); err != nil {

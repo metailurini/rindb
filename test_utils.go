@@ -123,8 +123,10 @@ func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
 func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStable {
 	fs := ts.newSSTableFS(level)
 	mem := InitMemtable(ts.Manager.config)
+	var seqNum uint64 = 0
 	for k, v := range kvs {
-		mem.Put(Bytes(k), Bytes(v))
+		seqNum++
+		mem.Put(RecordImpl{Key: Bytes(k), Value: Bytes(v), SequenceNumber: seqNum})
 	}
 	sstable, err := Flush(ts.Manager.config, mem, fs)
 	assert.NoError(ts.T, err)
@@ -206,8 +208,10 @@ func generateKeyValuePairs(n int, keySize, valueSize int) [][2]Bytes {
 // populateMemtable creates a Memtable and populates it with the given key-value pairs.
 func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 	mem := InitMemtable(cfg)
+	var seqNum uint64 = 0
 	for _, pair := range pairs {
-		mem.Put(pair[0], pair[1])
+		seqNum++
+		mem.Put(RecordImpl{Key: pair[0], Value: pair[1], SequenceNumber: seqNum})
 	}
 	return mem
 }
