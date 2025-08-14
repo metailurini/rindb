@@ -15,3 +15,6 @@ testdata/*
 !testdata/.keep
 .aider*
 coverage.out
+
+# IDE-specific files
+.vscode
