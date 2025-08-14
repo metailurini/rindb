@@ -63,10 +63,15 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 		return Rindb{}, err
 	}
 
-	maxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
+	// Set default is 0, while inserting new record, it will automatically increase
+	// So first record's sequence number is always 1
+	var maxSeqNum uint64 = 0
+
+	memMaxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
 	if err != nil {
 		return Rindb{}, err
 	}
+	maxSeqNum = max(maxSeqNum, memMaxSeqNum)
 
 	ssTableManager, err := InitSSTableManager(cfg)
 	if err != nil {
