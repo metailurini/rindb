@@ -32,7 +32,6 @@ func (m *Memtable) ByteSize() int {
 	return m.size
 }
 
-
 // InitMemtable initializes a new Memtable with the given configuration.
 func InitMemtable(config Config) Memtable {
 	list, _ := InitSkipList[Bytes, Record](config)
@@ -73,4 +72,18 @@ func (m *Memtable) Clear() {
 
 func (m *Memtable) Iterator() Iterator[Record] {
 	return m.data.Iterator()
+}
+
+// getMaxSequenceNumberFromMemtable iterates through the memtable to find the maximum sequence number.
+func getMaxSequenceNumberFromMemtable(memtable Memtable) (uint64, error) {
+	var maxSeqNum uint64
+	memIterator := memtable.Iterator()
+	for memIterator.HasNext() {
+		rec, err := memIterator.Next()
+		if err != nil {
+			return 0, err
+		}
+		maxSeqNum = max(maxSeqNum, rec.GetSequenceNumber())
+	}
+	return maxSeqNum, nil
 }
