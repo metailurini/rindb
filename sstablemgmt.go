@@ -533,7 +533,7 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 // We should scan *all* levels to find the true max sequence number.
 // The correct long-term solution is to maintain a MANIFEST file
 // that tracks global sequence number metadata across all levels.
-func getMaxSequenceNumberFromSSTables(cfg Config, ssTableManager *SSTableManager) (uint64, error) {
+func getMaxSequenceNumberFromSSTables(ssTableManager *SSTableManager) (uint64, error) {
 	var maxSeqNum uint64
 	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
 		level0 := ssTableManager.levels[0]

@@ -60,19 +60,19 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 
 		// Case 1: ssTableManager.levels is nil
 		ts.Manager.levels = nil
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 2: ssTableManager.levels is empty slice
 		ts.Manager.levels = []*LinkedList[*FileSystem]{}
-		maxSeqNum, err = getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 3: Level 0 exists but is empty
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		maxSeqNum, err = getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
@@ -85,7 +85,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		sstable := ts.createSSTableWithSequence(0, map[string]string{"key1": "val1"}, 100)
 		ts.AddSSTableToLevel(0, sstable)
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(100), maxSeqNum)
 	})
@@ -100,7 +100,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k3": "v3"}, 75))
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k4": "v4"}, 200)) // Max
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(200), maxSeqNum)
 	})
@@ -112,7 +112,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k1": "v1"}, 0))
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k2": "v2"}, 0))
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
@@ -126,7 +126,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(badFs)
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no such file or directory")
 		assert.Equal(t, uint64(0), maxSeqNum)
