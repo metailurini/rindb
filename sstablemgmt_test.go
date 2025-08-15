@@ -756,3 +756,184 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 		assert.False(t, ts.Manager.shouldCompact(2, levelList)) // Check level 2 as well
 	})
 }
+
+func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("Level 0 returns all SSTables in newest-first order", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create SSTables for Level 0
+		sstableL0_1 := ts.createSSTable(0, map[string]string{"k1": "v1", "k2": "v2"}) // Older
+		sstableL0_2 := ts.createSSTable(0, map[string]string{"k3": "v3", "k4": "v4"}) // Newer
+		ts.AddSSTableToLevel(0, sstableL0_1)
+		ts.AddSSTableToLevel(0, sstableL0_2)
+
+		// Call GetRelevantSSTables for Level 0
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		assert.NoError(t, err)
+		assert.NotNil(t, relevantSSTables)
+		assert.Equal(t, 2, relevantSSTables.Len(), "Expected 2 relevant SSTables in Level 0")
+
+		iter := relevantSSTables.Iterator()
+		s1, err := iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL0_2.Path(), s1.Path())
+
+		s2, err := iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL0_1.Path(), s2.Path())
+
+		// Ensure SSTables are opened
+		assert.True(t, s1.IsOpened(), "SSTable 1 should be opened")
+		assert.True(t, s2.IsOpened(), "SSTable 2 should be opened")
+	})
+
+	t.Run("Level 1+ returns only overlapping SSTables in oldest-first order", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create SSTables for Level 1
+		// sstableL1_1: range [b, c] - overlaps with [b, d]
+		sstableL1_1 := ts.createSSTable(1, map[string]string{"b": "vb", "c": "vc"})
+		// sstableL1_2: range [e, g] - does not overlap with [b, d]
+		sstableL1_2 := ts.createSSTable(1, map[string]string{"e": "ve", "f": "vf", "g": "vg"})
+		// sstableL1_3: range [c, d] - overlaps with [b, d]
+		sstableL1_3 := ts.createSSTable(1, map[string]string{"c": "vc2", "d": "vd"})
+
+		ts.AddSSTableToLevel(1, sstableL1_1)
+		ts.AddSSTableToLevel(1, sstableL1_2)
+		ts.AddSSTableToLevel(1, sstableL1_3)
+
+		// Call GetRelevantSSTables for Level 1 with a specific range
+		startKey := Bytes("b")
+		endKey := Bytes("d")
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(startKey, endKey)
+		assert.NoError(t, err)
+		assert.NotNil(t, relevantSSTables)
+		assert.Equal(t, 2, relevantSSTables.Len(), "Expected 2 relevant SSTables in Level 1")
+
+		// Verify order: oldest first (sstableL1_1 then sstableL1_3)
+		iter := relevantSSTables.Iterator()
+		s1, err := iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL1_1.Path(), s1.Path(), "Expected oldest overlapping SSTable first")
+
+		s2, err := iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL1_3.Path(), s2.Path(), "Expected next oldest overlapping SSTable second")
+
+		// Ensure SSTables are opened
+		assert.True(t, s1.IsOpened(), "SSTable 1 should be opened")
+		assert.True(t, s2.IsOpened(), "SSTable 2 should be opened")
+
+		// Ensure non-overlapping SSTable is closed
+		sstableL1_2.Close() // Close it if it was opened by createSSTable
+		assert.False(t, sstableL1_2.IsOpened(), "Non-overlapping SSTable should be closed")
+	})
+
+	t.Run("No relevant SSTables found", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create some SSTables that won't overlap
+		sstableL1_nonOverlap := ts.createSSTable(1, map[string]string{"x": "1", "y": "2"})
+		ts.AddSSTableToLevel(1, sstableL1_nonOverlap)
+
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("b"))
+		assert.NoError(t, err)
+		assert.NotNil(t, relevantSSTables)
+		assert.Equal(t, 0, relevantSSTables.Len(), "Expected 0 relevant SSTables")
+
+		// Ensure the non-overlapping SSTable is closed
+		sstableL1_nonOverlap.Close() // Close it if it was opened by createSSTable
+		assert.False(t, sstableL1_nonOverlap.IsOpened(), "Non-overlapping SSTable should be closed")
+	})
+
+	t.Run("Empty SSTableManager", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.levels = nil // Explicitly empty manager
+
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		assert.NoError(t, err)
+		assert.NotNil(t, relevantSSTables)
+		assert.Equal(t, 0, relevantSSTables.Len(), "Expected 0 relevant SSTables from empty manager")
+	})
+
+	t.Run("Error opening SSTable", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Create a dummy FS that will return an error on Open
+		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
+		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		ts.Manager.levels[0].PushBack(badFs)
+
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no such file or directory")
+		assert.Nil(t, relevantSSTables)
+	})
+
+	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
+		ts := newTestRindbSetup(t, &cfg)
+		defer ts.Cleanup()
+
+		// Level 0 (newest first)
+		sstableL0_A := ts.createSSTable(0, map[string]string{"key0_A": "val0_A"}) // Range [key0_A, key0_A]
+		sstableL0_B := ts.createSSTable(0, map[string]string{"key0_B": "val0_B"}) // Range [key0_B, key0_B]
+		ts.AddSSTableToLevel(0, sstableL0_A)
+		ts.AddSSTableToLevel(0, sstableL0_B)
+
+		// Level 1 (oldest first)
+		sstableL1_X := ts.createSSTable(1, map[string]string{"key1_X": "val1_X", "key1_Y": "val1_Y"}) // Range [key1_X, key1_Y]
+		sstableL1_Z := ts.createSSTable(1, map[string]string{"key1_Z": "val1_Z"})                     // Range [key1_Z, key1_Z]
+		ts.AddSSTableToLevel(1, sstableL1_X)
+		ts.AddSSTableToLevel(1, sstableL1_Z)
+
+		// Level 2 (oldest first)
+		sstableL2_P := ts.createSSTable(2, map[string]string{"key2_P": "val2_P", "key2_Q": "val2_Q"}) // Range [key2_P, key2_Q]
+		ts.AddSSTableToLevel(2, sstableL2_P)
+
+		// Search range: [key0_A, key1_Y]
+		startKey := Bytes("key0_A")
+		endKey := Bytes("key1_Y")
+
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(startKey, endKey)
+		assert.NoError(t, err)
+		assert.NotNil(t, relevantSSTables)
+
+		// Expected:
+		// L0: sstableL0_B (newest), sstableL0_A (older)
+		// L1: sstableL1_X (overlaps [key0_A, key1_Y])
+		// L2: sstableL2_P (does not overlap)
+		// Total expected: 3
+		assert.Equal(t, 3, relevantSSTables.Len(), "Expected 3 relevant SSTables from mixed levels")
+
+		// Verify order: L0 newest first, then L1+ oldest first
+		iter := relevantSSTables.Iterator()
+
+		// L0 SSTables (pushed to front, so newest first)
+		s, err := iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL0_B.Path(), s.Path(), "Expected L0 newest first")
+
+		s, err = iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL0_A.Path(), s.Path(), "Expected L0 older second")
+
+		// L1 SSTables (pushed to back, so oldest first among them)
+		s, err = iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, sstableL1_X.Path(), s.Path(), "Expected L1 overlapping oldest first")
+
+		// Ensure non-relevant SSTables are closed
+		sstableL1_Z.Close()
+		assert.False(t, sstableL1_Z.IsOpened(), "Non-overlapping L1 SSTable should be closed")
+		sstableL2_P.Close()
+		assert.False(t, sstableL2_P.IsOpened(), "Non-overlapping L2 SSTable should be closed")
+	})
+}
