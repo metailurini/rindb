@@ -23,6 +23,9 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		valueLenBytes := [mdByteSize]byte{}
 		_, err = file.Read(valueLenBytes[:])
 		assert.NoError(t, err)
+		seqNumBytes := [mdByteSize]byte{}
+		_, err = file.Read(seqNumBytes[:])
+		assert.NoError(t, err)
 		keyLen := byteOrder.Uint64(keyLenBytes[:])
 		valueLen := byteOrder.Uint64(valueLenBytes[:])
 		_, err = file.Seek(int64(keyLen+valueLen), io.SeekCurrent)

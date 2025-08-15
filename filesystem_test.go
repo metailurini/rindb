@@ -73,11 +73,11 @@ func TestFileSystem_Clean_Errors(t *testing.T) {
 		err = os.Chmod(filePath, 0o444)
 		assert.NoError(t, err)
 
-		// Attempt to clean - this should fail when trying to reopen with O_RDWR | O_TRUNC
+		// Attempt to clean - this should fail due to read-only permissions
 		err = fs.Clean()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to open/truncate file")
-		assert.Contains(t, err.Error(), "permission denied") // Check for the underlying OS error
+		assert.Contains(t, err.Error(), "file")
+		assert.Contains(t, err.Error(), "not writable")
 
 		// Clean up: Make writable again so defer closer() can remove it
 		_ = os.Chmod(filePath, 0o600)

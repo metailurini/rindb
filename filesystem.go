@@ -80,6 +80,12 @@ func (fs *FileSystem) Clean() error {
 		return fmt.Errorf("failed to close file %s before cleaning: %w", fs.Path(), err)
 	}
 
+	if info, err := os.Stat(fs.Path()); err == nil {
+		if info.Mode().Perm()&0o200 == 0 {
+			return fmt.Errorf("file %s is not writable", fs.Path())
+		}
+	}
+
 	// Open with truncation
 	cleanFile, err := os.OpenFile(fs.Path(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileSystemPermission)
 	if err != nil {
