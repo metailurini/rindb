@@ -22,10 +22,26 @@ import (
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
-	openedFs *list.List
+	openedFs *list.List // List of *FileSystem that are currently opened
 	levels   []*LinkedList[*FileSystem]
 	config   Config
 	mu       sync.RWMutex
+}
+
+// openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
+// and adds the FileSystem to the manager's list of opened file systems.
+// It returns the created *SSTable or an error.
+func (h *SSTableManager) openAndLoadSSTable(fs *FileSystem) (*SStable, error) {
+	if err := fs.Open(); err != nil {
+		return nil, fmt.Errorf("failed to open sstable file %s: %w", fs.Path(), err)
+	}
+	sstable, err := NewSSTable(h.config, fs)
+	if err != nil {
+		_ = fs.Close() // Ensure file is closed on SSTable creation error
+		return nil, fmt.Errorf("failed to create sstable object for %s: %w", fs.Path(), err)
+	}
+	h.openedFs.PushBack(fs) // Track opened file system
+	return &sstable, nil
 }
 
 func InitSSTableManager(config Config) (*SSTableManager, error) {
@@ -103,6 +119,8 @@ func (h *SSTableManager) NewSSTableFS(levelNumb int) (*FileSystem, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.openedFs.PushBack(fs)
 	return fs, nil
 }
 
@@ -255,15 +273,11 @@ func (h *SSTableManager) compactLevel0(level *LinkedList[*FileSystem], newLevelN
 		if err != nil {
 			return err
 		}
-		if err := fs.Open(); err != nil {
-			return err
-		}
-		sstable, err := NewSSTable(h.config, fs)
+		sstable, err := h.openAndLoadSSTable(fs)
 		if err != nil {
-			_ = fs.Close()
 			return err
 		}
-		sstablesToMerge = append(sstablesToMerge, sstable)
+		sstablesToMerge = append(sstablesToMerge, *sstable)
 	}
 
 	// Find overlapping SSTables in the next level
@@ -289,23 +303,15 @@ func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newL
 			}
 			return fmt.Errorf("error picking next SSTable from level: %w", err)
 		}
-		if err := fs.Open(); err != nil {
-			// Attempt to close any already opened SSTables before returning error
-			for _, sst := range sstablesToMerge {
-				_ = sst.Close()
-			}
-			return fmt.Errorf("error opening picked SSTable %s: %w", fs.Path(), err)
-		}
-		sstable, err := NewSSTable(h.config, fs)
+		sstable, err := h.openAndLoadSSTable(fs)
 		if err != nil {
-			_ = fs.Close()
 			// Attempt to close any already opened SSTables before returning error
 			for _, sst := range sstablesToMerge {
 				_ = sst.Close()
 			}
 			return fmt.Errorf("error creating SStable object for %s: %w", fs.Path(), err)
 		}
-		sstablesToMerge = append(sstablesToMerge, sstable)
+		sstablesToMerge = append(sstablesToMerge, *sstable)
 	}
 
 	if len(sstablesToMerge) == 0 {
@@ -356,16 +362,12 @@ func (h *SSTableManager) findOverlappingSSTables(levelNumb int, sources []SStabl
 		if err != nil {
 			return nil, err
 		}
-		if err := fs.Open(); err != nil {
-			return nil, err
-		}
-		sstable, err := NewSSTable(h.config, fs)
+		sstable, err := h.openAndLoadSSTable(fs)
 		if err != nil {
-			_ = fs.Close()
 			return nil, err
 		}
 		if sstable.Overlaps(minKey, maxKey) {
-			overlapping = append(overlapping, sstable)
+			overlapping = append(overlapping, *sstable)
 		} else {
 			_ = fs.Close() // Close if not overlapping
 		}
@@ -399,6 +401,69 @@ func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStab
 	return nil
 }
 
+// GetRelevantSSTables finds SSTables that might contain keys within the given range [startKey, endKey].
+// For Level 0, all SSTables are considered relevant.
+// For Level 1 and higher, SSTables are checked for overlap with the given key range.
+// The returned LinkedList contains *SSTable objects, which are opened and ready for use.
+// The SSTables in Level 0 are appended to the list, maintaining newest-first order.
+// while SSTables from higher levels are added to the back.
+func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) (*LinkedList[*SStable], error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	relevantSSTables := InitLinkedList[*SStable]()
+
+	for levelNumb, level := range h.levels {
+		if level == nil || level.Len() == 0 {
+			continue
+		}
+
+		// Level 0: All SSTables are considered relevant.
+		// Iterate from newest to oldest (bottom to top) to prioritize newer data.
+		if levelNumb == 0 {
+			iterator := level.IteratorFromBottom()
+			fs := iterator.Value()
+			for fs != nil {
+				sstable, err := h.openAndLoadSSTable(fs)
+				if err != nil {
+					return nil, fmt.Errorf("failed to open and load sstable %s: %w", fs.Path(), err)
+				}
+
+				relevantSSTables.PushBack(sstable) // Add to back to maintain newest-first order for L0
+
+				if !iterator.HasPrev() {
+					break
+				}
+				fs, err = iterator.Prev()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get previous sstable in level %d: %w", levelNumb, err)
+				}
+			}
+		} else {
+			// Levels 1+: Check for overlap with the given key range.
+			// Iterate from oldest to newest (top to bottom) for higher levels.
+			iterator := level.Iterator()
+			for iterator.HasNext() {
+				fs, err := iterator.Next()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get next sstable in level %d: %w", levelNumb, err)
+				}
+				sstable, err := h.openAndLoadSSTable(fs)
+				if err != nil {
+					return nil, fmt.Errorf("failed to open and load sstable %s: %w", fs.Path(), err)
+				}
+
+				if sstable.Overlaps(startKey, endKey) {
+					relevantSSTables.PushBack(sstable) // Add to back for higher levels
+				} else {
+					_ = fs.Close() // Close if not relevant
+				}
+			}
+		}
+	}
+	return relevantSSTables, nil
+}
+
 func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -423,12 +488,8 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 		iterator := h.levels[levelNumb].IteratorFromBottom()
 		fs := iterator.Value()
 		for fs != nil {
-			if err := fs.Open(); err != nil {
-				return nil, err
-			}
-			sstable, err := NewSSTable(h.config, fs)
+			sstable, err := h.openAndLoadSSTable(fs)
 			if err != nil {
-				_ = fs.Close()
 				return nil, err
 			}
 
@@ -482,12 +543,8 @@ func getMaxSequenceNumberFromSSTables(cfg Config, ssTableManager *SSTableManager
 			if err != nil {
 				return 0, err
 			}
-			if err := fs.Open(); err != nil {
-				return 0, err
-			}
-			sstable, err := NewSSTable(cfg, fs)
+			sstable, err := ssTableManager.openAndLoadSSTable(fs)
 			if err != nil {
-				_ = fs.Close()
 				return 0, err
 			}
 			sstSeqNum, err := sstable.MaxSequenceNumber()

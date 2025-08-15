@@ -173,9 +173,6 @@ func (r *Rindb) Put(key, value Bytes) error {
 			return fmt.Errorf("failed to flush memtable: %w", err)
 		}
 
-		// Wont close the file system here, as it will be managed by ssTableManager
-		r.ssTableManager.openedFs.PushBack(fs) // Add to opened file systems
-
 		// Register the new SSTable with ssTableManager
 		if err := r.ssTableManager.AddSSTable(0, fs); err != nil {
 			ERROR("Failed to register new SSTable %s: %v", fs.Path(), err)

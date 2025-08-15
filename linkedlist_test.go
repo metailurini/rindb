@@ -30,6 +30,62 @@ func TestLinkedListPushBack(t *testing.T) {
 	})
 }
 
+func TestLinkedListPushFront(t *testing.T) {
+	t.Run("Push to an empty list", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		l.PushFront(10)
+
+		assert.Equal(t, 1, l.Len())
+		assert.Equal(t, 10, l.rootNode.next.Value)
+		assert.Equal(t, 10, l.lastNode.Value)
+		assert.Equal(t, l.rootNode.next, l.lastNode) // For a single node, root.next should be lastNode
+		assert.Nil(t, l.rootNode.next.next)
+		assert.Equal(t, l.rootNode, l.rootNode.next.prev)
+	})
+
+	t.Run("Push multiple values to the front", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		l.PushFront(1) // List: 1
+		l.PushFront(2) // List: 2, 1
+		l.PushFront(3) // List: 3, 2, 1
+
+		assert.Equal(t, 3, l.Len())
+		assert.Equal(t, 3, l.rootNode.next.Value) // First node should be 3
+		assert.Equal(t, 1, l.lastNode.Value)      // Last node should still be 1
+
+		expected := []int{3, 2, 1}
+		assertLinkedListContents(t, l, expected)
+
+		// Verify prev/next pointers for all nodes
+		node3 := l.rootNode.next
+		node2 := node3.next
+		node1 := node2.next
+
+		assert.Equal(t, l.rootNode, node3.prev)
+		assert.Equal(t, node2, node3.next)
+
+		assert.Equal(t, node3, node2.prev)
+		assert.Equal(t, node1, node2.next)
+
+		assert.Equal(t, node2, node1.prev)
+		assert.Nil(t, node1.next)
+	})
+
+	t.Run("PushFront after PushBack", func(t *testing.T) {
+		l := InitLinkedList[int]()
+		l.PushBack(1)  // List: 1
+		l.PushBack(2)  // List: 1, 2
+		l.PushFront(0) // List: 0, 1, 2
+
+		assert.Equal(t, 3, l.Len())
+		assert.Equal(t, 0, l.rootNode.next.Value) // First node should be 0
+		assert.Equal(t, 2, l.lastNode.Value)      // Last node should still be 2
+
+		expected := []int{0, 1, 2}
+		assertLinkedListContents(t, l, expected)
+	})
+}
+
 //nolint:funlen
 func TestLinkedListIterator(t *testing.T) {
 	t.Run("Check Iterator for the empty linked list", func(t *testing.T) {
