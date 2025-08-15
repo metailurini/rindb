@@ -916,7 +916,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		// Verify order: L0 newest first, then L1+ oldest first
 		iter := relevantSSTables.Iterator()
 
-		// L0 SSTables (pushed to front, so newest first)
+		// L0 SSTables (iterated newest-to-oldest, added to the back of the list)
 		s, err := iter.Next()
 		assert.NoError(t, err)
 		assert.Equal(t, sstableL0_B.Path(), s.Path(), "Expected L0 newest first")
