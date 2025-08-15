@@ -82,7 +82,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 
 	// Only scan L0 SSTables for max sequence number during initialization.
 	// L0 SSTables contain the most recent data after the memtable.
-	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(cfg, ssTableManager)
+	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(ssTableManager)
 	if err != nil {
 		return Rindb{}, err
 	}
