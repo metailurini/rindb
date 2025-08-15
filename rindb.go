@@ -126,6 +126,89 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	return r.ssTableManager.searchKey(key)
 }
 
+// Range returns all records with keys in [start, end], merged across memtable and SSTables.
+func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.closed {
+		return nil, ErrDatabaseClosed
+	}
+
+	iterators := []Iterator[Record]{r.memtable.RangeIterator(start, end)}
+
+	sstables, err := r.ssTableManager.GetRelevantSSTables(start, end)
+	if err != nil {
+		return nil, err
+	}
+	// Ensure SSTables are closed after use
+	defer func() {
+		it := sstables.Iterator()
+		for it.HasNext() {
+			sst, _ := it.Next()
+			_ = sst.Close()
+		}
+	}()
+
+	it := sstables.Iterator()
+	for it.HasNext() {
+		sst, _ := it.Next()
+		rangeIter, err := sst.RangeIterator(start, end)
+		if err != nil {
+			return nil, err
+		}
+		iterators = append(iterators, rangeIter)
+	}
+
+	type pqItem struct {
+		rec  Record
+		iter Iterator[Record]
+	}
+
+	less := func(a, b pqItem) bool {
+		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
+		if cmp == CmpEqual {
+			return a.rec.GetSequenceNumber() > b.rec.GetSequenceNumber()
+		}
+		return cmp == CmpLess
+	}
+
+	pq := NewPriorityQueue[pqItem](less)
+	for _, it := range iterators {
+		if it.HasNext() {
+			rec, err := it.Next()
+			if err == nil {
+				pq.PushItem(pqItem{rec: rec, iter: it})
+			}
+		}
+	}
+
+	var result []Record
+	var lastKey Bytes
+	lastKeySet := false
+	for pq.Len() > 0 {
+		item := pq.PopItem()
+		key := item.rec.GetKey()
+
+		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
+			if len(item.rec.GetValue()) > 0 {
+				result = append(result, item.rec)
+			}
+			lastKey = key
+			lastKeySet = true
+		}
+
+		if item.iter.HasNext() {
+			rec, err := item.iter.Next()
+			if err == nil {
+				pq.PushItem(pqItem{rec: rec, iter: item.iter})
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // Put inserts or updates a key-value pair in the database.
 // The operation is first written to the Write-Ahead Log (WAL) and then applied to the memtable.
 // If the memtable size exceeds the configured threshold, it triggers a flush to an SSTable and WAL cleaning.
