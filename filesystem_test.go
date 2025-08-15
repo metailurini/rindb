@@ -75,6 +75,10 @@ func TestFileSystem_Clean_Errors(t *testing.T) {
 
 		// Attempt to clean - this should fail when trying to reopen with O_RDWR | O_TRUNC
 		err = fs.Clean()
+		if os.Geteuid() == 0 {
+			// Running as root may bypass permission errors
+			t.Skip("skipping permission error check when running as root")
+		}
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to open/truncate file")
 		assert.Contains(t, err.Error(), "permission denied") // Check for the underlying OS error
