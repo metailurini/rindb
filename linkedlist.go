@@ -37,20 +37,16 @@ func (l *LinkedList[V]) PushBack(value V) {
 func (l *LinkedList[V]) PushFront(value V) {
 	newNode := &llNode[V]{
 		Value: value,
-		prev:  l.rootNode, // New node's prev points to the root (dummy) node
+		prev:  l.rootNode,
+		next:  l.rootNode.next,
 	}
 
-	// If the list is empty (only rootNode exists), the new node becomes the lastNode
 	if l.len == 0 {
 		l.lastNode = newNode
 	} else {
-		// Otherwise, the new node's next points to the current first node
-		// and the current first node's prev points to the new node.
-		firstNode := l.rootNode.next
-		newNode.next = firstNode
-		firstNode.prev = newNode
+		l.rootNode.next.prev = newNode
 	}
-	l.rootNode.next = newNode // Root node's next points to the new node
+	l.rootNode.next = newNode
 	l.len += 1
 }
 
