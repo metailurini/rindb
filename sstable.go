@@ -8,6 +8,10 @@ import (
 	"log"
 	"os"
 	"sort"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -73,7 +77,35 @@ type SStable struct {
 	Bloom       *BloomFilter
 }
 
+var (
+	sstableTracer = otel.Tracer("rindb/sstable")
+	sstableMeter  = otel.Meter("rindb/sstable")
+
+	flushLatency    metric.Float64Histogram
+	flushIOSize     metric.Int64Counter
+	getValueLatency metric.Float64Histogram
+	getValueIOSize  metric.Int64Counter
+)
+
+func init() {
+	flushLatency, _ = sstableMeter.Float64Histogram("rindb.sstable.flush.latency", metric.WithUnit("ms"))
+	flushIOSize, _ = sstableMeter.Int64Counter("rindb.sstable.flush.io_bytes", metric.WithUnit("By"))
+	getValueLatency, _ = sstableMeter.Float64Histogram("rindb.sstable.get_value.latency", metric.WithUnit("ms"))
+	getValueIOSize, _ = sstableMeter.Int64Counter("rindb.sstable.get_value.io_bytes", metric.WithUnit("By"))
+}
+
 func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
+	ctx, span := sstableTracer.Start(ctx, "SSTable.GetValue")
+	start := time.Now()
+	var bytesRead int
+	defer func() {
+		span.End()
+		getValueLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
+		if bytesRead > 0 {
+			getValueIOSize.Add(ctx, int64(bytesRead))
+		}
+	}()
+
 	if !s.Bloom.Lookup(key) {
 		return nil, ErrKeyNotFound
 	}
@@ -98,6 +130,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
 		ERROR(ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
 		return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
 	}
+	bytesRead = CalOnDiskSize(record)
 	return record.GetValue(), nil
 }
 
@@ -234,6 +267,17 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 }
 
 func Flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, error) {
+	ctx, span := sstableTracer.Start(ctx, "Flush")
+	start := time.Now()
+	var written int
+	defer func() {
+		span.End()
+		flushLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
+		if written > 0 {
+			flushIOSize.Add(ctx, int64(written))
+		}
+	}()
+
 	if mem.data.Len() == 0 {
 		WARN(ctx, "Flushing empty memtable!")
 		log.Panic("empty memtable!")
@@ -264,6 +308,7 @@ func Flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 		return SStable{}, fmt.Errorf("failed to write sparse index offset to transaction buffer: %w", err)
 	}
 
+	written = tx.buffer.Len()
 	if err := tx.Commit(ctx, fs); err != nil {
 		return SStable{}, fmt.Errorf("failed to commit transaction to file system %s: %w", fs.Path(), err)
 	}
