@@ -28,6 +28,15 @@ type Config struct {
 
 	// skipListP is probability for skip list level promotion
 	skipListP float64
+
+	// EnableTelemetry toggles OpenTelemetry collection
+	EnableTelemetry bool
+
+	// ExporterEndpoint configures OTLP gRPC endpoint
+	ExporterEndpoint string
+
+	// ExporterInsecure disables TLS for the OTLP exporter
+	ExporterInsecure bool
 }
 
 // Option defines a functional option type for Config.
@@ -54,6 +63,9 @@ func DefaultConfig() Config {
 		skipListDefaultLevel:      2,
 		skipListMaxLevel:          32,
 		skipListP:                 0.5,
+		EnableTelemetry:           false,
+		ExporterEndpoint:          "",
+		ExporterInsecure:          false,
 	}
 }
 
@@ -92,4 +104,16 @@ func WithSkipListMaxLevel(maxLevel uint) Option {
 
 func WithSkipListP(p float64) Option {
 	return func(c *Config) { c.skipListP = p }
+}
+
+func WithEnableTelemetry(enable bool) Option {
+	return func(c *Config) { c.EnableTelemetry = enable }
+}
+
+func WithExporterEndpoint(endpoint string) Option {
+	return func(c *Config) { c.ExporterEndpoint = endpoint }
+}
+
+func WithExporterInsecure(insecure bool) Option {
+	return func(c *Config) { c.ExporterInsecure = insecure }
 }
