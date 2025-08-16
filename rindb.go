@@ -126,8 +126,9 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	return r.ssTableManager.searchKey(key)
 }
 
-// Range returns all records with keys in [start, end], merged across memtable and SSTables.
-func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
+// RangeIterator returns an iterator over records with keys in [start, end],
+// merged across the memtable and relevant SSTables.
+func (r *Rindb) RangeIterator(start, end Bytes) (Iterator[Record], error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -141,30 +142,54 @@ func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Ensure SSTables are closed after use
-	defer func() {
+
+	cleanup := func() {
 		it := sstables.Iterator()
 		for it.HasNext() {
 			sst, _ := it.Next()
 			_ = sst.Close()
 		}
-	}()
+	}
 
 	it := sstables.Iterator()
 	for it.HasNext() {
 		sst, _ := it.Next()
 		rangeIter, err := sst.RangeIterator(start, end)
 		if err != nil {
+			cleanup()
 			return nil, err
 		}
 		iterators = append(iterators, rangeIter)
 	}
 
-	type pqItem struct {
-		rec  Record
-		iter Iterator[Record]
-	}
+	pq := buildRangePQ(iterators)
 
+	return &mergedRangeIterator{pq: pq, cleanup: cleanup}, nil
+}
+
+// Range returns all records with keys in [start, end], merged across memtable and SSTables.
+func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
+	iter, err := r.RangeIterator(start, end)
+	if err != nil {
+		return nil, err
+	}
+	var result []Record
+	for iter.HasNext() {
+		rec, err := iter.Next()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, rec)
+	}
+	return result, nil
+}
+
+type pqItem struct {
+	rec  Record
+	iter Iterator[Record]
+}
+
+func buildRangePQ(iterators []Iterator[Record]) *PriorityQueue[pqItem] {
 	less := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
@@ -182,31 +207,59 @@ func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
 			}
 		}
 	}
+	return pq
+}
 
-	var result []Record
-	var lastKey Bytes
-	lastKeySet := false
-	for pq.Len() > 0 {
-		item := pq.PopItem()
+type mergedRangeIterator struct {
+	pq         *PriorityQueue[pqItem]
+	lastKey    Bytes
+	lastKeySet bool
+	next       Record
+	prepared   bool
+	cleanup    func()
+}
+
+func (m *mergedRangeIterator) prepare() {
+	for !m.prepared && m.pq.Len() > 0 {
+		item := m.pq.PopItem()
 		key := item.rec.GetKey()
 
-		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
+		if !m.lastKeySet || key.Compare(m.lastKey) != CmpEqual {
 			if len(item.rec.GetValue()) > 0 {
-				result = append(result, item.rec)
+				m.next = item.rec
+				m.prepared = true
 			}
-			lastKey = key
-			lastKeySet = true
+			m.lastKey = key
+			m.lastKeySet = true
 		}
 
 		if item.iter.HasNext() {
 			rec, err := item.iter.Next()
 			if err == nil {
-				pq.PushItem(pqItem{rec: rec, iter: item.iter})
+				m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
 			}
 		}
 	}
+	if !m.prepared && m.cleanup != nil {
+		m.cleanup()
+		m.cleanup = nil
+	}
+}
 
-	return result, nil
+// HasNext implements Iterator[Record].
+func (m *mergedRangeIterator) HasNext() bool {
+	m.prepare()
+	return m.prepared
+}
+
+// Next implements Iterator[Record].
+func (m *mergedRangeIterator) Next() (Record, error) {
+	if !m.HasNext() {
+		var empty Record
+		return empty, EOI
+	}
+	m.prepared = false
+	return m.next, nil
 }
 
 // Put inserts or updates a key-value pair in the database.

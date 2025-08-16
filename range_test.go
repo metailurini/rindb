@@ -38,18 +38,13 @@ func TestRindbRange(t *testing.T) {
 		config:         ts.Manager.config,
 	}
 
-	records, err := r.Range(Bytes("a"), Bytes("z"))
+	iter, err := r.RangeIterator(Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
-	expected := map[string]string{"a": "memA", "k": "memK", "z": "sstZ"}
-	assert.Equal(t, len(expected), len(records))
-	for _, rec := range records {
-		key := string(rec.GetKey())
-		val := string(rec.GetValue())
-		expectedVal, ok := expected[key]
-		assert.True(t, ok, "unexpected key %s", key)
-		assert.Equal(t, expectedVal, val)
-		delete(expected, key)
+	expected := []Record{
+		NewRecord(Bytes("a"), Bytes("memA"), 5),
+		NewRecord(Bytes("k"), Bytes("memK"), 7),
+		NewRecord(Bytes("z"), Bytes("sstZ"), 4),
 	}
-	assert.Empty(t, expected)
+	assertIteratorRecords(t, iter, expected)
 }
