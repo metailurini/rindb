@@ -12,6 +12,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+  "github.com/metailurini/rindb/telemetry"
 )
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
@@ -19,14 +21,15 @@ var ErrDatabaseClosed = errors.New("database is closed")
 
 // Rindb is the main database structure
 type Rindb struct {
-	wal            WAL
-	memtable       Memtable
-	ssTableManager *SSTableManager
-	config         Config
-	mu             sync.RWMutex   // Mutex for thread-safe access
-	wg             sync.WaitGroup // WaitGroup to track background goroutines
-	closed         bool           // Flag to indicate if the database is closed
-	sequenceNumber uint64
+	wal               WAL
+	memtable          Memtable
+	ssTableManager    *SSTableManager
+	config            Config
+	shutdownTelemetry func(context.Context) error
+	mu                sync.RWMutex   // Mutex for thread-safe access
+	wg                sync.WaitGroup // WaitGroup to track background goroutines
+	closed            bool           // Flag to indicate if the database is closed
+	sequenceNumber    uint64
 }
 
 // InitRinDB initializes a new RinDB instance with provided configuration options.
@@ -51,6 +54,11 @@ type Rindb struct {
 // 4. Initialize SSTable storage manager
 func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 	cfg := NewConfig(opts...)
+
+	shutdownTelemetry, err := telemetry.Init(ctx, cfg.EnableTelemetry, cfg.ExporterEndpoint, cfg.ExporterInsecure)
+	if err != nil {
+		return Rindb{}, fmt.Errorf("failed to initialize telemetry: %w", err)
+	}
 
 	// Create database directory with secure permissions (0750 = owner RWX, group RX, others none)
 	if err := os.MkdirAll(cfg.databaseDir, 0750); err != nil {
@@ -95,11 +103,12 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 
 	INFO(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
 	return Rindb{
-		wal:            wal,
-		memtable:       memtable,
-		ssTableManager: ssTableManager,
-		config:         cfg,
-		sequenceNumber: maxSeqNum,
+		wal:               wal,
+		memtable:          memtable,
+		ssTableManager:    ssTableManager,
+		config:            cfg,
+		shutdownTelemetry: shutdownTelemetry,
+		sequenceNumber:    maxSeqNum,
 	}, nil
 }
 
@@ -470,6 +479,12 @@ func (r *Rindb) Close() error {
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
 	r.ssTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
 	INFO(ctx, "SSTableManager closed.")
+
+	if err := r.shutdownTelemetry(ctx); err != nil {
+		ERROR(ctx, "Error shutting down telemetry: %v", err)
+	} else {
+		INFO(ctx, "Telemetry shutdown completed.")
+	}
 
 	INFO(ctx, "RinDB closed successfully")
 	return nil
