@@ -274,3 +274,223 @@ func keyShouldNotExists[K, V Comparable](t *testing.T, key K, list *SkipList[K, 
 		r = r.Next()
 	}
 }
+
+func TestSkipList_RangeIterator(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("Empty list", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		it := list.RangeIterator(1, 5)
+		assert.False(t, it.HasNext())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("Range covers all elements", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{1, 2, 3, 4, 5}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(0, 6)
+		expected := []int{10, 20, 30, 40, 50}
+		actual := []int{}
+		for it.HasNext() {
+			val, err := it.Next()
+			assert.NoError(t, err)
+			actual = append(actual, val)
+		}
+		assert.Equal(t, expected, actual)
+		assert.False(t, it.HasNext())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("Range completely outside (before)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(1, 5)
+		assert.False(t, it.HasNext())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("Range completely outside (after)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(35, 40)
+		assert.False(t, it.HasNext())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("Range partially overlaps (start before, end within)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30, 40, 50}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(5, 30)
+		expected := []int{100, 200, 300}
+		actual := []int{}
+		for it.HasNext() {
+			val, err := it.Next()
+			assert.NoError(t, err)
+			actual = append(actual, val)
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Range partially overlaps (start within, end after)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30, 40, 50}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(30, 55)
+		expected := []int{300, 400, 500}
+		actual := []int{}
+		for it.HasNext() {
+			val, err := it.Next()
+			assert.NoError(t, err)
+			actual = append(actual, val)
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Range completely within", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30, 40, 50}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(20, 40)
+		expected := []int{200, 300, 400}
+		actual := []int{}
+		for it.HasNext() {
+			val, err := it.Next()
+			assert.NoError(t, err)
+			actual = append(actual, val)
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Start and end keys are the same (single element)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30, 40, 50}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(30, 30)
+		expected := []int{300}
+		actual := []int{}
+		for it.HasNext() {
+			val, err := it.Next()
+			assert.NoError(t, err)
+			actual = append(actual, val)
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Start and end keys are the same (element not present)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30, 40, 50}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(25, 25)
+		assert.False(t, it.HasNext())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("Start key greater than end key", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		data := []int{10, 20, 30, 40, 50}
+		for _, v := range data {
+			list.Put(v, v*10)
+		}
+
+		it := list.RangeIterator(30, 20)
+		assert.False(t, it.HasNext())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("List with duplicate keys (should only return one value per key)", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		list.Put(10, 100)
+		list.Put(20, 200)
+		list.Put(10, 101) // Overwrites 100
+		list.Put(30, 300)
+
+		it := list.RangeIterator(5, 35)
+		expected := []int{101, 200, 300}
+		actual := []int{}
+		for it.HasNext() {
+			val, err := it.Next()
+			assert.NoError(t, err)
+			actual = append(actual, val)
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("Iterator behavior after reaching end", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		list.Put(1, 10)
+		list.Put(2, 20)
+
+		it := list.RangeIterator(1, 2)
+		val1, err := it.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, 10, val1)
+		assert.True(t, it.HasNext())
+
+		val2, err := it.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, 20, val2)
+		assert.False(t, it.HasNext())
+
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
+		assert.False(t, it.HasNext()) // Should still be false
+	})
+}
