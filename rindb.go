@@ -9,10 +9,15 @@ import (
 	"path"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
 var ErrDatabaseClosed = errors.New("database is closed")
+
+var tracer = otel.Tracer("rindb")
 
 // Rindb is the main database structure
 type Rindb struct {
@@ -111,6 +116,12 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 //	Bytes - The value associated with the key, or nil if the key is not found.
 //	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
 func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
+	ctx, span := tracer.Start(ctx, "db.get")
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Int("key_size", len(key)))
+	}
+	defer span.End()
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -131,6 +142,15 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 // IRange returns an iterator over records with keys in [start, end],
 // merged across the memtable and relevant SSTables.
 func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (Iterator[Record], error) {
+	ctx, span := tracer.Start(ctx, "db.irange")
+	if span.IsRecording() {
+		span.SetAttributes(
+			attribute.Int("start_key_size", len(start)),
+			attribute.Int("end_key_size", len(end)),
+		)
+	}
+	defer span.End()
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -284,6 +304,15 @@ func CloseIterator[T any](iter Iterator[T]) error {
 //	error - An error if the database is closed, or if an error occurs during WAL append, memtable update,
 //	        flushing, SSTable registration, or WAL cleaning.
 func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
+	ctx, span := tracer.Start(ctx, "db.put")
+	if span.IsRecording() {
+		span.SetAttributes(
+			attribute.Int("key_size", len(key)),
+			attribute.Int("value_size", len(value)),
+		)
+	}
+	defer span.End()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -298,11 +327,18 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	}
 	r.memtable.Put(record) // This now updates the internal size estimate
 
+	memSize := r.memtable.ByteSize()
+	flushCount := 0
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Int("memtable_size", int(memSize)))
+	}
+
 	// Check estimated byte size and flush if needed
 	// Cast ByteSize() to uint to match maxMemtableSize type
 	// Check estimated byte size and flush if needed
-	if uint(r.memtable.ByteSize()) >= r.config.maxMemtableSize {
-		INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", r.memtable.ByteSize(), r.config.maxMemtableSize)
+	if uint(memSize) >= r.config.maxMemtableSize {
+		flushCount = 1
+		INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
 		// Create new SSTable file system for level 0
 		fs, err := r.ssTableManager.NewSSTableFS(ctx, 0)
@@ -344,6 +380,11 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			}
 		}(ctx)
 	}
+
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Int("flush_count", flushCount))
+	}
+
 	return nil
 }
 
@@ -357,6 +398,12 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 //
 //	error - An error if the database is closed, or if an error occurs during WAL append or memtable update.
 func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
+	ctx, span := tracer.Start(ctx, "db.remove")
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Int("key_size", len(key)))
+	}
+	defer span.End()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -383,6 +430,9 @@ func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 func (r *Rindb) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	ctx, span := tracer.Start(ctx, "db.close")
+	defer span.End()
+
 	r.mu.Lock()
 	// Check if already closed
 	if r.closed {
@@ -396,7 +446,11 @@ func (r *Rindb) Close() error {
 
 	// Wait for any background operations (like compaction) to complete
 	INFO(ctx, "Waiting for background operations to finish...")
+	waitStart := time.Now()
 	r.wg.Wait()
+	if span.IsRecording() {
+		span.SetAttributes(attribute.Int64("background_wait_ms", time.Since(waitStart).Milliseconds()))
+	}
 	INFO(ctx, "Background operations finished.")
 
 	// Re-acquire lock to safely close resources
