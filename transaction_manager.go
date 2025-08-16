@@ -12,14 +12,12 @@ import (
 type TransactionManager struct {
 	mu         sync.Mutex
 	activeTxns map[*Transaction]struct{}
-	ctx        context.Context
 }
 
 // NewTransactionManager creates a new TransactionManager.
-func NewTransactionManager(ctx context.Context) *TransactionManager {
+func NewTransactionManager() *TransactionManager {
 	return &TransactionManager{
 		activeTxns: make(map[*Transaction]struct{}),
-		ctx:        ctx,
 	}
 }
 
@@ -29,11 +27,9 @@ func (tm *TransactionManager) Begin() *Transaction {
 	defer tm.mu.Unlock() // Unlock after creating the transaction
 
 	txn := &Transaction{
-		buffer: bytes.NewBuffer(nil),
-		// Add a reference to the manager if we need to notify it later.
+		buffer:  bytes.NewBuffer(nil),
 		manager: tm,
 		state:   "active",
-		ctx:     tm.ctx,
 	}
 	tm.activeTxns[txn] = struct{}{}
 	return txn
@@ -45,7 +41,6 @@ type Transaction struct {
 	manager *TransactionManager // Reference to the manager.
 	mu      sync.Mutex          // Per-transaction lock for thread safety.
 	state   string              // "active", "committed", or "rolledback".
-	ctx     context.Context
 }
 
 // Write writes data to the transaction buffer, ensuring thread safety.
@@ -60,7 +55,7 @@ func (t *Transaction) Write(p []byte) (int, error) {
 }
 
 // Commit writes the buffered data to the provided writer and marks the transaction as committed.
-func (t *Transaction) Commit(w io.Writer) error {
+func (t *Transaction) Commit(ctx context.Context, w io.Writer) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -79,12 +74,12 @@ func (t *Transaction) Commit(w io.Writer) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	INFO(t.ctx, "Transaction committed successfully")
+	INFO(ctx, "Transaction committed successfully")
 	return nil
 }
 
 // Rollback discards the transaction's buffer and marks it as rolled back.
-func (t *Transaction) Rollback() error {
+func (t *Transaction) Rollback(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -98,7 +93,7 @@ func (t *Transaction) Rollback() error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	INFO(t.ctx, "Transaction rolled back successfully")
+	INFO(ctx, "Transaction rolled back successfully")
 	return nil
 }
 

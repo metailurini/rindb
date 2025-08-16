@@ -41,7 +41,7 @@ func TestRindbRange(t *testing.T) {
 		config:         ts.Manager.config,
 	}
 
-	iter, err := r.IRange(Bytes("a"), Bytes("z"))
+	iter, err := r.IRange(context.Background(), Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
 	expected := []Record{
@@ -101,7 +101,7 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	mem := InitMemtable(ts.Manager.config)
 	r := Rindb{memtable: mem, ssTableManager: ts.Manager, config: ts.Manager.config}
-	iter, err := r.IRange(Bytes("a"), Bytes("z"))
+	iter, err := r.IRange(context.Background(), Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
 	if iter.HasNext() {

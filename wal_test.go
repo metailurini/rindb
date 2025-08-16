@@ -44,8 +44,8 @@ func TestWAL_Clean(t *testing.T) {
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(context.Background(), cfg, fs)
-	err := w.Append(NewRecord(Bytes("key"), Bytes("value"), 0)) // SequenceNumber can be 0 if not relevant for the test
+	w := NewWAL(cfg, fs)
+	err := w.Append(context.Background(), NewRecord(Bytes("key"), Bytes("value"), 0)) // SequenceNumber can be 0 if not relevant for the test
 	assert.NoError(t, err)
 	err = w.Clean()
 	assert.NoError(t, err)
@@ -66,8 +66,8 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 	t.Run("SingleRecord", func(t *testing.T) {
-		w := NewWAL(context.Background(), cfg, fs)
-		err := w.Append(NewRecord(Bytes("single_key"), Bytes("single_value"), 1))
+		w := NewWAL(cfg, fs)
+		err := w.Append(context.Background(), NewRecord(Bytes("single_key"), Bytes("single_value"), 1))
 		assert.NoError(t, err)
 		mem, err := w.Load()
 		assert.NoError(t, err)
@@ -81,14 +81,14 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		var err error
 		fs, err = OpenFS(context.Background(), fs.Path())
 		assert.NoError(t, err)
-		w := NewWAL(context.Background(), cfg, fs)
+		w := NewWAL(cfg, fs)
 
 		recordsSize := 1_000
 		records := make([]Record, 0, recordsSize)
 		for i := 0; i < recordsSize; i++ {
 			records = append(records, NewRecord(Bytes(fmt.Sprintf("key.%d", i)), Bytes(fmt.Sprintf("value.%d", i)), uint64(i)))
 		}
-		err = w.AppendMany(records)
+		err = w.AppendMany(context.Background(), records)
 		assert.NoError(t, err)
 		validateWALFormat(t, w.file)
 		mem, err := w.Load()
@@ -109,7 +109,7 @@ func TestWALCrashRecovery(t *testing.T) {
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(context.Background(), cfg, fs)
+	w := NewWAL(cfg, fs)
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	records := []Record{
@@ -117,12 +117,12 @@ func TestWALCrashRecovery(t *testing.T) {
 		NewRecord(k2, Bytes("v2"), 2),
 	}
 	for _, r := range records {
-		assert.NoError(t, w.Append(r))
+		assert.NoError(t, w.Append(context.Background(), r))
 	}
 	assert.NoError(t, fs.Close())
 	fs, err := OpenFS(context.Background(), fs.Path())
 	assert.NoError(t, err)
-	w = NewWAL(context.Background(), cfg, fs)
+	w = NewWAL(cfg, fs)
 	mem, err := w.Load()
 	assert.NoError(t, err)
 	v1, err := mem.Get(k1)
@@ -139,26 +139,26 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(context.Background(), cfg, fs)
+	w := NewWAL(cfg, fs)
 
 	// Write a few complete records
 	record1 := NewRecord(Bytes("key1"), Bytes("value1"), 1)
 	record2 := NewRecord(Bytes("key2"), Bytes("value2"), 2)
 
-	assert.NoError(t, w.Append(record1))
-	assert.NoError(t, w.Append(record2))
+	assert.NoError(t, w.Append(context.Background(), record1))
+	assert.NoError(t, w.Append(context.Background(), record2))
 
 	// Simulate a crash during the write of a third record
 	record3 := NewRecord(Bytes("key3"), Bytes("value3"), 3)
 	tx := w.tm.Begin()
-	defer tx.Rollback()
+	defer tx.Rollback(context.Background())
 
 	// Write only the key length and value length of the third record
 	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetKey()))))
 	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetValue()))))
 
 	// Commit the partial transaction to the file
-	assert.NoError(t, tx.Commit(w.file))
+	assert.NoError(t, tx.Commit(context.Background(), w.file))
 	assert.NoError(t, w.Sync())
 
 	// Truncate the file to simulate a crash before writing key/value bytes
@@ -174,7 +174,7 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	assert.NoError(t, fs.Close())
 	fs, err = OpenFS(context.Background(), fs.Path())
 	assert.NoError(t, err)
-	w = NewWAL(context.Background(), cfg, fs)
+	w = NewWAL(cfg, fs)
 
 	// Load the WAL and verify that only the complete records are loaded
 	mem, err := w.Load()

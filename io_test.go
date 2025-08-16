@@ -2,7 +2,6 @@ package rindb
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +31,7 @@ func (er *errorReader) Read(p []byte) (n int, err error) {
 
 func Test_rw(t *testing.T) {
 	t.Run("Write key with size = 0", func(t *testing.T) {
-		tx := NewTransactionManager(context.Background()).Begin()
+		tx := NewTransactionManager().Begin()
 
 		testKey := Bytes(nil)
 		testValue := Bytes("value")
@@ -47,7 +46,7 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size = 0", func(t *testing.T) {
-		tx := NewTransactionManager(context.Background()).Begin()
+		tx := NewTransactionManager().Begin()
 
 		testKey := Bytes(nil)
 		testValue := Bytes(nil)
@@ -62,7 +61,7 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size > 255", func(t *testing.T) {
-		tx := NewTransactionManager(context.Background()).Begin()
+		tx := NewTransactionManager().Begin()
 
 		testKey := ""
 		testValue := ""
@@ -81,7 +80,7 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size < 255", func(t *testing.T) {
-		tx := NewTransactionManager(context.Background()).Begin()
+		tx := NewTransactionManager().Begin()
 
 		err := WriteRecord(tx, NewRecord(Bytes("key"), Bytes("value"), 0))
 		assert.NoError(t, err)

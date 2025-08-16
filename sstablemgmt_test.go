@@ -16,7 +16,7 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 	t.Run("LoadLevels validates file names", func(t *testing.T) {
 		ts := newTestRindbSetup(t, &cfg)
 		defer ts.Cleanup()
-		assert.NoError(t, ts.Manager.Compact())
+		assert.NoError(t, ts.Manager.Compact(context.Background()))
 		for levelNumb, level := range ts.Manager.levels {
 			iterator := level.Iterator()
 			for iterator.HasNext() {
@@ -46,7 +46,7 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 		ts.AddSSTableToLevel(0, newer)
 
 		// Verify search finds the key in older SSTable
-		result, err := ts.Manager.searchKey(Bytes("targetKey"))
+		result, err := ts.Manager.searchKey(context.Background(), Bytes("targetKey"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("targetVal"), result)
 	})
@@ -61,19 +61,19 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 
 		// Case 1: ssTableManager.levels is nil
 		ts.Manager.levels = nil
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 2: ssTableManager.levels is empty slice
 		ts.Manager.levels = []*LinkedList[*FileSystem]{}
-		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 3: Level 0 exists but is empty
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
@@ -86,7 +86,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		sstable := ts.createSSTableWithSequence(0, map[string]string{"key1": "val1"}, 100)
 		ts.AddSSTableToLevel(0, sstable)
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(100), maxSeqNum)
 	})
@@ -101,7 +101,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k3": "v3"}, 75))
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k4": "v4"}, 200)) // Max
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(200), maxSeqNum)
 	})
@@ -113,7 +113,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k1": "v1"}, 0))
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k2": "v2"}, 0))
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
@@ -127,7 +127,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(badFs)
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no such file or directory")
 		assert.Equal(t, uint64(0), maxSeqNum)
@@ -172,7 +172,7 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		assert.Equal(t, 3, ts.Manager.levels[0].Len(), "Level 0 should have 3 SSTables before compaction")
 
 		// Trigger compaction (Level 0 -> Level 1)
-		err := ts.Manager.Compact()
+		err := ts.Manager.Compact(context.Background())
 		assert.NoError(t, err, "Compaction failed")
 
 		// Verify state after compaction
@@ -223,7 +223,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		// Search for a random key in an empty manager
 		key := randStringBytes(10)
-		result, err := ts.Manager.searchKey(key)
+		result, err := ts.Manager.searchKey(context.Background(), key)
 
 		// Assertions remain the same: expect key not found
 		assert.ErrorIs(t, err, ErrKeyNotFound, "Expected ErrKeyNotFound when searching empty manager")
@@ -234,7 +234,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts := newTestRindbSetup(t, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 
 		key := Bytes("level0-key")
@@ -250,7 +250,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		}
 		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ts.Manager.searchKey(key)
+		result, err := ts.Manager.searchKey(context.Background(), key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
@@ -260,14 +260,14 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		defer ts.Cleanup()
 
 		// Level 1: older value
-		fs1, err := ts.Manager.NewSSTableFS(1)
+		fs1, err := ts.Manager.NewSSTableFS(context.Background(), 1)
 		assert.NoError(t, err)
 		key := randStringBytes(10)
 		oldValue := Bytes("old-value")
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, oldValue})
 
 		// Level 0: newer value
-		fs0, err := ts.Manager.NewSSTableFS(0)
+		fs0, err := ts.Manager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		newValue := Bytes("new-value")
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, newValue})
@@ -283,7 +283,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.Equal(t, 1, ts.Manager.levels[0].Len())
 		assert.Equal(t, 1, ts.Manager.levels[1].Len())
 
-		result, err := ts.Manager.searchKey(key)
+		result, err := ts.Manager.searchKey(context.Background(), key)
 		assert.NoError(t, err)
 		assert.Equal(t, newValue, result)
 	})
@@ -292,7 +292,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts := newTestRindbSetup(t, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("some-key"), Bytes("some-value")})
 
@@ -301,7 +301,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs)
 
 		missingKey := randStringBytes(10)
-		result, err := ts.Manager.searchKey(missingKey)
+		result, err := ts.Manager.searchKey(context.Background(), missingKey)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -312,7 +312,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		ts.Manager.levels = nil // Explicitly empty
 
-		result, err := ts.Manager.searchKey(Bytes("any-key"))
+		result, err := ts.Manager.searchKey(context.Background(), Bytes("any-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -321,7 +321,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts := newTestRindbSetup(t, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		key := Bytes("single-key")
 		value := Bytes("single-value")
@@ -329,7 +329,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ts.Manager.searchKey(key)
+		result, err := ts.Manager.searchKey(context.Background(), key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
@@ -339,14 +339,14 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		defer ts.Cleanup()
 
 		// Level 1: original value
-		fs1, err := ts.Manager.NewSSTableFS(1)
+		fs1, err := ts.Manager.NewSSTableFS(context.Background(), 1)
 		assert.NoError(t, err)
 		key := Bytes("tombstone-key")
 		value := Bytes("original-value")
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, value})
 
 		// Level 0: tombstone
-		fs0, err := ts.Manager.NewSSTableFS(0)
+		fs0, err := ts.Manager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
 
@@ -354,7 +354,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs0)
 		ts.Manager.levels[1].PushBack(fs1)
 
-		result, err := ts.Manager.searchKey(key)
+		result, err := ts.Manager.searchKey(context.Background(), key)
 		assert.NoError(t, err)
 		assert.Nil(t, result) // Tombstone returns nil value
 	})
@@ -363,14 +363,14 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts := newTestRindbSetup(t, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(0)
+		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("present-key"), Bytes("present-value")})
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(fs)
 
 		// Key not in Bloom filter
-		result, err := ts.Manager.searchKey(Bytes("absent-key"))
+		result, err := ts.Manager.searchKey(context.Background(), Bytes("absent-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -391,8 +391,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			ts.AddSSTableToLevel(0, sstable) // Add the created sstable's FS to the level
 		}
 
-		assert.True(t, ts.Manager.shouldCompact(0, ts.Manager.levels[0]))
-		assert.NoError(t, ts.Manager.Compact())
+		assert.True(t, ts.Manager.shouldCompact(context.Background(), 0, ts.Manager.levels[0]))
+		assert.NoError(t, ts.Manager.Compact(context.Background()))
 		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
 		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Should have created level 1")
 		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist")
@@ -424,7 +424,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.Equal(t, level1FileCount, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d file", level1FileCount)
 
 		// --- Act ---
-		err := ts.Manager.Compact()
+		err := ts.Manager.Compact(context.Background())
 		assert.NoError(t, err)
 
 		// --- Assert ---
@@ -498,7 +498,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.Equal(t, numFiles, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
 
 		INFO(context.Background(), "Calling Compact()...")
-		err := ts.Manager.Compact()
+		err := ts.Manager.Compact(context.Background())
 		assert.NoError(t, err)
 		INFO(context.Background(), "Compact() finished.")
 
@@ -559,7 +559,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		// --- Act ---
 		// Manually call compactHigherLevel using the manager from the setup
-		err := ts.Manager.compactHigherLevel(ts.Manager.levels[1], 2)
+		err := ts.Manager.compactHigherLevel(context.Background(), ts.Manager.levels[1], 2)
 		assert.NoError(t, err)
 
 		// --- Assert ---
@@ -596,19 +596,19 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// Expected merged content: B(L2), C(L1 - newer), D(L1)
 		assert.Equal(t, 3, len(mergedSSTable.SparseIndex), "Merged SSTable should have 3 keys")
 
-		val, err := mergedSSTable.GetValue(Bytes("keyA")) // Should not be present
+		val, err := mergedSSTable.GetValue(context.Background(), Bytes("keyA")) // Should not be present
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, val)
 
-		val, err = mergedSSTable.GetValue(Bytes("keyB"))
+		val, err = mergedSSTable.GetValue(context.Background(), Bytes("keyB"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueB_L2"), val)
 
-		val, err = mergedSSTable.GetValue(Bytes("keyC"))
+		val, err = mergedSSTable.GetValue(context.Background(), Bytes("keyC"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueC_L1"), val) // Level 1 is newer, takes precedence
 
-		val, err = mergedSSTable.GetValue(Bytes("keyD"))
+		val, err = mergedSSTable.GetValue(context.Background(), Bytes("keyD"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueD_L1"), val)
 
@@ -618,7 +618,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		nonOverlappingSSTable, err := NewSSTable(context.Background(), ts.Manager.config, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
-		val, err = nonOverlappingSSTable.GetValue(Bytes("keyA"))
+		val, err = nonOverlappingSSTable.GetValue(context.Background(), Bytes("keyA"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueA_L2"), val)
 	})
@@ -656,7 +656,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDir, "l0_1.sst", 1), // 1 file < 2
 		}
 		levelList := createLevelList(paths...)
-		assert.False(t, ts.Manager.shouldCompact(0, levelList))
+		assert.False(t, ts.Manager.shouldCompact(context.Background(), 0, levelList))
 	})
 
 	t.Run("Level0_AtThreshold", func(t *testing.T) {
@@ -666,7 +666,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDir, "l0_3.sst", 1), // 2 files == 2
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, ts.Manager.shouldCompact(0, levelList))
+		assert.True(t, ts.Manager.shouldCompact(context.Background(), 0, levelList))
 	})
 
 	t.Run("Level0_AboveThreshold", func(t *testing.T) {
@@ -677,7 +677,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDir, "l0_6.sst", 1), // 3 files > 2
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, ts.Manager.shouldCompact(0, levelList))
+		assert.True(t, ts.Manager.shouldCompact(context.Background(), 0, levelList))
 	})
 
 	// --- Higher Level Tests (Size Based) ---
@@ -696,7 +696,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDirLow, "l1_1.sst", 1), // Total 1MB < 2MB
 		}
 		levelList := createLevelList(paths...)
-		assert.False(t, tsLowThreshold.Manager.shouldCompact(1, levelList))
+		assert.False(t, tsLowThreshold.Manager.shouldCompact(context.Background(), 1, levelList))
 	})
 
 	t.Run("Level1_AtThreshold (1MB base, 2x mult)", func(t *testing.T) {
@@ -706,7 +706,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDirLow, "l1_3.sst", 1), // Total 2MB == 2MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, tsLowThreshold.Manager.shouldCompact(1, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(context.Background(), 1, levelList))
 	})
 
 	t.Run("Level1_AboveThreshold (1MB base, 2x mult)", func(t *testing.T) {
@@ -716,7 +716,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDirLow, "l1_5.sst", 2), // Total 3MB > 2MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, tsLowThreshold.Manager.shouldCompact(1, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(context.Background(), 1, levelList))
 	})
 
 	t.Run("Level2_BelowThreshold (1MB base, 2x mult)", func(t *testing.T) {
@@ -726,7 +726,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDirLow, "l2_2.sst", 1), // Total 3MB < 4MB
 		}
 		levelList := createLevelList(paths...)
-		assert.False(t, tsLowThreshold.Manager.shouldCompact(2, levelList))
+		assert.False(t, tsLowThreshold.Manager.shouldCompact(context.Background(), 2, levelList))
 	})
 
 	t.Run("Level2_AtThreshold (1MB base, 2x mult)", func(t *testing.T) {
@@ -736,7 +736,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDirLow, "l2_4.sst", 2), // Total 4MB == 4MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, tsLowThreshold.Manager.shouldCompact(2, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(context.Background(), 2, levelList))
 	})
 
 	t.Run("Level2_AboveThreshold (1MB base, 2x mult)", func(t *testing.T) {
@@ -746,15 +746,15 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			createDummyFile(t, tempDirLow, "l2_6.sst", 2), // Total 5MB > 4MB
 		}
 		levelList := createLevelList(paths...)
-		assert.True(t, tsLowThreshold.Manager.shouldCompact(2, levelList))
+		assert.True(t, tsLowThreshold.Manager.shouldCompact(context.Background(), 2, levelList))
 	})
 
 	t.Run("EmptyLevel", func(t *testing.T) {
 		// Use the original setup (ts) as it doesn't matter which config for empty levels
 		levelList := createLevelList() // Empty list
-		assert.False(t, ts.Manager.shouldCompact(0, levelList))
-		assert.False(t, ts.Manager.shouldCompact(1, levelList))
-		assert.False(t, ts.Manager.shouldCompact(2, levelList)) // Check level 2 as well
+		assert.False(t, ts.Manager.shouldCompact(context.Background(), 0, levelList))
+		assert.False(t, ts.Manager.shouldCompact(context.Background(), 1, levelList))
+		assert.False(t, ts.Manager.shouldCompact(context.Background(), 2, levelList)) // Check level 2 as well
 	})
 }
 
@@ -772,7 +772,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, sstableL0_2)
 
 		// Call GetRelevantSSTables for Level 0
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("z"))
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 2, relevantSSTables.Len(), "Expected 2 relevant SSTables in Level 0")
@@ -810,7 +810,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		// Call GetRelevantSSTables for Level 1 with a specific range
 		startKey := Bytes("b")
 		endKey := Bytes("d")
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(startKey, endKey)
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), startKey, endKey)
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 2, relevantSSTables.Len(), "Expected 2 relevant SSTables in Level 1")
@@ -842,7 +842,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		sstableL1_nonOverlap := ts.createSSTable(1, map[string]string{"x": "1", "y": "2"})
 		ts.AddSSTableToLevel(1, sstableL1_nonOverlap)
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("b"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("b"))
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 0, relevantSSTables.Len(), "Expected 0 relevant SSTables")
@@ -858,7 +858,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 
 		ts.Manager.levels = nil // Explicitly empty manager
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("z"))
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 0, relevantSSTables.Len(), "Expected 0 relevant SSTables from empty manager")
@@ -873,7 +873,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(badFs)
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("z"))
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no such file or directory")
 		assert.Nil(t, relevantSSTables)
@@ -903,7 +903,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		startKey := Bytes("key0_A")
 		endKey := Bytes("key1_Y")
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(startKey, endKey)
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), startKey, endKey)
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 

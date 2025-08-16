@@ -88,7 +88,7 @@ func newTestRindbSetup(t *testing.T, cfg *Config) *testRindbSetup {
 	}
 
 	cleanup := func() {
-		manager.Close()
+		manager.Close(context.Background())
 	}
 
 	return &testRindbSetup{
@@ -114,7 +114,7 @@ func (ts *testRindbSetup) Cleanup() {
 
 // newSSTableFS creates a new FileSystem for a given level with automatic cleanup.
 func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
-	fs, err := ts.Manager.NewSSTableFS(level)
+	fs, err := ts.Manager.NewSSTableFS(context.Background(), level)
 	assert.NoError(ts.T, err)
 	ts.AddCleanup(func() { fs.Close() })
 	return fs
@@ -280,7 +280,7 @@ func initRinDBWithCleanup(t *testing.T, opts ...Option) (*Rindb, func()) {
 
 	cleanup := func() {
 		// Use the database directory from the initialized RinDB's config for cleanup
-		closeErr := rin.Close()
+		closeErr := rin.Close(context.Background())
 		// Allow ErrDatabaseClosed because cleanup might be called multiple times by defer + explicit call
 		if closeErr != nil && !errors.Is(closeErr, ErrDatabaseClosed) {
 			assert.NoError(t, closeErr, "Failed to close RinDB")

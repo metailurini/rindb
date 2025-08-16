@@ -23,7 +23,6 @@ type Rindb struct {
 	wg             sync.WaitGroup // WaitGroup to track background goroutines
 	closed         bool           // Flag to indicate if the database is closed
 	sequenceNumber uint64
-	ctx            context.Context
 }
 
 // InitRinDB initializes a new RinDB instance with provided configuration options.
@@ -59,7 +58,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 	if err != nil {
 		return Rindb{}, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
 	}
-	wal := NewWAL(ctx, cfg, fs)
+	wal := NewWAL(cfg, fs)
 	memtable, err := wal.Load()
 	if err != nil {
 		return Rindb{}, err
@@ -84,7 +83,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 
 	// Only scan L0 SSTables for max sequence number during initialization.
 	// L0 SSTables contain the most recent data after the memtable.
-	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(ssTableManager)
+	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ssTableManager)
 	if err != nil {
 		return Rindb{}, err
 	}
@@ -97,7 +96,6 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 		ssTableManager: ssTableManager,
 		config:         cfg,
 		sequenceNumber: maxSeqNum,
-		ctx:            ctx,
 	}, nil
 }
 
@@ -111,7 +109,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 //
 //	Bytes - The value associated with the key, or nil if the key is not found.
 //	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
-func (r *Rindb) Get(key Bytes) (Bytes, error) {
+func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -126,12 +124,12 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	if !errors.Is(err, ErrKeyNotFound) {
 		return nil, err
 	}
-	return r.ssTableManager.searchKey(key)
+	return r.ssTableManager.searchKey(ctx, key)
 }
 
 // IRange returns an iterator over records with keys in [start, end],
 // merged across the memtable and relevant SSTables.
-func (r *Rindb) IRange(start, end Bytes) (Iterator[Record], error) {
+func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (Iterator[Record], error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -141,7 +139,7 @@ func (r *Rindb) IRange(start, end Bytes) (Iterator[Record], error) {
 
 	iterators := []Iterator[Record]{r.memtable.IRange(start, end)}
 
-	sstables, err := r.ssTableManager.GetRelevantSSTables(start, end)
+	sstables, err := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +282,7 @@ func CloseIterator[T any](iter Iterator[T]) error {
 //
 //	error - An error if the database is closed, or if an error occurs during WAL append, memtable update,
 //	        flushing, SSTable registration, or WAL cleaning.
-func (r *Rindb) Put(key, value Bytes) error {
+func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -294,7 +292,7 @@ func (r *Rindb) Put(key, value Bytes) error {
 
 	r.sequenceNumber++
 	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber}
-	if err := r.wal.Append(record); err != nil {
+	if err := r.wal.Append(ctx, record); err != nil {
 		return err
 	}
 	r.memtable.Put(record) // This now updates the internal size estimate
@@ -303,47 +301,47 @@ func (r *Rindb) Put(key, value Bytes) error {
 	// Cast ByteSize() to uint to match maxMemtableSize type
 	// Check estimated byte size and flush if needed
 	if uint(r.memtable.ByteSize()) >= r.config.maxMemtableSize {
-		INFO(r.ctx, "Memtable estimated size %d reached threshold %d, flushing.", r.memtable.ByteSize(), r.config.maxMemtableSize)
+		INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", r.memtable.ByteSize(), r.config.maxMemtableSize)
 
 		// Create new SSTable file system for level 0
-		fs, err := r.ssTableManager.NewSSTableFS(0)
+		fs, err := r.ssTableManager.NewSSTableFS(ctx, 0)
 		if err != nil {
-			ERROR(r.ctx, "Failed to create new SSTable file system: %v", err)
+			ERROR(ctx, "Failed to create new SSTable file system: %v", err)
 			return fmt.Errorf("failed to create new SSTable file system: %w", err)
 		}
 
-		_, err = Flush(r.ctx, r.config, r.memtable, fs)
+		_, err = Flush(ctx, r.config, r.memtable, fs)
 		if err != nil {
 			_ = fs.Close() // Attempt to close FS on flush error
-			ERROR(r.ctx, "Failed to flush memtable: %v", err)
+			ERROR(ctx, "Failed to flush memtable: %v", err)
 			return fmt.Errorf("failed to flush memtable: %w", err)
 		}
 
 		// Register the new SSTable with ssTableManager
-		if err := r.ssTableManager.AddSSTable(0, fs); err != nil {
-			ERROR(r.ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
+		if err := r.ssTableManager.AddSSTable(ctx, 0, fs); err != nil {
+			ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
 		}
 
 		// Clear the memtable and clean the WAL *after* successful flush and registration
 		r.memtable.Clear()
 		if err := r.wal.Clean(); err != nil {
-			ERROR(r.ctx, "Failed to clean WAL after memtable flush: %v", err)
+			ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
 			return fmt.Errorf("failed to clean WAL: %w", err)
 		}
 
 		// Trigger compaction in a goroutine *after* flushing
-		INFO(r.ctx, "Triggering background compaction check.")
+		INFO(ctx, "Triggering background compaction check.")
 		r.wg.Add(1)
-		go func() {
+		go func(ctx context.Context) {
 			defer r.wg.Done()
-			INFO(r.ctx, "Background compaction goroutine started.")
-			if err := r.ssTableManager.Compact(); err != nil {
-				ERROR(r.ctx, "Background compaction failed: %v", err)
+			INFO(ctx, "Background compaction goroutine started.")
+			if err := r.ssTableManager.Compact(ctx); err != nil {
+				ERROR(ctx, "Background compaction failed: %v", err)
 			} else {
-				INFO(r.ctx, "Background compaction goroutine finished.")
+				INFO(ctx, "Background compaction goroutine finished.")
 			}
-		}()
+		}(ctx)
 	}
 	return nil
 }
@@ -357,7 +355,7 @@ func (r *Rindb) Put(key, value Bytes) error {
 // Returns:
 //
 //	error - An error if the database is closed, or if an error occurs during WAL append or memtable update.
-func (r *Rindb) Remove(key Bytes) error {
+func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -367,7 +365,7 @@ func (r *Rindb) Remove(key Bytes) error {
 
 	r.sequenceNumber++
 	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.sequenceNumber}
-	if err := r.wal.Append(record); err != nil {
+	if err := r.wal.Append(ctx, record); err != nil {
 		return err
 	}
 	r.memtable.Put(record)
@@ -381,7 +379,7 @@ func (r *Rindb) Remove(key Bytes) error {
 // 3. Close WAL and SSTableManager resources
 // 4. Log final shutdown status
 // Safety: Idempotent - multiple calls will return ErrDatabaseClosed
-func (r *Rindb) Close() error {
+func (r *Rindb) Close(ctx context.Context) error {
 	r.mu.Lock()
 	// Check if already closed
 	if r.closed {
@@ -394,9 +392,9 @@ func (r *Rindb) Close() error {
 	r.mu.Unlock() // Unlock while waiting for goroutines
 
 	// Wait for any background operations (like compaction) to complete
-	INFO(r.ctx, "Waiting for background operations to finish...")
+	INFO(ctx, "Waiting for background operations to finish...")
 	r.wg.Wait()
-	INFO(r.ctx, "Background operations finished.")
+	INFO(ctx, "Background operations finished.")
 
 	// Re-acquire lock to safely close resources
 	r.mu.Lock()
@@ -405,18 +403,18 @@ func (r *Rindb) Close() error {
 	// Close the WAL
 	if err := r.wal.Close(); err != nil {
 		// Log the error but attempt to close SSTableManager anyway
-		ERROR(r.ctx, "Error closing WAL: %v", err)
+		ERROR(ctx, "Error closing WAL: %v", err)
 		// Optionally return the WAL error immediately, or collect errors
 		// return fmt.Errorf("error closing WAL: %w", err)
 	} else {
-		INFO(r.ctx, "WAL closed successfully.")
+		INFO(ctx, "WAL closed successfully.")
 	}
 
 	// Close the SSTableManager
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
-	r.ssTableManager.Close() // SSTableManager.Close currently doesn't return an error
-	INFO(r.ctx, "SSTableManager closed.")
+	r.ssTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
+	INFO(ctx, "SSTableManager closed.")
 
-	INFO(r.ctx, "RinDB closed successfully")
+	INFO(ctx, "RinDB closed successfully")
 	return nil
 }

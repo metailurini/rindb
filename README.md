@@ -48,22 +48,23 @@ import (
 
 func main() {
     // Initialize RinDB with default configuration
-    db, err := rindb.InitRinDB(context.Background())
+    ctx := context.Background()
+    db, err := rindb.InitRinDB(ctx)
     if err != nil {
         fmt.Println("Error initializing RinDB:", err)
         return
     }
-    defer db.Close()
+    defer db.Close(ctx)
 
     // Put a key-value pair
-    err = db.Put([]byte("key1"), []byte("value1"))
+    err = db.Put(ctx, []byte("key1"), []byte("value1"))
     if err != nil {
         fmt.Println("Error putting key:", err)
         return
     }
 
     // Get a value by key
-    value, err := db.Get([]byte("key1"))
+    value, err := db.Get(ctx, []byte("key1"))
     if err != nil {
         fmt.Println("Error getting key:", err)
         return
@@ -71,7 +72,7 @@ func main() {
     fmt.Println("Value:", string(value)) // Output: Value: value1
 
     // Remove a key
-    err = db.Remove([]byte("key1"))
+    err = db.Remove(ctx, []byte("key1"))
     if err != nil {
         fmt.Println("Error removing key:", err)
         return
@@ -82,7 +83,8 @@ func main() {
 ### Custom Configuration
 
 ```go
-db, err := rindb.InitRinDB(context.Background(),
+ctx := context.Background()
+db, err := rindb.InitRinDB(ctx,
     rindb.WithDatabaseDir("./mydb"),
     rindb.WithMaxMemtableSize(1024*1024), // 1MB
     rindb.WithBloomFalsePositiveRate(0.01),
@@ -91,7 +93,7 @@ if err != nil {
     fmt.Println("Error:", err)
     return
 }
-defer db.Close()
+defer db.Close(ctx)
 ```
 
 ## Building and Testing

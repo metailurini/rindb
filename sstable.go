@@ -68,13 +68,12 @@ func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
 }
 
 type SStable struct {
-	ctx context.Context
 	*FileSystem
 	SparseIndex SparseIndex
 	Bloom       *BloomFilter
 }
 
-func (s SStable) GetValue(key Bytes) (Bytes, error) {
+func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
 	if !s.Bloom.Lookup(key) {
 		return nil, ErrKeyNotFound
 	}
@@ -85,7 +84,7 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	}
 
 	if _, err := s.file.Seek(offset, io.SeekStart); err != nil {
-		ERROR(s.ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
+		ERROR(ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
 		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
@@ -93,10 +92,10 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	if err != nil {
 		// Check for EOF specifically, might indicate corruption if seeking led here
 		if errors.Is(err, io.EOF) {
-			ERROR(s.ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
+			ERROR(ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
 			return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
 		}
-		ERROR(s.ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
+		ERROR(ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
 		return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
 	}
 	return record.GetValue(), nil
@@ -162,7 +161,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	// Support testing assertions
 	fs.file.Seek(0, io.SeekStart)
 	INFO(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{ctx: ctx, FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
+	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
@@ -240,9 +239,9 @@ func Flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 		log.Panic("empty memtable!")
 	}
 
-	tm := NewTransactionManager(ctx)
+	tm := NewTransactionManager()
 	tx := tm.Begin()
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	r := mem.data.Head().Next()
 	for r != nil {
@@ -265,7 +264,7 @@ func Flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 		return SStable{}, fmt.Errorf("failed to write sparse index offset to transaction buffer: %w", err)
 	}
 
-	if err := tx.Commit(fs); err != nil {
+	if err := tx.Commit(ctx, fs); err != nil {
 		return SStable{}, fmt.Errorf("failed to commit transaction to file system %s: %w", fs.Path(), err)
 	}
 	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())

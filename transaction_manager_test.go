@@ -9,7 +9,7 @@ import (
 
 // TestNewTransactionManager verifies that NewTransactionManager initializes correctly.
 func TestNewTransactionManager(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	if tm == nil {
 		t.Fatal("NewTransactionManager returned nil")
 	}
@@ -17,7 +17,7 @@ func TestNewTransactionManager(t *testing.T) {
 
 // TestBegin checks that Begin creates a valid transaction.
 func TestBegin(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	if txn == nil {
@@ -36,7 +36,7 @@ func TestBegin(t *testing.T) {
 
 // TestWrite verifies that Write works correctly on an active transaction.
 func TestWrite(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	n, err := txn.Write([]byte("test data"))
@@ -53,12 +53,12 @@ func TestWrite(t *testing.T) {
 
 // TestWriteAfterCommit ensures Write fails after committing.
 func TestWriteAfterCommit(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	txn.Write([]byte("data"))
 	var buf bytes.Buffer
-	if err := txn.Commit(&buf); err != nil {
+	if err := txn.Commit(context.Background(), &buf); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -70,12 +70,12 @@ func TestWriteAfterCommit(t *testing.T) {
 
 // TestCommit verifies that Commit writes data correctly and updates state.
 func TestCommit(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	txn.Write([]byte("commit me"))
 	var buf bytes.Buffer
-	err := txn.Commit(&buf)
+	err := txn.Commit(context.Background(), &buf)
 	if err != nil {
 		t.Errorf("Commit failed: %v", err)
 	}
@@ -92,14 +92,14 @@ func TestCommit(t *testing.T) {
 
 // TestCommitAfterCommit ensures a second Commit fails.
 func TestCommitAfterCommit(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	txn.Write([]byte("data"))
 	var buf bytes.Buffer
-	txn.Commit(&buf)
+	txn.Commit(context.Background(), &buf)
 
-	err := txn.Commit(&buf)
+	err := txn.Commit(context.Background(), &buf)
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}
@@ -107,11 +107,11 @@ func TestCommitAfterCommit(t *testing.T) {
 
 // TestRollback verifies that Rollback resets the buffer and updates state.
 func TestRollback(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	txn.Write([]byte("rollback me"))
-	err := txn.Rollback()
+	err := txn.Rollback(context.Background())
 	if err != nil {
 		t.Errorf("Rollback failed: %v", err)
 	}
@@ -125,13 +125,13 @@ func TestRollback(t *testing.T) {
 
 // TestRollbackAfterRollback ensures a second Rollback fails.
 func TestRollbackAfterRollback(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 
 	txn.Write([]byte("data"))
-	txn.Rollback()
+	txn.Rollback(context.Background())
 
-	err := txn.Rollback()
+	err := txn.Rollback(context.Background())
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}
@@ -139,7 +139,7 @@ func TestRollbackAfterRollback(t *testing.T) {
 
 // TestConcurrentBegin ensures multiple goroutines can call Begin without blocking.
 func TestConcurrentBegin(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	var wg sync.WaitGroup
 	const numGoroutines = 10
 
@@ -166,7 +166,7 @@ func TestConcurrentBegin(t *testing.T) {
 
 // TestConcurrentWrite ensures a single transaction is thread-safe for writes.
 func TestConcurrentWrite(t *testing.T) {
-	tm := NewTransactionManager(context.Background())
+	tm := NewTransactionManager()
 	txn := tm.Begin()
 	var wg sync.WaitGroup
 	const numWrites = 100

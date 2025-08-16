@@ -27,17 +27,16 @@ type SSTableManager struct {
 	levels   []*LinkedList[*FileSystem]
 	config   Config
 	mu       sync.RWMutex
-	ctx      context.Context
 }
 
 // openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
 // and adds the FileSystem to the manager's list of opened file systems.
 // It returns the created *SSTable or an error.
-func (h *SSTableManager) openAndLoadSSTable(fs *FileSystem) (*SStable, error) {
-	if err := fs.Open(h.ctx); err != nil {
+func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem) (*SStable, error) {
+	if err := fs.Open(ctx); err != nil {
 		return nil, fmt.Errorf("failed to open sstable file %s: %w", fs.Path(), err)
 	}
-	sstable, err := NewSSTable(h.ctx, h.config, fs)
+	sstable, err := NewSSTable(ctx, h.config, fs)
 	if err != nil {
 		_ = fs.Close() // Ensure file is closed on SSTable creation error
 		return nil, fmt.Errorf("failed to create sstable object for %s: %w", fs.Path(), err)
@@ -47,7 +46,7 @@ func (h *SSTableManager) openAndLoadSSTable(fs *FileSystem) (*SStable, error) {
 }
 
 func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, error) {
-	h := &SSTableManager{openedFs: list.New(), config: config, ctx: ctx}
+	h := &SSTableManager{openedFs: list.New(), config: config}
 	err := h.LoadLevels(config.databaseDir)
 	if err != nil {
 		return nil, err
@@ -56,7 +55,7 @@ func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, er
 }
 
 // AddSSTable registers a new SSTable file system with the manager at the specified level.
-func (h *SSTableManager) AddSSTable(levelNumb int, fs *FileSystem) error {
+func (h *SSTableManager) AddSSTable(ctx context.Context, levelNumb int, fs *FileSystem) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -67,7 +66,7 @@ func (h *SSTableManager) AddSSTable(levelNumb int, fs *FileSystem) error {
 
 	// Add the new SSTable to the end of the level list
 	h.levels[levelNumb].PushBack(fs)
-	INFO(h.ctx, "Registered new SSTable %s at level %d", fs.Path(), levelNumb)
+	INFO(ctx, "Registered new SSTable %s at level %d", fs.Path(), levelNumb)
 	return nil
 }
 
@@ -114,10 +113,10 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 	return nil
 }
 
-func (h *SSTableManager) NewSSTableFS(levelNumb int) (*FileSystem, error) {
+func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*FileSystem, error) {
 	uid := ulid.Make()
 	sstableFileName := path.Join(h.config.databaseDir, fmt.Sprintf("l%02d_%s.sst", levelNumb, uid.String()))
-	fs, err := OpenFS(h.ctx, sstableFileName)
+	fs, err := OpenFS(ctx, sstableFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +125,7 @@ func (h *SSTableManager) NewSSTableFS(levelNumb int) (*FileSystem, error) {
 	return fs, nil
 }
 
-func (h *SSTableManager) Close() {
+func (h *SSTableManager) Close(ctx context.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -134,14 +133,14 @@ func (h *SSTableManager) Close() {
 	for element != nil {
 		fs, ok := element.Value.(*FileSystem)
 		if !ok {
-			ERROR(h.ctx, "can not cast element to file system")
+			ERROR(ctx, "can not cast element to file system")
 			break
 		}
 
 		if err := fs.Close(); err != nil {
-			ERROR(h.ctx, "Error closing file %s: %v", fs.Path(), err)
+			ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
 		}
-		INFO(h.ctx, "Closed %s successfully", fs.Path())
+		INFO(ctx, "Closed %s successfully", fs.Path())
 		element = element.Next()
 	}
 
@@ -155,25 +154,25 @@ func (h *SSTableManager) Close() {
 		for levelIterator.HasNext() {
 			fs, err := levelIterator.Next()
 			if err != nil {
-				ERROR(h.ctx, "Error iterating through level: %v", err)
+				ERROR(ctx, "Error iterating through level: %v", err)
 				continue
 			}
 
 			if !fs.IsOpened() {
-				WARN(h.ctx, "File %s is already closed", fs.Path())
+				WARN(ctx, "File %s is already closed", fs.Path())
 				continue
 			}
 
 			if err := fs.Close(); err != nil {
-				ERROR(h.ctx, "Error closing file %s: %v", fs.Path(), err)
+				ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
 				continue
 			}
-			INFO(h.ctx, "Closed %s successfully", fs.Path())
+			INFO(ctx, "Closed %s successfully", fs.Path())
 		}
 	}
 }
 
-func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSystem]) bool {
+func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level *LinkedList[*FileSystem]) bool {
 	// No longer need internal constants
 
 	if level == nil || level.Len() == 0 {
@@ -191,13 +190,13 @@ func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSys
 	for iter.HasNext() {
 		fs, err := iter.Next() // Use Next, no need to PickNext here
 		if err != nil {
-			ERROR(h.ctx, "Error iterating level %d for size check: %v", levelNumb, err)
+			ERROR(ctx, "Error iterating level %d for size check: %v", levelNumb, err)
 			continue // Skip problematic entries
 		}
 		info, err := os.Stat(fs.filePath)
 		if err != nil {
 			// Log error if file cannot be stated, might indicate an issue
-			ERROR(h.ctx, "Error stating file %s for size check: %v", fs.filePath, err)
+			ERROR(ctx, "Error stating file %s for size check: %v", fs.filePath, err)
 			continue // Skip files we can't stat
 		}
 		totalSizeBytes += info.Size()
@@ -207,7 +206,7 @@ func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSys
 	// Ensure multiplier is at least 1 to avoid issues with Pow(0) or negative powers
 	multiplier := h.config.levelSizeMultiplier
 	if multiplier < 1 {
-		WARN(h.ctx, "levelSizeMultiplier is %d, using 1 instead for threshold calculation.", multiplier)
+		WARN(ctx, "levelSizeMultiplier is %d, using 1 instead for threshold calculation.", multiplier)
 		multiplier = 1 // Prevent multiplier < 1
 	}
 	// Use float64 for Pow, then convert threshold to int64 bytes for comparison
@@ -217,10 +216,10 @@ func (h *SSTableManager) shouldCompact(levelNumb int, level *LinkedList[*FileSys
 	return totalSizeBytes >= levelThresholdBytes
 }
 
-func (h *SSTableManager) Compact() error {
+func (h *SSTableManager) Compact(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	INFO(h.ctx, "Starting compaction check across %d levels", len(h.levels))
+	INFO(ctx, "Starting compaction check across %d levels", len(h.levels))
 
 	var err error
 	compactionOccurred := false // Track if any compaction actually happened
@@ -230,26 +229,26 @@ func (h *SSTableManager) Compact() error {
 		}
 		level := h.levels[levelNumb]
 
-		if !h.shouldCompact(levelNumb, level) {
-			INFO(h.ctx, "Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len())
+		if !h.shouldCompact(ctx, levelNumb, level) {
+			INFO(ctx, "Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len())
 			continue
 		}
 
-		INFO(h.ctx, "Level %d (size/count: %d) requires compaction.", levelNumb, level.Len())
+		INFO(ctx, "Level %d (size/count: %d) requires compaction.", levelNumb, level.Len())
 		newLevelNumb := levelNumb + 1
 
 		if levelNumb == 0 {
 			// Level 0: Merge all SSTables into L1
-			err = h.compactLevel0(level, newLevelNumb)
+			err = h.compactLevel0(ctx, level, newLevelNumb)
 			if err != nil {
-				ERROR(h.ctx, "Error compacting Level 0: %v", err)
+				ERROR(ctx, "Error compacting Level 0: %v", err)
 				return err
 			}
 		} else {
 			// Higher levels: Pick one SSTable and merge with overlapping L1+ SSTables
-			err = h.compactHigherLevel(level, newLevelNumb)
+			err = h.compactHigherLevel(ctx, level, newLevelNumb)
 			if err != nil {
-				ERROR(h.ctx, "Error compacting Level %d: %v", levelNumb, err)
+				ERROR(ctx, "Error compacting Level %d: %v", levelNumb, err)
 				return err
 			}
 		}
@@ -260,14 +259,14 @@ func (h *SSTableManager) Compact() error {
 	}
 
 	if compactionOccurred {
-		INFO(h.ctx, "Compaction process completed.")
+		INFO(ctx, "Compaction process completed.")
 	} else {
-		INFO(h.ctx, "No levels required compaction.")
+		INFO(ctx, "No levels required compaction.")
 	}
 	return nil
 }
 
-func (h *SSTableManager) compactLevel0(level *LinkedList[*FileSystem], newLevelNumb int) error {
+func (h *SSTableManager) compactLevel0(ctx context.Context, level *LinkedList[*FileSystem], newLevelNumb int) error {
 	var sstablesToMerge []SStable
 	iter := level.Iterator()
 	for iter.HasNext() {
@@ -275,7 +274,7 @@ func (h *SSTableManager) compactLevel0(level *LinkedList[*FileSystem], newLevelN
 		if err != nil {
 			return err
 		}
-		sstable, err := h.openAndLoadSSTable(fs)
+		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
 			return err
 		}
@@ -283,16 +282,16 @@ func (h *SSTableManager) compactLevel0(level *LinkedList[*FileSystem], newLevelN
 	}
 
 	// Find overlapping SSTables in the next level
-	overlappingSSTables, err := h.findOverlappingSSTables(newLevelNumb, sstablesToMerge)
+	overlappingSSTables, err := h.findOverlappingSSTables(ctx, newLevelNumb, sstablesToMerge)
 	if err != nil {
 		return err
 	}
 
 	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
-	return h.mergeSSTables(newLevelNumb, sstablesToMerge)
+	return h.mergeSSTables(ctx, newLevelNumb, sstablesToMerge)
 }
 
-func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newLevelNumb int) error {
+func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedList[*FileSystem], newLevelNumb int) error {
 	// Pick *all* SSTables from the source level to compact
 	var sstablesToMerge []SStable
 	iter := level.Iterator()
@@ -305,7 +304,7 @@ func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newL
 			}
 			return fmt.Errorf("error picking next SSTable from level: %w", err)
 		}
-		sstable, err := h.openAndLoadSSTable(fs)
+		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
 			// Attempt to close any already opened SSTables before returning error
 			for _, sst := range sstablesToMerge {
@@ -317,18 +316,18 @@ func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newL
 	}
 
 	if len(sstablesToMerge) == 0 {
-		WARN(h.ctx, "compactHigherLevel called on an empty or already processed level.")
+		WARN(ctx, "compactHigherLevel called on an empty or already processed level.")
 		return nil // Nothing to merge
 	}
 
 	// Find overlapping SSTables in the next level based on the combined range of source SSTables
-	overlappingSSTables, err := h.findOverlappingSSTables(newLevelNumb, sstablesToMerge)
+	overlappingSSTables, err := h.findOverlappingSSTables(ctx, newLevelNumb, sstablesToMerge)
 	if err != nil {
 		return err
 	}
 
 	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
-	err = h.mergeSSTables(newLevelNumb, sstablesToMerge)
+	err = h.mergeSSTables(ctx, newLevelNumb, sstablesToMerge)
 	if err != nil {
 		return err
 	}
@@ -350,7 +349,7 @@ func (h *SSTableManager) compactHigherLevel(level *LinkedList[*FileSystem], newL
 	return nil
 }
 
-func (h *SSTableManager) findOverlappingSSTables(levelNumb int, sources []SStable) ([]SStable, error) {
+func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb int, sources []SStable) ([]SStable, error) {
 	if levelNumb >= len(h.levels) || h.levels[levelNumb] == nil {
 		return nil, nil // No overlapping SSTables if the level doesn’t exist
 	}
@@ -364,7 +363,7 @@ func (h *SSTableManager) findOverlappingSSTables(levelNumb int, sources []SStabl
 		if err != nil {
 			return nil, err
 		}
-		sstable, err := h.openAndLoadSSTable(fs)
+		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
 			return nil, err
 		}
@@ -379,13 +378,13 @@ func (h *SSTableManager) findOverlappingSSTables(levelNumb int, sources []SStabl
 
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
 // Assumes the caller holds the necessary lock (e.g., h.mu.Lock()).
-func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStable) error {
-	newLevelSSTable, err := h.NewSSTableFS(newLevelNumb)
+func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pickedUpSSTable []SStable) error {
+	newLevelSSTable, err := h.NewSSTableFS(ctx, newLevelNumb)
 	if err != nil {
 		return err
 	}
 
-	if _, err := mergeSSTables(h.ctx, h.config, newLevelSSTable, pickedUpSSTable); err != nil {
+	if _, err := mergeSSTables(ctx, h.config, newLevelSSTable, pickedUpSSTable); err != nil {
 		return err
 	}
 
@@ -397,7 +396,7 @@ func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStab
 	// remove merged sstable
 	for _, sstable := range pickedUpSSTable {
 		if err := os.Remove(sstable.Path()); err != nil {
-			ERROR(h.ctx, "Error removing file %s: %v", sstable.Path(), err)
+			ERROR(ctx, "Error removing file %s: %v", sstable.Path(), err)
 		}
 	}
 	return nil
@@ -409,7 +408,7 @@ func (h *SSTableManager) mergeSSTables(newLevelNumb int, pickedUpSSTable []SStab
 // The returned LinkedList contains *SSTable objects, which are opened and ready for use.
 // The SSTables in Level 0 are appended to the list, maintaining newest-first order.
 // while SSTables from higher levels are added to the back.
-func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) (*LinkedList[*SStable], error) {
+func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) (*LinkedList[*SStable], error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -426,7 +425,7 @@ func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) (*LinkedLis
 			iterator := level.IteratorFromBottom()
 			fs := iterator.Value()
 			for fs != nil {
-				sstable, err := h.openAndLoadSSTable(fs)
+				sstable, err := h.openAndLoadSSTable(ctx, fs)
 				if err != nil {
 					return nil, fmt.Errorf("failed to open and load sstable %s: %w", fs.Path(), err)
 				}
@@ -450,7 +449,7 @@ func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) (*LinkedLis
 				if err != nil {
 					return nil, fmt.Errorf("failed to get next sstable in level %d: %w", levelNumb, err)
 				}
-				sstable, err := h.openAndLoadSSTable(fs)
+				sstable, err := h.openAndLoadSSTable(ctx, fs)
 				if err != nil {
 					return nil, fmt.Errorf("failed to open and load sstable %s: %w", fs.Path(), err)
 				}
@@ -466,7 +465,7 @@ func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) (*LinkedLis
 	return relevantSSTables, nil
 }
 
-func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
+func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -490,12 +489,12 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 		iterator := h.levels[levelNumb].IteratorFromBottom()
 		fs := iterator.Value()
 		for fs != nil {
-			sstable, err := h.openAndLoadSSTable(fs)
+			sstable, err := h.openAndLoadSSTable(ctx, fs)
 			if err != nil {
 				return nil, err
 			}
 
-			value, err := sstable.GetValue(key)
+			value, err := sstable.GetValue(ctx, key)
 			if err == nil {
 				// Found a value or tombstone; this is the latest so far
 				latestValue = value
@@ -535,7 +534,7 @@ func (h *SSTableManager) searchKey(key Bytes) (Bytes, error) {
 // We should scan *all* levels to find the true max sequence number.
 // The correct long-term solution is to maintain a MANIFEST file
 // that tracks global sequence number metadata across all levels.
-func getMaxSequenceNumberFromSSTables(ssTableManager *SSTableManager) (uint64, error) {
+func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTableManager) (uint64, error) {
 	var maxSeqNum uint64
 	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
 		level0 := ssTableManager.levels[0]
@@ -545,7 +544,7 @@ func getMaxSequenceNumberFromSSTables(ssTableManager *SSTableManager) (uint64, e
 			if err != nil {
 				return 0, err
 			}
-			sstable, err := ssTableManager.openAndLoadSSTable(fs)
+			sstable, err := ssTableManager.openAndLoadSSTable(ctx, fs)
 			if err != nil {
 				return 0, err
 			}
