@@ -10,14 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
 var ErrDatabaseClosed = errors.New("database is closed")
-
-var tracer = otel.Tracer("rindb")
 
 // Rindb is the main database structure
 type Rindb struct {

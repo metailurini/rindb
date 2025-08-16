@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // SSTableManager manages SSTable storage and compaction in a leveled structure.
@@ -30,29 +28,6 @@ type SSTableManager struct {
 	levels   []*LinkedList[*FileSystem]
 	config   Config
 	mu       sync.RWMutex
-}
-
-var (
-	sstableMgmtTracer = otel.Tracer("rindb/sstablemgmt")
-	sstableMgmtMeter  = otel.Meter("rindb/sstablemgmt")
-
-	addSSTableLatency   metric.Float64Histogram
-	addSSTableCalls     metric.Int64Counter
-	compactLatency      metric.Float64Histogram
-	compactCalls        metric.Int64Counter
-	getRelevantLatency  metric.Float64Histogram
-	getRelevantCalls    metric.Int64Counter
-	getRelevantSSTables metric.Int64Counter
-)
-
-func init() {
-	addSSTableLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.add.latency", metric.WithUnit("ms"))
-	addSSTableCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.add.calls")
-	compactLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.compact.latency", metric.WithUnit("ms"))
-	compactCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.compact.calls")
-	getRelevantLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.get_relevant.latency", metric.WithUnit("ms"))
-	getRelevantCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.calls")
-	getRelevantSSTables, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.sstables")
 }
 
 // openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
