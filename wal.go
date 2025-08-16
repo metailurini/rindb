@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -40,9 +41,9 @@ func (w *WAL) Load() (Memtable, error) {
 	return mem, nil
 }
 
-func (w *WAL) Append(record Record) error {
+func (w *WAL) Append(ctx context.Context, record Record) error {
 	tx := w.tm.Begin()
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
@@ -53,7 +54,7 @@ func (w *WAL) Append(record Record) error {
 		return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 	}
 
-	if err = tx.Commit(w.file); err != nil {
+	if err = tx.Commit(ctx, w.file); err != nil {
 		return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
 	}
 
@@ -64,9 +65,9 @@ func (w *WAL) Append(record Record) error {
 	return nil
 }
 
-func (w *WAL) AppendMany(records []Record) error {
+func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 	tx := w.tm.Begin()
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	_, err := w.file.Seek(0, io.SeekEnd)
 	if err != nil {
@@ -79,7 +80,7 @@ func (w *WAL) AppendMany(records []Record) error {
 		}
 	}
 
-	if err = tx.Commit(w.file); err != nil {
+	if err = tx.Commit(ctx, w.file); err != nil {
 		return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
 	}
 

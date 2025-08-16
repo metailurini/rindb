@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"slices"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestBloomFilter(t *testing.T) {
 
 	for _, word := range wordAbsent {
 		if !b.Lookup(Bytes(word)) {
-			DEBUG("word: %v\n", word)
+			DEBUG(context.Background(), "word: %v\n", word)
 			assert.False(t, slices.Contains(wordPresent, word))
 		}
 	}

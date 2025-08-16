@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -10,7 +11,8 @@ import (
 )
 
 func main() {
-	db, err := rindb.InitRinDB()
+	ctx := context.Background()
+	db, err := rindb.InitRinDB(ctx)
 	if err != nil {
 		fmt.Println("Error initializing database:", err)
 		return
@@ -32,7 +34,7 @@ func main() {
 				fmt.Println("Usage: put <key> <value>")
 				continue
 			}
-			err := db.Put(rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
+			err := db.Put(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
 			if err != nil {
 				fmt.Println("Error:", err)
 			} else {
@@ -43,7 +45,7 @@ func main() {
 				fmt.Println("Usage: get <key>")
 				continue
 			}
-			value, err := db.Get(rindb.Bytes(parts[1]))
+			value, err := db.Get(ctx, rindb.Bytes(parts[1]))
 			if err != nil {
 				fmt.Println("Error:", err)
 			} else {
@@ -54,7 +56,7 @@ func main() {
 				fmt.Println("Usage: remove <key>")
 				continue
 			}
-			err := db.Remove(rindb.Bytes(parts[1]))
+			err := db.Remove(ctx, rindb.Bytes(parts[1]))
 			if err != nil {
 				fmt.Println("Error:", err)
 			} else {
@@ -65,7 +67,7 @@ func main() {
 				fmt.Println("Usage: range <start> <end>")
 				continue
 			}
-			iter, err := db.IRange(rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
+			iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue

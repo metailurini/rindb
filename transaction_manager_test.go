@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"bytes"
+	"context"
 	"sync"
 	"testing"
 )
@@ -57,7 +58,7 @@ func TestWriteAfterCommit(t *testing.T) {
 
 	txn.Write([]byte("data"))
 	var buf bytes.Buffer
-	if err := txn.Commit(&buf); err != nil {
+	if err := txn.Commit(context.Background(), &buf); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -74,7 +75,7 @@ func TestCommit(t *testing.T) {
 
 	txn.Write([]byte("commit me"))
 	var buf bytes.Buffer
-	err := txn.Commit(&buf)
+	err := txn.Commit(context.Background(), &buf)
 	if err != nil {
 		t.Errorf("Commit failed: %v", err)
 	}
@@ -96,9 +97,9 @@ func TestCommitAfterCommit(t *testing.T) {
 
 	txn.Write([]byte("data"))
 	var buf bytes.Buffer
-	txn.Commit(&buf)
+	txn.Commit(context.Background(), &buf)
 
-	err := txn.Commit(&buf)
+	err := txn.Commit(context.Background(), &buf)
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}
@@ -110,7 +111,7 @@ func TestRollback(t *testing.T) {
 	txn := tm.Begin()
 
 	txn.Write([]byte("rollback me"))
-	err := txn.Rollback()
+	err := txn.Rollback(context.Background())
 	if err != nil {
 		t.Errorf("Rollback failed: %v", err)
 	}
@@ -128,9 +129,9 @@ func TestRollbackAfterRollback(t *testing.T) {
 	txn := tm.Begin()
 
 	txn.Write([]byte("data"))
-	txn.Rollback()
+	txn.Rollback(context.Background())
 
-	err := txn.Rollback()
+	err := txn.Rollback(context.Background())
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}

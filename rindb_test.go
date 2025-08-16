@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -35,11 +36,11 @@ func TestRindb_Put(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	t.Run("BasicPut", func(t *testing.T) {
-		err := rin.Put(Bytes("key"), Bytes("value"))
+		err := rin.Put(context.Background(), Bytes("key"), Bytes("value"))
 		assert.NoError(t, err)
 	})
 	t.Run("Tombstone", func(t *testing.T) {
-		err := rin.Put(Bytes("rm-key"), nil)
+		err := rin.Put(context.Background(), Bytes("rm-key"), nil)
 		assert.NoError(t, err)
 	})
 }
@@ -49,9 +50,9 @@ func TestRindb_Get(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	key := Bytes("key")
-	err := rin.Put(key, Bytes("value"))
+	err := rin.Put(context.Background(), key, Bytes("value"))
 	assert.NoError(t, err)
-	value, err := rin.Get(key)
+	value, err := rin.Get(context.Background(), key)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value"), value)
 }
@@ -61,11 +62,11 @@ func TestRindb_Remove(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	key := Bytes("rm-key")
-	err := rin.Put(key, Bytes("value"))
+	err := rin.Put(context.Background(), key, Bytes("value"))
 	assert.NoError(t, err)
-	err = rin.Remove(key)
+	err = rin.Remove(context.Background(), key)
 	assert.NoError(t, err)
-	value, err := rin.Get(key)
+	value, err := rin.Get(context.Background(), key)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes(nil), value)
 }
@@ -74,25 +75,25 @@ func TestRindb_Remove(t *testing.T) {
 func TestRindb_FlushMemtable(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
-	err := rin.Put(Bytes("key"), Bytes("value"))
+	err := rin.Put(context.Background(), Bytes("key"), Bytes("value"))
 	assert.NoError(t, err)
-	err = rin.Put(Bytes("rm-key"), Bytes("value"))
+	err = rin.Put(context.Background(), Bytes("rm-key"), Bytes("value"))
 	assert.NoError(t, err)
-	err = rin.Remove(Bytes("rm-key"))
+	err = rin.Remove(context.Background(), Bytes("rm-key"))
 	assert.NoError(t, err)
 	// SSTableManager is now part of rin, no need to init separately
 	// We still need a new FS for the flush operation itself
-	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(0)
+	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(context.Background(), 0)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
-	newSStable, err := Flush(rin.config, rin.memtable, newSSTableFS)
+	newSStable, err := Flush(context.Background(), rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
-	value, err := newSStable.GetValue(Bytes("rm-key"))
+	value, err := newSStable.GetValue(context.Background(), Bytes("rm-key"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes(nil), value)
-	value, err = newSStable.GetValue(Bytes("key"))
+	value, err = newSStable.GetValue(context.Background(), Bytes("key"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value"), value)
 }
@@ -102,7 +103,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	// SSTableManager is now part of rin
-	fs, err := rin.ssTableManager.NewSSTableFS(0) // Create FS for the initial SSTable
+	fs, err := rin.ssTableManager.NewSSTableFS(context.Background(), 0) // Create FS for the initial SSTable
 	assert.NoError(t, err)
 	// Defer close for the FS used in the test setup
 	defer func() {
@@ -117,10 +118,10 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	} else if rin.ssTableManager.levels[0] == nil {
 		rin.ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
 	}
-	rin.ssTableManager.levels[0].PushBack(fs)   // Add the newly created SSTable FS to the manager
-	err = rin.Put(Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
+	rin.ssTableManager.levels[0].PushBack(fs)                         // Add the newly created SSTable FS to the manager
+	err = rin.Put(context.Background(), Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
-	v, err := rin.Get(Bytes("k1"))
+	v, err := rin.Get(context.Background(), Bytes("k1"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1-mem"), v)
 }
@@ -137,20 +138,20 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 			defer wg.Done()
 			key := Bytes(fmt.Sprintf("k%d", i))
 			value := Bytes(fmt.Sprintf("v%d", i))
-			assert.NoError(t, rin.Put(key, value))
-			v, err := rin.Get(key)
+			assert.NoError(t, rin.Put(context.Background(), key, value))
+			v, err := rin.Get(context.Background(), key)
 			assert.NoError(t, err)
 
 			assert.Equal(t, value, v)
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 			value = Bytes(fmt.Sprintf("v%d-updated", i))
-			assert.NoError(t, rin.Put(key, value))
+			assert.NoError(t, rin.Put(context.Background(), key, value))
 
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-			v, err = rin.Get(key)
+			v, err = rin.Get(context.Background(), key)
 			assert.NoError(t, err)
 			assert.Equal(t, value, v)
-			assert.NoError(t, rin.Remove(key))
+			assert.NoError(t, rin.Remove(context.Background(), key))
 		}(i)
 	}
 	wg.Wait()
@@ -159,7 +160,7 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 // TestRindb_Close tests the Close operation of Rindb using the helper.
 func TestRindb_Close(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
-	err := rin.Put(Bytes("key1"), Bytes("value1"))
+	err := rin.Put(context.Background(), Bytes("key1"), Bytes("value1"))
 	assert.NoError(t, err)
 
 	// Explicitly call cleanup to test the closing part
@@ -169,13 +170,13 @@ func TestRindb_Close(t *testing.T) {
 	assert.True(t, rin.closed, "Rindb instance should be marked as closed")
 
 	// Verify operations fail after close
-	_, getErr := rin.Get(Bytes("key1"))
+	_, getErr := rin.Get(context.Background(), Bytes("key1"))
 	assert.ErrorIs(t, getErr, ErrDatabaseClosed, "Get should fail with ErrDatabaseClosed after Close")
 
-	putErr := rin.Put(Bytes("key2"), Bytes("value2"))
+	putErr := rin.Put(context.Background(), Bytes("key2"), Bytes("value2"))
 	assert.ErrorIs(t, putErr, ErrDatabaseClosed, "Put should fail with ErrDatabaseClosed after Close")
 
-	removeErr := rin.Remove(Bytes("key1"))
+	removeErr := rin.Remove(context.Background(), Bytes("key1"))
 	assert.ErrorIs(t, removeErr, ErrDatabaseClosed, "Remove should fail with ErrDatabaseClosed after Close")
 
 	// We don't need the manual checks for WAL/SSTable closure here anymore,
@@ -200,9 +201,9 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	defer cleanup()
 
 	// Add data that will exceed the small memtable size limit
-	err := rin.Put(Bytes("key1"), Bytes("value1-loooooooooong"))
+	err := rin.Put(context.Background(), Bytes("key1"), Bytes("value1-loooooooooong"))
 	assert.NoError(t, err)
-	err = rin.Put(Bytes("key2"), Bytes("value2-loooooooooong"))
+	err = rin.Put(context.Background(), Bytes("key2"), Bytes("value2-loooooooooong"))
 	assert.NoError(t, err)
 
 	// Check size before the Put that should trigger the flush
@@ -210,7 +211,7 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	assert.LessOrEqual(t, uint(sizeBeforeFlush), rin.config.maxMemtableSize, "Size should be below threshold before triggering put")
 
 	// This Put should trigger the flush
-	err = rin.Put(Bytes("key3"), Bytes("value3-loooooooooong"))
+	err = rin.Put(context.Background(), Bytes("key3"), Bytes("value3-loooooooooong"))
 	assert.NoError(t, err)
 
 	// Assertions after the flush should have occurred
@@ -227,15 +228,15 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 
 	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
 	// We can Get the keys back to ensure they were persisted correctly
-	val1, err := rin.Get(Bytes("key1"))
+	val1, err := rin.Get(context.Background(), Bytes("key1"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value1-loooooooooong"), val1)
 
-	val2, err := rin.Get(Bytes("key2"))
+	val2, err := rin.Get(context.Background(), Bytes("key2"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value2-loooooooooong"), val2)
 
-	val3, err := rin.Get(Bytes("key3"))
+	val3, err := rin.Get(context.Background(), Bytes("key3"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value3-loooooooooong"), val3)
 }
@@ -261,15 +262,15 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		// Manually create WAL and add records to simulate memtable content
 		walPath := path.Join(databaseDir, "WAL")
 		_ = os.RemoveAll(walPath) // delete WAL directory if it exists
-		fs, err := OpenFS(walPath)
+		fs, err := OpenFS(context.Background(), walPath)
 		assert.NoError(t, err)
 		wal := NewWAL(DefaultConfig(), fs)
 		defer func() { _ = wal.Close() }()
 
 		// Add records with sequence numbers
-		assert.NoError(t, wal.Append(NewRecord(Bytes("k1"), Bytes("v1"), 10)))
-		assert.NoError(t, wal.Append(NewRecord(Bytes("k2"), Bytes("v2"), 20)))
-		assert.NoError(t, wal.Append(NewRecord(Bytes("k3"), Bytes("v3"), 30)))
+		assert.NoError(t, wal.Append(context.Background(), NewRecord(Bytes("k1"), Bytes("v1"), 10)))
+		assert.NoError(t, wal.Append(context.Background(), NewRecord(Bytes("k2"), Bytes("v2"), 20)))
+		assert.NoError(t, wal.Append(context.Background(), NewRecord(Bytes("k3"), Bytes("v3"), 30)))
 
 		opts := testOptions()
 		opts = append(opts, WithDatabaseDir(databaseDir))
@@ -291,7 +292,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Manually create an SSTable with a high sequence number
 		// Use rin.ssTableManager directly
-		fs, err := rin.ssTableManager.NewSSTableFS(0)
+		fs, err := rin.ssTableManager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		defer func() { _ = fs.Close() }()
 
@@ -299,17 +300,17 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem := InitMemtable(rin.config)
 		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 50))
 		mem.Put(NewRecord(Bytes("sk2"), Bytes("sv2"), 60))
-		_, err = Flush(rin.config, mem, fs)
+		_, err = Flush(context.Background(), rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(context.Background(), 0, fs))
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
 		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(walPath)
+		walFs, err := OpenFS(context.Background(), walPath)
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
-		assert.NoError(t, wal.Append(NewRecord(Bytes("wk1"), Bytes("wv1"), 5)))
+		assert.NoError(t, wal.Append(context.Background(), NewRecord(Bytes("wk1"), Bytes("wv1"), 5)))
 
 		assert.NoError(t, rin.Close())
 		rin, cleanup = initRinDBWithCleanup(t, opts...)
@@ -330,24 +331,24 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Manually create an SSTable with a high sequence number
 		// Use rin.ssTableManager directly
-		fs, err := rin.ssTableManager.NewSSTableFS(0)
+		fs, err := rin.ssTableManager.NewSSTableFS(context.Background(), 0)
 		assert.NoError(t, err)
 		defer func() { _ = fs.Close() }()
 
 		mem := InitMemtable(rin.config)
 		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 70))
-		_, err = Flush(rin.config, mem, fs)
+		_, err = Flush(context.Background(), rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(context.Background(), 0, fs))
 
 		// Create a WAL with the same highest sequence number
 		// The database directory is already created by initRinDBWithCleanup
 		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(walPath)
+		walFs, err := OpenFS(context.Background(), walPath)
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
-		assert.NoError(t, wal.Append(NewRecord(Bytes("wk1"), Bytes("wv1"), 70)))
+		assert.NoError(t, wal.Append(context.Background(), NewRecord(Bytes("wk1"), Bytes("wv1"), 70)))
 
 		assert.NoError(t, rin.Close())
 		rin, cleanup = initRinDBWithCleanup(t, opts...)
