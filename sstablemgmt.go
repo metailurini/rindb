@@ -12,8 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oklog/ulid/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // SSTableManager manages SSTable storage and compaction in a leveled structure.
@@ -27,6 +30,29 @@ type SSTableManager struct {
 	levels   []*LinkedList[*FileSystem]
 	config   Config
 	mu       sync.RWMutex
+}
+
+var (
+	sstableMgmtTracer = otel.Tracer("rindb/sstablemgmt")
+	sstableMgmtMeter  = otel.Meter("rindb/sstablemgmt")
+
+	addSSTableLatency   metric.Float64Histogram
+	addSSTableCalls     metric.Int64Counter
+	compactLatency      metric.Float64Histogram
+	compactCalls        metric.Int64Counter
+	getRelevantLatency  metric.Float64Histogram
+	getRelevantCalls    metric.Int64Counter
+	getRelevantSSTables metric.Int64Counter
+)
+
+func init() {
+	addSSTableLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.add.latency", metric.WithUnit("ms"))
+	addSSTableCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.add.calls")
+	compactLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.compact.latency", metric.WithUnit("ms"))
+	compactCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.compact.calls")
+	getRelevantLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.get_relevant.latency", metric.WithUnit("ms"))
+	getRelevantCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.calls")
+	getRelevantSSTables, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.sstables")
 }
 
 // openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
@@ -56,6 +82,14 @@ func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, er
 
 // AddSSTable registers a new SSTable file system with the manager at the specified level.
 func (h *SSTableManager) AddSSTable(ctx context.Context, levelNumb int, fs *FileSystem) error {
+	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
+	start := time.Now()
+	defer func() {
+		span.End()
+		addSSTableLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
+		addSSTableCalls.Add(ctx, 1)
+	}()
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -217,6 +251,14 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level
 }
 
 func (h *SSTableManager) Compact(ctx context.Context) error {
+	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.Compact")
+	start := time.Now()
+	defer func() {
+		span.End()
+		compactLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
+		compactCalls.Add(ctx, 1)
+	}()
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	INFO(ctx, "Starting compaction check across %d levels", len(h.levels))
@@ -409,6 +451,14 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 // The SSTables in Level 0 are appended to the list, maintaining newest-first order.
 // while SSTables from higher levels are added to the back.
 func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) (*LinkedList[*SStable], error) {
+	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.GetRelevantSSTables")
+	start := time.Now()
+	defer func() {
+		span.End()
+		getRelevantLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
+		getRelevantCalls.Add(ctx, 1)
+	}()
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -462,6 +512,8 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			}
 		}
 	}
+
+	getRelevantSSTables.Add(ctx, int64(relevantSSTables.Len()))
 	return relevantSSTables, nil
 }
 
