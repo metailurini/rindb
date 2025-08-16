@@ -111,7 +111,6 @@ func NewBloomFilter(options ...BloomFilterOpt) *BloomFilter {
 
 // Insert adds a string to the BloomFilter.
 func (b *BloomFilter) Insert(str Bytes) {
-	DEBUG("Inserting %s", str)
 	l := b.bucket.size
 	for i := b.config.k; i > 0; i-- {
 		hv := hashStr(str, i)
