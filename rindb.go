@@ -173,6 +173,8 @@ func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer CloseIterator(iter)
+
 	var result []Record
 	for iter.HasNext() {
 		rec, err := iter.Next()
@@ -217,10 +219,11 @@ type mergedRangeIterator struct {
 	next       Record
 	prepared   bool
 	cleanup    func()
+	err        error
 }
 
 func (m *mergedRangeIterator) prepare() {
-	for !m.prepared && m.pq.Len() > 0 {
+	for !m.prepared && m.err == nil && m.pq.Len() > 0 {
 		item := m.pq.PopItem()
 		key := item.rec.GetKey()
 
@@ -235,14 +238,17 @@ func (m *mergedRangeIterator) prepare() {
 
 		if item.iter.HasNext() {
 			rec, err := item.iter.Next()
-			if err == nil {
+			if err != nil {
+				if !errors.Is(err, EOI) {
+					m.err = err
+				}
+			} else {
 				m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
 			}
 		}
 	}
-	if !m.prepared && m.cleanup != nil {
-		m.cleanup()
-		m.cleanup = nil
+	if m.err != nil || (!m.prepared && m.pq.Len() == 0) {
+		_ = m.Close()
 	}
 }
 
@@ -256,10 +262,30 @@ func (m *mergedRangeIterator) HasNext() bool {
 func (m *mergedRangeIterator) Next() (Record, error) {
 	if !m.HasNext() {
 		var empty Record
+		if m.err != nil {
+			return empty, m.err
+		}
 		return empty, EOI
 	}
 	m.prepared = false
 	return m.next, nil
+}
+
+// Close releases any resources held by the iterator. It is safe to call multiple times.
+func (m *mergedRangeIterator) Close() error {
+	if m.cleanup != nil {
+		m.cleanup()
+		m.cleanup = nil
+	}
+	return m.err
+}
+
+// CloseIterator calls Close on iter if it implements it.
+func CloseIterator[T any](iter Iterator[T]) error {
+	if c, ok := any(iter).(interface{ Close() error }); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 // Put inserts or updates a key-value pair in the database.
