@@ -147,7 +147,10 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 
 // IRange returns an iterator over records with keys in [start, end],
 // merged across the memtable and relevant SSTables.
-func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (Iterator[Record], error) {
+//
+// The returned iterator must be closed when no longer needed to release
+// any associated resources.
+func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
 	ctx, span := tracer.Start(ctx, "db.irange")
 	if span.IsRecording() {
 		span.SetAttributes(
@@ -192,7 +195,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (Iterator[Record],
 
 	pq := buildRangePQ(iterators)
 
-	return &mergedIRange{pq: pq, cleanup: cleanup}, nil
+	return &RangeIterator{pq: pq, cleanup: cleanup}, nil
 }
 
 type pqItem struct {
@@ -221,7 +224,10 @@ func buildRangePQ(iterators []Iterator[Record]) *PriorityQueue[pqItem] {
 	return pq
 }
 
-type mergedIRange struct {
+// RangeIterator merges multiple iterators and iterates over them in order.
+// It implements Iterator[Record] and provides a Close method for resource
+// cleanup.
+type RangeIterator struct {
 	pq         *PriorityQueue[pqItem]
 	lastKey    Bytes
 	lastKeySet bool
@@ -231,7 +237,7 @@ type mergedIRange struct {
 	err        error
 }
 
-func (m *mergedIRange) prepare() {
+func (m *RangeIterator) prepare() {
 	for !m.prepared && m.err == nil && m.pq.Len() > 0 {
 		item := m.pq.PopItem()
 		key := item.rec.GetKey()
@@ -262,13 +268,13 @@ func (m *mergedIRange) prepare() {
 }
 
 // HasNext implements Iterator[Record].
-func (m *mergedIRange) HasNext() bool {
+func (m *RangeIterator) HasNext() bool {
 	m.prepare()
 	return m.prepared
 }
 
 // Next implements Iterator[Record].
-func (m *mergedIRange) Next() (Record, error) {
+func (m *RangeIterator) Next() (Record, error) {
 	if !m.HasNext() {
 		var empty Record
 		if m.err != nil {
@@ -281,7 +287,7 @@ func (m *mergedIRange) Next() (Record, error) {
 }
 
 // Close releases any resources held by the iterator. It is safe to call multiple times.
-func (m *mergedIRange) Close() error {
+func (m *RangeIterator) Close() error {
 	if m.cleanup != nil {
 		m.cleanup()
 		m.cleanup = nil

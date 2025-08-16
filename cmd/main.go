@@ -80,7 +80,7 @@ func main() {
 				}
 				fmt.Printf("%s:%s\n", rec.GetKey(), rec.GetValue())
 			}
-			rindb.CloseIterator(iter)
+			_ = iter.Close()
 		case "exit":
 			return
 		default:

@@ -112,7 +112,7 @@ func TestRindbRange(t *testing.T) {
 			iter, err := r.IRange(context.Background(), tt.start, tt.end)
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
-			CloseIterator(iter)
+			_ = iter.Close()
 		})
 	}
 }
@@ -135,13 +135,13 @@ func (e *errIterator) Next() (Record, error) {
 	return rec, nil
 }
 
-func TestMergedIRangeErrorPropagates(t *testing.T) {
+func TestRangeIteratorErrorPropagates(t *testing.T) {
 	r1 := NewRecord(Bytes("a"), Bytes("1"), 1)
 	r2 := NewRecord(Bytes("b"), Bytes("2"), 2)
 	it := &errIterator{records: []Record{r1, r2}}
 	pq := buildRangePQ([]Iterator[Record]{it})
 	cleaned := false
-	iter := &mergedIRange{pq: pq, cleanup: func() { cleaned = true }}
+	iter := &RangeIterator{pq: pq, cleanup: func() { cleaned = true }}
 
 	assert.True(t, iter.HasNext())
 	rec, err := iter.Next()
@@ -174,6 +174,6 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 		assert.NoError(t, err)
 	}
 	assert.True(t, sst1.IsOpened())
-	CloseIterator(iter)
+	_ = iter.Close()
 	assert.False(t, sst1.IsOpened())
 }

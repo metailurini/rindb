@@ -340,7 +340,9 @@ func assertIteratorRecords(t *testing.T, iter Iterator[Record], expected []Recor
 	assert.Equal(t, len(expected), idx, "Number of records iterated does not match expected count")
 	_, err := iter.Next()
 	assert.ErrorIs(t, err, EOI, "Iterator should return EOI after iterating through all expected records")
-	_ = CloseIterator(iter)
+	if c, ok := iter.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
 }
 
 // assertIteratorValues iterates through a generic Iterator[T] and asserts that the values match the expected slice.
