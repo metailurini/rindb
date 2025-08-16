@@ -126,9 +126,9 @@ func (r *Rindb) Get(key Bytes) (Bytes, error) {
 	return r.ssTableManager.searchKey(key)
 }
 
-// RangeIterator returns an iterator over records with keys in [start, end],
+// IRange returns an iterator over records with keys in [start, end],
 // merged across the memtable and relevant SSTables.
-func (r *Rindb) RangeIterator(start, end Bytes) (Iterator[Record], error) {
+func (r *Rindb) IRange(start, end Bytes) (Iterator[Record], error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -136,7 +136,7 @@ func (r *Rindb) RangeIterator(start, end Bytes) (Iterator[Record], error) {
 		return nil, ErrDatabaseClosed
 	}
 
-	iterators := []Iterator[Record]{r.memtable.RangeIterator(start, end)}
+	iterators := []Iterator[Record]{r.memtable.IRange(start, end)}
 
 	sstables, err := r.ssTableManager.GetRelevantSSTables(start, end)
 	if err != nil {
@@ -154,7 +154,7 @@ func (r *Rindb) RangeIterator(start, end Bytes) (Iterator[Record], error) {
 	it := sstables.Iterator()
 	for it.HasNext() {
 		sst, _ := it.Next()
-		rangeIter, err := sst.RangeIterator(start, end)
+		rangeIter, err := sst.IRange(start, end)
 		if err != nil {
 			cleanup()
 			return nil, err
@@ -164,7 +164,7 @@ func (r *Rindb) RangeIterator(start, end Bytes) (Iterator[Record], error) {
 
 	pq := buildRangePQ(iterators)
 
-	return &mergedRangeIterator{pq: pq, cleanup: cleanup}, nil
+	return &mergedIRange{pq: pq, cleanup: cleanup}, nil
 }
 
 type pqItem struct {
@@ -193,7 +193,7 @@ func buildRangePQ(iterators []Iterator[Record]) *PriorityQueue[pqItem] {
 	return pq
 }
 
-type mergedRangeIterator struct {
+type mergedIRange struct {
 	pq         *PriorityQueue[pqItem]
 	lastKey    Bytes
 	lastKeySet bool
@@ -203,7 +203,7 @@ type mergedRangeIterator struct {
 	err        error
 }
 
-func (m *mergedRangeIterator) prepare() {
+func (m *mergedIRange) prepare() {
 	for !m.prepared && m.err == nil && m.pq.Len() > 0 {
 		item := m.pq.PopItem()
 		key := item.rec.GetKey()
@@ -234,13 +234,13 @@ func (m *mergedRangeIterator) prepare() {
 }
 
 // HasNext implements Iterator[Record].
-func (m *mergedRangeIterator) HasNext() bool {
+func (m *mergedIRange) HasNext() bool {
 	m.prepare()
 	return m.prepared
 }
 
 // Next implements Iterator[Record].
-func (m *mergedRangeIterator) Next() (Record, error) {
+func (m *mergedIRange) Next() (Record, error) {
 	if !m.HasNext() {
 		var empty Record
 		if m.err != nil {
@@ -253,7 +253,7 @@ func (m *mergedRangeIterator) Next() (Record, error) {
 }
 
 // Close releases any resources held by the iterator. It is safe to call multiple times.
-func (m *mergedRangeIterator) Close() error {
+func (m *mergedIRange) Close() error {
 	if m.cleanup != nil {
 		m.cleanup()
 		m.cleanup = nil

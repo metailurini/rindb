@@ -74,9 +74,9 @@ func (m *Memtable) Iterator() Iterator[Record] {
 	return m.data.Iterator()
 }
 
-// RangeIterator returns an iterator over records whose keys fall within [start, end].
-func (m *Memtable) RangeIterator(start, end Bytes) Iterator[Record] {
-	return m.data.RangeIterator(start, end)
+// IRange returns an iterator over records whose keys fall within [start, end].
+func (m *Memtable) IRange(start, end Bytes) Iterator[Record] {
+	return m.data.IRange(start, end)
 }
 
 // getMaxSequenceNumberFromMemtable iterates through the memtable to find the maximum sequence number.

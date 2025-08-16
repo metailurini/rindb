@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"errors"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +40,7 @@ func TestRindbRange(t *testing.T) {
 		config:         ts.Manager.config,
 	}
 
-	iter, err := r.RangeIterator(Bytes("a"), Bytes("z"))
+	iter, err := r.IRange(Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
 	expected := []Record{
@@ -68,13 +69,13 @@ func (e *errIterator) Next() (Record, error) {
 	return rec, nil
 }
 
-func TestMergedRangeIteratorErrorPropagates(t *testing.T) {
+func TestMergedIRangeErrorPropagates(t *testing.T) {
 	r1 := NewRecord(Bytes("a"), Bytes("1"), 1)
 	r2 := NewRecord(Bytes("b"), Bytes("2"), 2)
 	it := &errIterator{records: []Record{r1, r2}}
 	pq := buildRangePQ([]Iterator[Record]{it})
 	cleaned := false
-	iter := &mergedRangeIterator{pq: pq, cleanup: func() { cleaned = true }}
+	iter := &mergedIRange{pq: pq, cleanup: func() { cleaned = true }}
 
 	assert.True(t, iter.HasNext())
 	rec, err := iter.Next()
@@ -87,7 +88,7 @@ func TestMergedRangeIteratorErrorPropagates(t *testing.T) {
 	assert.True(t, cleaned)
 }
 
-func TestRangeIteratorCloseReleasesSSTables(t *testing.T) {
+func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	ts := newTestRindbSetup(t, nil)
 	defer ts.Cleanup()
 
@@ -99,7 +100,7 @@ func TestRangeIteratorCloseReleasesSSTables(t *testing.T) {
 
 	mem := InitMemtable(ts.Manager.config)
 	r := Rindb{memtable: mem, ssTableManager: ts.Manager, config: ts.Manager.config}
-	iter, err := r.RangeIterator(Bytes("a"), Bytes("z"))
+	iter, err := r.IRange(Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
 	if iter.HasNext() {
