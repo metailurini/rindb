@@ -167,25 +167,6 @@ func (r *Rindb) RangeIterator(start, end Bytes) (Iterator[Record], error) {
 	return &mergedRangeIterator{pq: pq, cleanup: cleanup}, nil
 }
 
-// Range returns all records with keys in [start, end], merged across memtable and SSTables.
-func (r *Rindb) Range(start, end Bytes) ([]Record, error) {
-	iter, err := r.RangeIterator(start, end)
-	if err != nil {
-		return nil, err
-	}
-	defer CloseIterator(iter)
-
-	var result []Record
-	for iter.HasNext() {
-		rec, err := iter.Next()
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, rec)
-	}
-	return result, nil
-}
-
 type pqItem struct {
 	rec  Record
 	iter Iterator[Record]
