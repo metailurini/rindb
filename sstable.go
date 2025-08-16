@@ -55,29 +55,12 @@ func (k KeyOffset) GetSequenceNumber() uint64 {
 }
 
 func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
-	headIdx := 0
-	tailIdx := len(s) - 1
+	idx := sort.Search(len(s), func(i int) bool {
+		return Compare(s[i].key, key) >= 0
+	})
 
-	for {
-		if Compare(key, s[headIdx].key) == CmpEqual {
-			return s[headIdx].offset, nil
-		}
-
-		if Compare(key, s[tailIdx].key) == CmpEqual {
-			return s[tailIdx].offset, nil
-		}
-
-		const half = 2
-		midIdx := (headIdx + tailIdx) / half
-		if headIdx == midIdx || tailIdx == midIdx {
-			break
-		}
-
-		if Compare(key, s[midIdx].key) == CmpLess {
-			tailIdx = midIdx
-		} else {
-			headIdx = midIdx
-		}
+	if idx < len(s) && Compare(s[idx].key, key) == CmpEqual {
+		return s[idx].offset, nil
 	}
 
 	return 0, ErrKeyNotFound
