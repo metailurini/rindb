@@ -68,8 +68,6 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		assert.Equal(t, Bytes("single_value"), got)
 	})
 	t.Run("MultipleRecords", func(t *testing.T) {
-		t.Skip("skipping due to seek issues in this environment")
-
 		// Reopen filesystem to reset state
 		_ = fs.Close()
 		var err error
