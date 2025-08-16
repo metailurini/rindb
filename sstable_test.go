@@ -176,7 +176,7 @@ func TestSStable(t *testing.T) {
 		assert.ErrorIs(t, err, EOI)
 		assert.Nil(t, record)
 	})
-	t.Run("RangeIterator", func(t *testing.T) {
+	t.Run("IRange", func(t *testing.T) {
 		cfg := testConfig()
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
@@ -304,7 +304,7 @@ func TestSStable(t *testing.T) {
 				_, err := sstable.file.Seek(0, io.SeekStart)
 				assert.NoError(t, err)
 
-				iterator, err := sstable.RangeIterator(tt.startKey, tt.endKey)
+				iterator, err := sstable.IRange(tt.startKey, tt.endKey)
 				if tt.expectError {
 					assert.Error(t, err)
 					return

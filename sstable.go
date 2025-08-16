@@ -327,20 +327,20 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 	}, nil
 }
 
-// sstableRangeIterator iterates over a range of keys in an SSTable.
-type sstableRangeIterator struct {
+// sstableIRange iterates over a range of keys in an SSTable.
+type sstableIRange struct {
 	s       *SStable
 	current int
 	endKey  Bytes
 }
 
 // HasNext implements Iterator.
-func (sri *sstableRangeIterator) HasNext() bool {
+func (sri *sstableIRange) HasNext() bool {
 	return sri.current < len(sri.s.SparseIndex) && sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) <= 0
 }
 
 // Next implements Iterator.
-func (sri *sstableRangeIterator) Next() (Record, error) {
+func (sri *sstableIRange) Next() (Record, error) {
 	if !sri.HasNext() {
 		return nil, EOI
 	}
@@ -352,16 +352,16 @@ func (sri *sstableRangeIterator) Next() (Record, error) {
 	return rec, nil
 }
 
-// RangeIterator returns an iterator over records with keys in [start, end].
-func (s SStable) RangeIterator(start, end Bytes) (Iterator[Record], error) {
+// IRange returns an iterator over records with keys in [start, end].
+func (s SStable) IRange(start, end Bytes) (Iterator[Record], error) {
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})
 	if startIdx >= len(s.SparseIndex) {
-		return &sstableRangeIterator{s: &s, current: startIdx, endKey: end}, nil
+		return &sstableIRange{s: &s, current: startIdx, endKey: end}, nil
 	}
 	if _, err := s.file.Seek(s.SparseIndex[startIdx].offset, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return &sstableRangeIterator{s: &s, current: startIdx, endKey: end}, nil
+	return &sstableIRange{s: &s, current: startIdx, endKey: end}, nil
 }

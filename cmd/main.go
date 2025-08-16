@@ -65,7 +65,7 @@ func main() {
 				fmt.Println("Usage: range <start> <end>")
 				continue
 			}
-			iter, err := db.RangeIterator(rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
+			iter, err := db.IRange(rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue

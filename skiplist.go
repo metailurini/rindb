@@ -195,19 +195,19 @@ func (list *SkipList[K, V]) Iterator() Iterator[V] {
 	}
 }
 
-// slRangeIterator iterates over a key range within the skip list.
-type slRangeIterator[K Comparable, V any] struct {
+// slIRange iterates over a key range within the skip list.
+type slIRange[K Comparable, V any] struct {
 	node   *SLNode[K, V]
 	endKey K
 }
 
 // HasNext implements Iterator.
-func (s *slRangeIterator[K, V]) HasNext() bool {
+func (s *slIRange[K, V]) HasNext() bool {
 	return s.node != nil && Compare(s.node.Key, s.endKey) != CmpGreater
 }
 
 // Next implements Iterator.
-func (s *slRangeIterator[K, V]) Next() (V, error) {
+func (s *slIRange[K, V]) Next() (V, error) {
 	if !s.HasNext() {
 		var empty V
 		return empty, EOI
@@ -217,8 +217,8 @@ func (s *slRangeIterator[K, V]) Next() (V, error) {
 	return value, nil
 }
 
-// RangeIterator returns an iterator over records with keys in [start, end].
-func (list *SkipList[K, V]) RangeIterator(start, end K) Iterator[V] {
+// IRange returns an iterator over records with keys in [start, end].
+func (list *SkipList[K, V]) IRange(start, end K) Iterator[V] {
 	rn := list.Head()
 	rl := list.level
 	for rl > 0 {
@@ -228,7 +228,7 @@ func (list *SkipList[K, V]) RangeIterator(start, end K) Iterator[V] {
 		}
 	}
 	rn = rn.forwards[0]
-	return &slRangeIterator[K, V]{
+	return &slIRange[K, V]{
 		node:   rn,
 		endKey: end,
 	}
