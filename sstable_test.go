@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -22,7 +23,7 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		_, err := Flush(cfg, mem, fs)
+		_, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 	})
 	t.Run("FlushWithElements", func(t *testing.T) {
@@ -47,7 +48,7 @@ func TestSStable(t *testing.T) {
 				SequenceNumber: uint64(i),
 			})
 		}
-		sstable, err := Flush(cfg, mem, fs)
+		sstable, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
 		assert.NoError(t, err)
@@ -91,9 +92,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
-		sstable1, err := Flush(cfg, mem, fs)
+		sstable1, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
-		sstable2, err := NewSSTable(cfg, fs)
+		sstable2, err := NewSSTable(context.Background(), cfg, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, sstable1.SparseIndex, sstable2.SparseIndex)
 	})
@@ -105,9 +106,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
-		_, err := Flush(cfg, mem, fs)
+		_, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
-		sstable, err := NewSSTable(cfg, fs)
+		sstable, err := NewSSTable(context.Background(), cfg, fs)
 		assert.NoError(t, err)
 		sparseIndex := sstable.SparseIndex
 		for idx := len(sparseIndex) - 1; idx > -1; idx-- {
@@ -128,19 +129,19 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 		assert.Equal(t, uint(3), mem.data.Len())
-		sstable, err := Flush(cfg, mem, fs)
+		sstable, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(0), mem.data.Len())
-		value, err := sstable.GetValue(Bytes("2"))
+		value, err := sstable.GetValue(context.Background(), Bytes("2"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("3"), value)
-		value, err = sstable.GetValue(Bytes("1"))
+		value, err = sstable.GetValue(context.Background(), Bytes("1"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("2"), value)
-		value, err = sstable.GetValue(Bytes("3"))
+		value, err = sstable.GetValue(context.Background(), Bytes("3"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("4"), value)
-		value, err = sstable.GetValue(Bytes(".3"))
+		value, err = sstable.GetValue(context.Background(), Bytes(".3"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Equal(t, Bytes(nil), value)
 	})
@@ -152,7 +153,7 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
-		sstable, err := Flush(cfg, mem, fs)
+		sstable, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 		iterator, err := sstable.Iterator()
 		assert.NoError(t, err)
@@ -202,7 +203,7 @@ func TestSStable(t *testing.T) {
 				SequenceNumber: uint64(i),
 			})
 		}
-		sstable, err := Flush(cfg, mem, fs)
+		sstable, err := Flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 
 		tests := []struct {
@@ -479,12 +480,12 @@ func TestFlushWithTombstones(t *testing.T) {
 	mem := InitMemtable(cfg)
 	mem.Put(RecordImpl{k1, Bytes("v1"), 1})
 	mem.Put(RecordImpl{k2, nil, 2})
-	sstable, err := Flush(cfg, mem, fs)
+	sstable, err := Flush(context.Background(), cfg, mem, fs)
 	assert.NoError(t, err)
-	v1, err := sstable.GetValue(k1)
+	v1, err := sstable.GetValue(context.Background(), k1)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
-	v2, err := sstable.GetValue(k2)
+	v2, err := sstable.GetValue(context.Background(), k2)
 	assert.NoError(t, err)
 	assert.Nil(t, v2)
 }
@@ -497,9 +498,9 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	fs := fss[0]
 	mem := InitMemtable(cfg)
 	mem.Put(RecordImpl{Bytes("k1"), Bytes("v1"), 2})
-	sstable, err := Flush(cfg, mem, fs)
+	sstable, err := Flush(context.Background(), cfg, mem, fs)
 	assert.NoError(t, err)
-	_, err = sstable.GetValue(Bytes("k2"))
+	_, err = sstable.GetValue(context.Background(), Bytes("k2"))
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 	pos, err := fs.CursorPos()
 	assert.NoError(t, err)

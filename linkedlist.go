@@ -1,6 +1,8 @@
 package rindb
 
-import "errors"
+import (
+	"errors"
+)
 
 type llNode[V any] struct {
 	next  *llNode[V]
@@ -116,11 +118,9 @@ func (l *LLIterator[V]) NextValue() (V, error) {
 // Add this method to type LLIterator[V] struct
 func (l *LLIterator[V]) RemoveCurrent() error {
 	if l.runNode == l.list.rootNode {
-		ERROR("Cannot remove root node")
 		return errors.New("cannot remove root node")
 	}
 	if l.runNode == nil {
-		ERROR("No current node to remove")
 		return EOI
 	}
 	// Connect previous to next
@@ -146,7 +146,6 @@ func (l *LLIterator[V]) RemoveCurrent() error {
 
 func (l *LLIterator[V]) RemoveNext() error {
 	if !l.HasNext() {
-		ERROR("WTF, what are you thinking about this action?")
 		return EOI
 	}
 	removedNode := l.runNode.next

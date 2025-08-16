@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,9 +22,9 @@ type FileSystem struct {
 	file     *os.File
 }
 
-func OpenFS(filePath string) (*FileSystem, error) {
+func OpenFS(ctx context.Context, filePath string) (*FileSystem, error) {
 	fs := &FileSystem{filePath: filePath}
-	if err := fs.Open(); err != nil {
+	if err := fs.Open(ctx); err != nil {
 		return nil, err
 	}
 	return fs, nil
@@ -37,9 +38,9 @@ func (fs *FileSystem) IsOpened() bool {
 	return fs.file != nil
 }
 
-func (fs *FileSystem) Open() error {
+func (fs *FileSystem) Open(ctx context.Context) error {
 	if fs.IsOpened() {
-		WARN("File %s is already opened. Consider close and re-open again", fs.Path())
+		WARN(ctx, "File %s is already opened. Consider close and re-open again", fs.Path())
 		return nil
 	}
 
