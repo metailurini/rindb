@@ -80,7 +80,9 @@ func main() {
 				}
 				fmt.Printf("%s:%s\n", rec.GetKey(), rec.GetValue())
 			}
-			_ = iter.Close()
+			if err := iter.Close(); err != nil {
+				fmt.Println("Error:", err)
+			}
 		case "exit":
 			return
 		default:

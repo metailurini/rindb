@@ -341,7 +341,7 @@ func assertIteratorRecords(t *testing.T, iter Iterator[Record], expected []Recor
 	_, err := iter.Next()
 	assert.ErrorIs(t, err, EOI, "Iterator should return EOI after iterating through all expected records")
 	if c, ok := iter.(interface{ Close() error }); ok {
-		_ = c.Close()
+		assert.NoError(t, c.Close())
 	}
 }
 
