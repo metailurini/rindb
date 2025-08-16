@@ -60,7 +60,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 		return Rindb{}, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
 	}
 	wal := NewWAL(cfg, fs)
-	memtable, err := wal.Load()
+	memtable, err := wal.Load(ctx)
 	if err != nil {
 		return Rindb{}, err
 	}

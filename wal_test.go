@@ -52,7 +52,7 @@ func TestWAL_Clean(t *testing.T) {
 	b2 := make(Bytes, 5)
 	_, err = fs.Read(b2)
 	assert.NotNil(t, err)
-	mem, err := w.Load()
+	mem, err := w.Load(context.Background())
 	assert.NoError(t, err)
 	assert.Empty(t, mem.data.Len())
 	err = w.Close()
@@ -69,7 +69,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		w := NewWAL(cfg, fs)
 		err := w.Append(context.Background(), NewRecord(Bytes("single_key"), Bytes("single_value"), 1))
 		assert.NoError(t, err)
-		mem, err := w.Load()
+		mem, err := w.Load(context.Background())
 		assert.NoError(t, err)
 		got, err := mem.Get(Bytes("single_key"))
 		assert.NoError(t, err)
@@ -91,7 +91,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		err = w.AppendMany(context.Background(), records)
 		assert.NoError(t, err)
 		validateWALFormat(t, w.file)
-		mem, err := w.Load()
+		mem, err := w.Load(context.Background())
 		assert.NoError(t, err)
 		for i := 0; i < recordsSize; i++ {
 			key := Bytes(fmt.Sprintf("key.%d", i))
@@ -123,7 +123,7 @@ func TestWALCrashRecovery(t *testing.T) {
 	fs, err := OpenFS(context.Background(), fs.Path())
 	assert.NoError(t, err)
 	w = NewWAL(cfg, fs)
-	mem, err := w.Load()
+	mem, err := w.Load(context.Background())
 	assert.NoError(t, err)
 	v1, err := mem.Get(k1)
 	assert.NoError(t, err)
@@ -177,7 +177,7 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	w = NewWAL(cfg, fs)
 
 	// Load the WAL and verify that only the complete records are loaded
-	mem, err := w.Load()
+	mem, err := w.Load(context.Background())
 	assert.NoError(t, err) // Load should ideally not return an error for partial records
 
 	// Verify records 1 and 2 are present
