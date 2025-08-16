@@ -15,7 +15,7 @@ func main() {
 		fmt.Println("Error initializing database:", err)
 		return
 	}
-	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, exit")
+	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end>, exit")
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -59,6 +59,24 @@ func main() {
 				fmt.Println("Error:", err)
 			} else {
 				fmt.Println("OK")
+			}
+		case "range":
+			if len(parts) != 3 {
+				fmt.Println("Usage: range <start> <end>")
+				continue
+			}
+			iter, err := db.RangeIterator(rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
+			if err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
+			for iter.HasNext() {
+				rec, err := iter.Next()
+				if err != nil {
+					fmt.Println("Error:", err)
+					break
+				}
+				fmt.Printf("%s:%s\n", rec.GetKey(), rec.GetValue())
 			}
 		case "exit":
 			return
