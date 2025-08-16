@@ -16,10 +16,10 @@ func isRunningTests() bool {
 func LOG(ctx context.Context, logType string, msg string, args ...any) {
 	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
 		sc := span.SpanContext()
-		log.Printf("[%s] trace_id=%s span_id=%s "+msg+"\n", append([]any{logType, sc.TraceID().String(), sc.SpanID().String()}, args...)...)
+		log.Printf("["+logType+"] trace_id="+sc.TraceID().String()+" span_id="+sc.SpanID().String()+" "+msg+"\n", args...)
 		return
 	}
-	log.Printf("[%s] "+msg+"\n", append([]any{logType}, args...)...)
+	log.Printf("["+logType+"] "+msg+"\n", args...)
 }
 
 func DEBUG(ctx context.Context, msg string, args ...any) {
