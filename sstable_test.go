@@ -176,6 +176,158 @@ func TestSStable(t *testing.T) {
 		assert.ErrorIs(t, err, EOI)
 		assert.Nil(t, record)
 	})
+	t.Run("RangeIterator", func(t *testing.T) {
+		cfg := testConfig()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+
+		// Prepare data for the SSTable
+		data := []struct {
+			key   Bytes
+			value Bytes
+		}{
+			{Bytes("a"), Bytes("1")},
+			{Bytes("b"), Bytes("2")},
+			{Bytes("c"), Bytes("3")},
+			{Bytes("d"), Bytes("4")},
+			{Bytes("e"), Bytes("5")},
+			{Bytes("f"), Bytes("6")},
+		}
+		mem := InitMemtable(cfg)
+		for i, v := range data {
+			mem.Put(RecordImpl{
+				Key:            v.key,
+				Value:          v.value,
+				SequenceNumber: uint64(i),
+			})
+		}
+		sstable, err := Flush(cfg, mem, fs)
+		assert.NoError(t, err)
+
+		tests := []struct {
+			name         string
+			startKey     Bytes
+			endKey       Bytes
+			expectedKeys []Bytes
+			expectError  bool
+		}{
+			{
+				name:         "Full range",
+				startKey:     Bytes("a"),
+				endKey:       Bytes("f"),
+				expectedKeys: []Bytes{Bytes("a"), Bytes("b"), Bytes("c"), Bytes("d"), Bytes("e"), Bytes("f")},
+			},
+			{
+				name:         "Partial range (middle)",
+				startKey:     Bytes("b"),
+				endKey:       Bytes("d"),
+				expectedKeys: []Bytes{Bytes("b"), Bytes("c"), Bytes("d")},
+			},
+			{
+				name:         "Range starting at first key",
+				startKey:     Bytes("a"),
+				endKey:       Bytes("c"),
+				expectedKeys: []Bytes{Bytes("a"), Bytes("b"), Bytes("c")},
+			},
+			{
+				name:         "Range ending at last key",
+				startKey:     Bytes("d"),
+				endKey:       Bytes("f"),
+				expectedKeys: []Bytes{Bytes("d"), Bytes("e"), Bytes("f")},
+			},
+			{
+				name:         "Single element range",
+				startKey:     Bytes("c"),
+				endKey:       Bytes("c"),
+				expectedKeys: []Bytes{Bytes("c")},
+			},
+			{
+				name:         "Range with no matching keys (between existing)",
+				startKey:     Bytes("b1"),
+				endKey:       Bytes("b2"),
+				expectedKeys: nil,
+			},
+			{
+				name:         "Range completely before SSTable keys (lexicographically includes 'a')",
+				startKey:     Bytes("0"),
+				endKey:       Bytes("a0"),
+				expectedKeys: []Bytes{Bytes("a")},
+			},
+			{
+				name:         "Range completely after SSTable keys",
+				startKey:     Bytes("g"),
+				endKey:       Bytes("z"),
+				expectedKeys: nil,
+			},
+			{
+				name:         "Range overlapping start (start before, end within)",
+				startKey:     Bytes("0"),
+				endKey:       Bytes("b"),
+				expectedKeys: []Bytes{Bytes("a"), Bytes("b")},
+			},
+			{
+				name:         "Range overlapping end (start within, end after)",
+				startKey:     Bytes("e"),
+				endKey:       Bytes("z"),
+				expectedKeys: []Bytes{Bytes("e"), Bytes("f")},
+			},
+			{
+				name:         "Empty range (start > end)",
+				startKey:     Bytes("d"),
+				endKey:       Bytes("b"),
+				expectedKeys: nil,
+			},
+			{
+				name:         "Range with non-existent start key, but valid range",
+				startKey:     Bytes("a0"),
+				endKey:       Bytes("c"),
+				expectedKeys: []Bytes{Bytes("b"), Bytes("c")},
+			},
+			{
+				name:         "Range with non-existent end key, but valid range",
+				startKey:     Bytes("c"),
+				endKey:       Bytes("e0"),
+				expectedKeys: []Bytes{Bytes("c"), Bytes("d"), Bytes("e")},
+			},
+			{
+				name:         "Range with non-existent start and end keys, but valid range",
+				startKey:     Bytes("b0"),
+				endKey:       Bytes("e0"),
+				expectedKeys: []Bytes{Bytes("c"), Bytes("d"), Bytes("e")},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// Re-seek the file to the beginning for each test case
+				_, err := sstable.file.Seek(0, io.SeekStart)
+				assert.NoError(t, err)
+
+				iterator, err := sstable.RangeIterator(tt.startKey, tt.endKey)
+				if tt.expectError {
+					assert.Error(t, err)
+					return
+				}
+				assert.NoError(t, err)
+				assert.NotNil(t, iterator)
+
+				var actualKeys []Bytes
+				for iterator.HasNext() {
+					record, err := iterator.Next()
+					assert.NoError(t, err)
+					assert.NotNil(t, record)
+					actualKeys = append(actualKeys, record.GetKey())
+				}
+				assert.Equal(t, tt.expectedKeys, actualKeys)
+
+				// After iteration, Next() should return EOI
+				record, err := iterator.Next()
+				assert.ErrorIs(t, err, EOI)
+				assert.Nil(t, record)
+			})
+		}
+	})
 }
 
 // Test_genSparseIndex tests the generation of sparse index from memtable.
