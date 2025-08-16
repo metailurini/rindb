@@ -41,15 +41,80 @@ func TestRindbRange(t *testing.T) {
 		config:         ts.Manager.config,
 	}
 
-	iter, err := r.IRange(context.Background(), Bytes("a"), Bytes("z"))
-	assert.NoError(t, err)
+	recA := NewRecord(Bytes("a"), Bytes("memA"), 5)
+	recK := NewRecord(Bytes("k"), Bytes("memK"), 7)
+	recZ := NewRecord(Bytes("z"), Bytes("sstZ"), 4)
 
-	expected := []Record{
-		NewRecord(Bytes("a"), Bytes("memA"), 5),
-		NewRecord(Bytes("k"), Bytes("memK"), 7),
-		NewRecord(Bytes("z"), Bytes("sstZ"), 4),
+	tests := []struct {
+		name     string
+		start    Bytes
+		end      Bytes
+		expected []Record
+	}{
+		{
+			name:     "full range",
+			start:    Bytes("a"),
+			end:      Bytes("z"),
+			expected: []Record{recA, recK, recZ},
+		},
+		{
+			name:     "range excludes deleted key",
+			start:    Bytes("a"),
+			end:      Bytes("b"),
+			expected: []Record{recA},
+		},
+		{
+			name:     "range after deletion",
+			start:    Bytes("b"),
+			end:      Bytes("z"),
+			expected: []Record{recK, recZ},
+		},
+		{
+			name:     "middle range",
+			start:    Bytes("c"),
+			end:      Bytes("y"),
+			expected: []Record{recK},
+		},
+		{
+			name:     "single key",
+			start:    Bytes("a"),
+			end:      Bytes("a"),
+			expected: []Record{recA},
+		},
+		{
+			name:     "tombstoned key only",
+			start:    Bytes("b"),
+			end:      Bytes("b"),
+			expected: nil,
+		},
+		{
+			name:     "range before first key",
+			start:    Bytes("0"),
+			end:      Bytes("a0"),
+			expected: []Record{recA},
+		},
+		{
+			name:     "range with no records",
+			start:    Bytes("m"),
+			end:      Bytes("n"),
+			expected: nil,
+		},
+		{
+			name:     "start greater than end",
+			start:    Bytes("z"),
+			end:      Bytes("a"),
+			expected: nil,
+		},
 	}
-	assertIteratorRecords(t, iter, expected)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			iter, err := r.IRange(context.Background(), tt.start, tt.end)
+			assert.NoError(t, err)
+			assertIteratorRecords(t, iter, tt.expected)
+			CloseIterator(iter)
+		})
+	}
 }
 
 // errIterator yields one record then returns an error on subsequent Next calls.
