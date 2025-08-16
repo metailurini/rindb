@@ -112,7 +112,6 @@ func TestRindbRange(t *testing.T) {
 			iter, err := r.IRange(context.Background(), tt.start, tt.end)
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
-			_ = iter.Close()
 		})
 	}
 }
@@ -174,6 +173,6 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 		assert.NoError(t, err)
 	}
 	assert.True(t, sst1.IsOpened())
-	_ = iter.Close()
+	assert.NoError(t, iter.Close())
 	assert.False(t, sst1.IsOpened())
 }
