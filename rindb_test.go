@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -85,7 +86,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(0)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
-	newSStable, err := Flush(rin.config, rin.memtable, newSSTableFS)
+	newSStable, err := Flush(context.Background(), rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
@@ -261,9 +262,9 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		// Manually create WAL and add records to simulate memtable content
 		walPath := path.Join(databaseDir, "WAL")
 		_ = os.RemoveAll(walPath) // delete WAL directory if it exists
-		fs, err := OpenFS(walPath)
+		fs, err := OpenFS(context.Background(), walPath)
 		assert.NoError(t, err)
-		wal := NewWAL(DefaultConfig(), fs)
+		wal := NewWAL(context.Background(), DefaultConfig(), fs)
 		defer func() { _ = wal.Close() }()
 
 		// Add records with sequence numbers
@@ -299,15 +300,15 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem := InitMemtable(rin.config)
 		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 50))
 		mem.Put(NewRecord(Bytes("sk2"), Bytes("sv2"), 60))
-		_, err = Flush(rin.config, mem, fs)
+		_, err = Flush(context.Background(), rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
 		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(walPath)
+		walFs, err := OpenFS(context.Background(), walPath)
 		assert.NoError(t, err)
-		wal := NewWAL(rin.config, walFs)
+		wal := NewWAL(context.Background(), rin.config, walFs)
 		defer func() { _ = wal.Close() }()
 		assert.NoError(t, wal.Append(NewRecord(Bytes("wk1"), Bytes("wv1"), 5)))
 
@@ -336,16 +337,16 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		mem := InitMemtable(rin.config)
 		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 70))
-		_, err = Flush(rin.config, mem, fs)
+		_, err = Flush(context.Background(), rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(0, fs))
 
 		// Create a WAL with the same highest sequence number
 		// The database directory is already created by initRinDBWithCleanup
 		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(walPath)
+		walFs, err := OpenFS(context.Background(), walPath)
 		assert.NoError(t, err)
-		wal := NewWAL(rin.config, walFs)
+		wal := NewWAL(context.Background(), rin.config, walFs)
 		defer func() { _ = wal.Close() }()
 		assert.NoError(t, wal.Append(NewRecord(Bytes("wk1"), Bytes("wv1"), 70)))
 

@@ -2,6 +2,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,7 @@ type Rindb struct {
 	wg             sync.WaitGroup // WaitGroup to track background goroutines
 	closed         bool           // Flag to indicate if the database is closed
 	sequenceNumber uint64
+	ctx            context.Context
 }
 
 // InitRinDB initializes a new RinDB instance with provided configuration options.
@@ -44,7 +46,7 @@ type Rindb struct {
 // 2. Initialize Write-Ahead Log (WAL)
 // 3. Load existing memtable from WAL
 // 4. Initialize SSTable storage manager
-func InitRinDB(opts ...Option) (Rindb, error) {
+func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 	cfg := NewConfig(opts...)
 
 	// Create database directory with secure permissions (0750 = owner RWX, group RX, others none)
@@ -53,11 +55,11 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	}
 
 	walPath := path.Join(cfg.databaseDir, "WAL")
-	fs, err := OpenFS(walPath)
+	fs, err := OpenFS(ctx, walPath)
 	if err != nil {
 		return Rindb{}, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
 	}
-	wal := NewWAL(cfg, fs)
+	wal := NewWAL(ctx, cfg, fs)
 	memtable, err := wal.Load()
 	if err != nil {
 		return Rindb{}, err
@@ -73,7 +75,7 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	}
 	maxSeqNum = max(maxSeqNum, memMaxSeqNum)
 
-	ssTableManager, err := InitSSTableManager(cfg)
+	ssTableManager, err := InitSSTableManager(ctx, cfg)
 	if err != nil {
 		// Consider closing the WAL file system if manager init fails
 		_ = fs.Close()
@@ -88,13 +90,14 @@ func InitRinDB(opts ...Option) (Rindb, error) {
 	}
 	maxSeqNum = max(maxSeqNum, sstMaxSeqNum)
 
-	INFO("Initialized RinDB with database directory %s", cfg.databaseDir)
+	INFO(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
 	return Rindb{
 		wal:            wal,
 		memtable:       memtable,
 		ssTableManager: ssTableManager,
 		config:         cfg,
 		sequenceNumber: maxSeqNum,
+		ctx:            ctx,
 	}, nil
 }
 
@@ -300,45 +303,45 @@ func (r *Rindb) Put(key, value Bytes) error {
 	// Cast ByteSize() to uint to match maxMemtableSize type
 	// Check estimated byte size and flush if needed
 	if uint(r.memtable.ByteSize()) >= r.config.maxMemtableSize {
-		INFO("Memtable estimated size %d reached threshold %d, flushing.", r.memtable.ByteSize(), r.config.maxMemtableSize)
+		INFO(r.ctx, "Memtable estimated size %d reached threshold %d, flushing.", r.memtable.ByteSize(), r.config.maxMemtableSize)
 
 		// Create new SSTable file system for level 0
 		fs, err := r.ssTableManager.NewSSTableFS(0)
 		if err != nil {
-			ERROR("Failed to create new SSTable file system: %v", err)
+			ERROR(r.ctx, "Failed to create new SSTable file system: %v", err)
 			return fmt.Errorf("failed to create new SSTable file system: %w", err)
 		}
 
-		_, err = Flush(r.config, r.memtable, fs)
+		_, err = Flush(r.ctx, r.config, r.memtable, fs)
 		if err != nil {
 			_ = fs.Close() // Attempt to close FS on flush error
-			ERROR("Failed to flush memtable: %v", err)
+			ERROR(r.ctx, "Failed to flush memtable: %v", err)
 			return fmt.Errorf("failed to flush memtable: %w", err)
 		}
 
 		// Register the new SSTable with ssTableManager
 		if err := r.ssTableManager.AddSSTable(0, fs); err != nil {
-			ERROR("Failed to register new SSTable %s: %v", fs.Path(), err)
+			ERROR(r.ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
 		}
 
 		// Clear the memtable and clean the WAL *after* successful flush and registration
 		r.memtable.Clear()
 		if err := r.wal.Clean(); err != nil {
-			ERROR("Failed to clean WAL after memtable flush: %v", err)
+			ERROR(r.ctx, "Failed to clean WAL after memtable flush: %v", err)
 			return fmt.Errorf("failed to clean WAL: %w", err)
 		}
 
 		// Trigger compaction in a goroutine *after* flushing
-		INFO("Triggering background compaction check.")
+		INFO(r.ctx, "Triggering background compaction check.")
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
-			INFO("Background compaction goroutine started.")
+			INFO(r.ctx, "Background compaction goroutine started.")
 			if err := r.ssTableManager.Compact(); err != nil {
-				ERROR("Background compaction failed: %v", err)
+				ERROR(r.ctx, "Background compaction failed: %v", err)
 			} else {
-				INFO("Background compaction goroutine finished.")
+				INFO(r.ctx, "Background compaction goroutine finished.")
 			}
 		}()
 	}
@@ -391,9 +394,9 @@ func (r *Rindb) Close() error {
 	r.mu.Unlock() // Unlock while waiting for goroutines
 
 	// Wait for any background operations (like compaction) to complete
-	INFO("Waiting for background operations to finish...")
+	INFO(r.ctx, "Waiting for background operations to finish...")
 	r.wg.Wait()
-	INFO("Background operations finished.")
+	INFO(r.ctx, "Background operations finished.")
 
 	// Re-acquire lock to safely close resources
 	r.mu.Lock()
@@ -402,18 +405,18 @@ func (r *Rindb) Close() error {
 	// Close the WAL
 	if err := r.wal.Close(); err != nil {
 		// Log the error but attempt to close SSTableManager anyway
-		ERROR("Error closing WAL: %v", err)
+		ERROR(r.ctx, "Error closing WAL: %v", err)
 		// Optionally return the WAL error immediately, or collect errors
 		// return fmt.Errorf("error closing WAL: %w", err)
 	} else {
-		INFO("WAL closed successfully.")
+		INFO(r.ctx, "WAL closed successfully.")
 	}
 
 	// Close the SSTableManager
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
 	r.ssTableManager.Close() // SSTableManager.Close currently doesn't return an error
-	INFO("SSTableManager closed.")
+	INFO(r.ctx, "SSTableManager closed.")
 
-	INFO("RinDB closed successfully")
+	INFO(r.ctx, "RinDB closed successfully")
 	return nil
 }

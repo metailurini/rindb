@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"io"
 	"os"
 	"testing"
@@ -49,7 +50,7 @@ func TestFileSystem_Errors(t *testing.T) {
 		assert.NoError(t, err)
 		defer os.RemoveAll(tempDir) // clean up
 
-		fs, err := OpenFS(tempDir)
+		fs, err := OpenFS(context.Background(), tempDir)
 		assert.Error(t, err) // Expect an error because it's a directory
 		assert.Nil(t, fs)
 		assert.Contains(t, err.Error(), "failed to open file") // Check for specific error type if possible/needed
@@ -66,7 +67,7 @@ func TestFileSystem_Clean_Errors(t *testing.T) {
 		err := fs.Close()
 		assert.NoError(t, err)
 
-		err = fs.Open()
+		err = fs.Open(context.Background())
 		assert.NoError(t, err)
 
 		// Make the file read-only after initial creation/opening

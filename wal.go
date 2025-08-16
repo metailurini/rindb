@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,10 +13,10 @@ type WAL struct {
 	config Config
 }
 
-func NewWAL(config Config, fs *FileSystem) WAL {
+func NewWAL(ctx context.Context, config Config, fs *FileSystem) WAL {
 	return WAL{
 		FileSystem: fs,
-		tm:         NewTransactionManager(),
+		tm:         NewTransactionManager(ctx),
 		config:     config,
 	}
 }

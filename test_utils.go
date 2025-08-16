@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -66,7 +67,7 @@ func newTestRindbSetup(t *testing.T, cfg *Config) *testRindbSetup {
 		}
 	}
 
-	manager, err := InitSSTableManager(finalCfg)
+	manager, err := InitSSTableManager(context.Background(), finalCfg)
 	assert.NoError(t, err)
 
 	// Ensure at least 3 levels exist for common test requirements.
@@ -128,7 +129,7 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 		seqNum++
 		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
 	}
-	sstable, err := Flush(ts.Manager.config, mem, fs)
+	sstable, err := Flush(context.Background(), ts.Manager.config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -142,7 +143,7 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
 		seqNum++
 	}
-	sstable, err := Flush(ts.Manager.config, mem, fs)
+	sstable, err := Flush(context.Background(), ts.Manager.config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -176,7 +177,7 @@ func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*File
 	fss := make([]*FileSystem, 0, n)
 	tempDir := t.TempDir()
 	for i := 0; i < n; i++ {
-		fs, err := OpenFS(fmt.Sprintf("%s/test-%d", tempDir, i))
+		fs, err := OpenFS(context.Background(), fmt.Sprintf("%s/test-%d", tempDir, i))
 		assert.NoError(t, err)
 
 		// Write initial content if provided for this index
@@ -235,7 +236,7 @@ func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) SStable {
 	t.Helper() // Mark this as a test helper function
 	mem := populateMemtable(cfg, pairs...)
-	sstable, err := Flush(cfg, mem, fs)
+	sstable, err := Flush(context.Background(), cfg, mem, fs)
 	assert.NoError(t, err, "Failed to flush memtable to create SSTable")
 	return sstable
 }
@@ -268,7 +269,7 @@ func initRinDBWithCleanup(t *testing.T, opts ...Option) (*Rindb, func()) {
 		finalOpts = opts
 	}
 
-	rin, err := InitRinDB(finalOpts...)
+	rin, err := InitRinDB(context.Background(), finalOpts...)
 	assert.NoError(t, err, "Failed to initialize RinDB")
 
 	// Ensure the config used for cleanup matches the one RinDB was initialized with
@@ -306,15 +307,15 @@ func assertFileNotExists(t *testing.T, path string) {
 
 // debugSkipList prints the contents of a SkipList for debugging.
 func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
-	DEBUG("--header--: %v", list.headNote)
+	DEBUG(context.Background(), "--header--: %v", list.headNote)
 	r := list.headNote.Next()
 	for r != nil {
-		DEBUG("[%v<>%v] ", r.Key, r.Value)
+		DEBUG(context.Background(), "[%v<>%v] ", r.Key, r.Value)
 		for _, v := range r.forwards {
 			if v == nil {
 				continue
 			}
-			DEBUG("[%v<>%v] ", v.Key, v.Value)
+			DEBUG(context.Background(), "[%v<>%v] ", v.Key, v.Value)
 		}
 		fmt.Println()
 		r = r.Next()

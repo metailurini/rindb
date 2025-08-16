@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,9 +21,16 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 			break
 		}
 		assert.NoError(t, err)
+
 		valueLenBytes := [mdByteSize]byte{}
 		_, err = file.Read(valueLenBytes[:])
 		assert.NoError(t, err)
+
+		// Skip sequence number bytes
+		seqNumBytes := [mdByteSize]byte{}
+		_, err = file.Read(seqNumBytes[:])
+		assert.NoError(t, err)
+
 		keyLen := byteOrder.Uint64(keyLenBytes[:])
 		valueLen := byteOrder.Uint64(valueLenBytes[:])
 		_, err = file.Seek(int64(keyLen+valueLen), io.SeekCurrent)
@@ -36,7 +44,7 @@ func TestWAL_Clean(t *testing.T) {
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(cfg, fs)
+	w := NewWAL(context.Background(), cfg, fs)
 	err := w.Append(NewRecord(Bytes("key"), Bytes("value"), 0)) // SequenceNumber can be 0 if not relevant for the test
 	assert.NoError(t, err)
 	err = w.Clean()
@@ -58,7 +66,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 	t.Run("SingleRecord", func(t *testing.T) {
-		w := NewWAL(cfg, fs)
+		w := NewWAL(context.Background(), cfg, fs)
 		err := w.Append(NewRecord(Bytes("single_key"), Bytes("single_value"), 1))
 		assert.NoError(t, err)
 		mem, err := w.Load()
@@ -71,9 +79,9 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		// Reopen filesystem to reset state
 		_ = fs.Close()
 		var err error
-		fs, err = OpenFS(fs.Path())
+		fs, err = OpenFS(context.Background(), fs.Path())
 		assert.NoError(t, err)
-		w := NewWAL(cfg, fs)
+		w := NewWAL(context.Background(), cfg, fs)
 
 		recordsSize := 1_000
 		records := make([]Record, 0, recordsSize)
@@ -101,7 +109,7 @@ func TestWALCrashRecovery(t *testing.T) {
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(cfg, fs)
+	w := NewWAL(context.Background(), cfg, fs)
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	records := []Record{
@@ -112,9 +120,9 @@ func TestWALCrashRecovery(t *testing.T) {
 		assert.NoError(t, w.Append(r))
 	}
 	assert.NoError(t, fs.Close())
-	fs, err := OpenFS(fs.Path())
+	fs, err := OpenFS(context.Background(), fs.Path())
 	assert.NoError(t, err)
-	w = NewWAL(cfg, fs)
+	w = NewWAL(context.Background(), cfg, fs)
 	mem, err := w.Load()
 	assert.NoError(t, err)
 	v1, err := mem.Get(k1)
@@ -131,7 +139,7 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
-	w := NewWAL(cfg, fs)
+	w := NewWAL(context.Background(), cfg, fs)
 
 	// Write a few complete records
 	record1 := NewRecord(Bytes("key1"), Bytes("value1"), 1)
@@ -164,9 +172,9 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 
 	// Close and re-open the file system to simulate recovery
 	assert.NoError(t, fs.Close())
-	fs, err = OpenFS(fs.Path())
+	fs, err = OpenFS(context.Background(), fs.Path())
 	assert.NoError(t, err)
-	w = NewWAL(cfg, fs)
+	w = NewWAL(context.Background(), cfg, fs)
 
 	// Load the WAL and verify that only the complete records are loaded
 	mem, err := w.Load()

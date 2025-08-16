@@ -41,13 +41,14 @@ cd rindb
 package main
 
 import (
+    "context"
     "fmt"
     "rindb"
 )
 
 func main() {
     // Initialize RinDB with default configuration
-    db, err := rindb.InitRinDB()
+    db, err := rindb.InitRinDB(context.Background())
     if err != nil {
         fmt.Println("Error initializing RinDB:", err)
         return
@@ -81,7 +82,7 @@ func main() {
 ### Custom Configuration
 
 ```go
-db, err := rindb.InitRinDB(
+db, err := rindb.InitRinDB(context.Background(),
     rindb.WithDatabaseDir("./mydb"),
     rindb.WithMaxMemtableSize(1024*1024), // 1MB
     rindb.WithBloomFalsePositiveRate(0.01),

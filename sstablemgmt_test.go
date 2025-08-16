@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -183,10 +184,10 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		// Retrieve the merged SSTable from Level 1
 		mergedFs, err := ts.Manager.levels[1].Iterator().Next()
 		assert.NoError(t, err, "Failed to get merged FS from Level 1")
-		err = mergedFs.Open() // Ensure it's open if closed previously
+		err = mergedFs.Open(context.Background()) // Ensure it's open if closed previously
 		assert.NoError(t, err, "Failed to open merged FS")
 
-		mergedSSTable, err := NewSSTable(ts.Manager.config, mergedFs)
+		mergedSSTable, err := NewSSTable(context.Background(), ts.Manager.config, mergedFs)
 		assert.NoError(t, err, "Failed to create SStable object from merged FS")
 
 		// Verify the content of the merged SSTable
@@ -468,7 +469,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		level1Paths := make([]string, numFiles)
 		var totalSize int64
 
-		INFO("Creating SSTables for Level 1 (target > 2MB total)...")
+		INFO(context.Background(), "Creating SSTables for Level 1 (target > 2MB total)...")
 		for i := 0; i < numFiles; i++ {
 			// Use ts.CreateSSTable which uses the manager's config and FS creation
 			kvs := make(map[string]string)
@@ -483,12 +484,12 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			info, statErr := os.Stat(sstable.Path())
 			assert.NoError(t, statErr)
 			totalSize += info.Size()
-			INFO("Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), info.Size())
+			INFO(context.Background(), "Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), info.Size())
 		}
 
 		// Calculate the threshold used in this test
 		level1ThresholdBytes := int64(ts.Manager.config.baseCompactionSizeMB) * int64(math.Pow(float64(ts.Manager.config.levelSizeMultiplier), 1.0)) * 1024 * 1024
-		INFO("Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
+		INFO(context.Background(), "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
 			totalSize, float64(totalSize)/(1024*1024),
 			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
@@ -496,10 +497,10 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
 		assert.Equal(t, numFiles, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
 
-		INFO("Calling Compact()...")
+		INFO(context.Background(), "Calling Compact()...")
 		err := ts.Manager.Compact()
 		assert.NoError(t, err)
-		INFO("Compact() finished.")
+		INFO(context.Background(), "Compact() finished.")
 
 		// Assert:
 		// 1. Level 1 should now be empty.
@@ -520,7 +521,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.NoError(t, err)
 		mergedInfo, err := os.Stat(mergedFs.Path())
 		assert.NoError(t, err)
-		INFO("Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
+		INFO(context.Background(), "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
 		// Check if size is roughly the sum of originals (minus overhead/duplicates, should be close)
 		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
@@ -587,9 +588,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		assert.Equal(t, fs2NoOverlapPath, oldNonOverlappingFS.Path())
 
 		// 4. Verify content of the new merged SSTable
-		err = newMergedFS.Open() // Ensure FS is open
+		err = newMergedFS.Open(context.Background()) // Ensure FS is open
 		assert.NoError(t, err)
-		mergedSSTable, err := NewSSTable(ts.Manager.config, newMergedFS)
+		mergedSSTable, err := NewSSTable(context.Background(), ts.Manager.config, newMergedFS)
 		assert.NoError(t, err)
 
 		// Expected merged content: B(L2), C(L1 - newer), D(L1)
@@ -612,9 +613,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		assert.Equal(t, Bytes("valueD_L1"), val)
 
 		// 5. Verify content of the non-overlapping SSTable (should be unchanged)
-		err = oldNonOverlappingFS.Open() // Ensure FS is open
+		err = oldNonOverlappingFS.Open(context.Background()) // Ensure FS is open
 		assert.NoError(t, err)
-		nonOverlappingSSTable, err := NewSSTable(ts.Manager.config, oldNonOverlappingFS)
+		nonOverlappingSSTable, err := NewSSTable(context.Background(), ts.Manager.config, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
 		val, err = nonOverlappingSSTable.GetValue(Bytes("keyA"))

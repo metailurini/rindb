@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -67,6 +68,7 @@ func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
 }
 
 type SStable struct {
+	ctx context.Context
 	*FileSystem
 	SparseIndex SparseIndex
 	Bloom       *BloomFilter
@@ -83,7 +85,7 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	}
 
 	if _, err := s.file.Seek(offset, io.SeekStart); err != nil {
-		ERROR("Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
+		ERROR(s.ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
 		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
@@ -91,10 +93,10 @@ func (s SStable) GetValue(key Bytes) (Bytes, error) {
 	if err != nil {
 		// Check for EOF specifically, might indicate corruption if seeking led here
 		if errors.Is(err, io.EOF) {
-			ERROR("Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
+			ERROR(s.ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
 			return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
 		}
-		ERROR("Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
+		ERROR(s.ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
 		return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
 	}
 	return record.GetValue(), nil
@@ -131,13 +133,13 @@ func (s SStable) Overlaps(min, max Bytes) bool {
 	return true
 }
 
-func NewSSTable(config Config, fs *FileSystem) (SStable, error) {
+func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
 	fileInfo, err := os.Stat(fs.Path())
 	if err != nil {
 		return SStable{}, fmt.Errorf("failed to get file info for %s: %w", fs.Path(), err)
 	}
 	if fileInfo.Size() < mdByteSize {
-		ERROR("File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
+		ERROR(ctx, "File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
 		return SStable{}, ErrMalFormedSSTable
 	}
 
@@ -159,8 +161,8 @@ func NewSSTable(config Config, fs *FileSystem) (SStable, error) {
 	// Seek to the beginning of the file
 	// Support testing assertions
 	fs.file.Seek(0, io.SeekStart)
-	INFO("Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{fs, sparseIndex, bloom}, nil
+	INFO(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
+	return SStable{ctx: ctx, FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
@@ -232,13 +234,13 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 	return maxSeqNum, nil
 }
 
-func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
+func Flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 	if mem.data.Len() == 0 {
-		WARN("Flushing empty memtable!")
+		WARN(ctx, "Flushing empty memtable!")
 		log.Panic("empty memtable!")
 	}
 
-	tm := NewTransactionManager()
+	tm := NewTransactionManager(ctx)
 	tx := tm.Begin()
 	defer tx.Rollback()
 
@@ -266,13 +268,13 @@ func Flush(config Config, mem Memtable, fs *FileSystem) (SStable, error) {
 	if err := tx.Commit(fs); err != nil {
 		return SStable{}, fmt.Errorf("failed to commit transaction to file system %s: %w", fs.Path(), err)
 	}
-	INFO("Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
+	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return NewSSTable(config, fs)
+	return NewSSTable(ctx, config, fs)
 }
 
 func genSparseIndex(mem Memtable) SparseIndex {

@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"testing"
 
 	"errors"
@@ -16,7 +17,7 @@ func TestRindbRange(t *testing.T) {
 	mem1 := InitMemtable(ts.Manager.config)
 	mem1.Put(NewRecord(Bytes("a"), Bytes("sstA"), 1))
 	mem1.Put(NewRecord(Bytes("b"), Bytes("sstB"), 2))
-	sst1, err := Flush(ts.Manager.config, mem1, ts.newSSTableFS(0))
+	sst1, err := Flush(context.Background(), ts.Manager.config, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 
@@ -24,7 +25,7 @@ func TestRindbRange(t *testing.T) {
 	mem2 := InitMemtable(ts.Manager.config)
 	mem2.Put(NewRecord(Bytes("k"), Bytes(""), 3)) // tombstone
 	mem2.Put(NewRecord(Bytes("z"), Bytes("sstZ"), 4))
-	sst2, err := Flush(ts.Manager.config, mem2, ts.newSSTableFS(0))
+	sst2, err := Flush(context.Background(), ts.Manager.config, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst2)
 
@@ -94,7 +95,7 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	mem1 := InitMemtable(ts.Manager.config)
 	mem1.Put(NewRecord(Bytes("a"), Bytes("sstA"), 1))
-	sst1, err := Flush(ts.Manager.config, mem1, ts.newSSTableFS(0))
+	sst1, err := Flush(context.Background(), ts.Manager.config, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 

@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"sync"
@@ -11,12 +12,14 @@ import (
 type TransactionManager struct {
 	mu         sync.Mutex
 	activeTxns map[*Transaction]struct{}
+	ctx        context.Context
 }
 
 // NewTransactionManager creates a new TransactionManager.
-func NewTransactionManager() *TransactionManager {
+func NewTransactionManager(ctx context.Context) *TransactionManager {
 	return &TransactionManager{
 		activeTxns: make(map[*Transaction]struct{}),
+		ctx:        ctx,
 	}
 }
 
@@ -30,6 +33,7 @@ func (tm *TransactionManager) Begin() *Transaction {
 		// Add a reference to the manager if we need to notify it later.
 		manager: tm,
 		state:   "active",
+		ctx:     tm.ctx,
 	}
 	tm.activeTxns[txn] = struct{}{}
 	return txn
@@ -41,6 +45,7 @@ type Transaction struct {
 	manager *TransactionManager // Reference to the manager.
 	mu      sync.Mutex          // Per-transaction lock for thread safety.
 	state   string              // "active", "committed", or "rolledback".
+	ctx     context.Context
 }
 
 // Write writes data to the transaction buffer, ensuring thread safety.
@@ -74,7 +79,7 @@ func (t *Transaction) Commit(w io.Writer) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	INFO("Transaction committed successfully")
+	INFO(t.ctx, "Transaction committed successfully")
 	return nil
 }
 
@@ -93,7 +98,7 @@ func (t *Transaction) Rollback() error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	INFO("Transaction rolled back successfully")
+	INFO(t.ctx, "Transaction rolled back successfully")
 	return nil
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -10,7 +11,7 @@ import (
 )
 
 func main() {
-	db, err := rindb.InitRinDB()
+	db, err := rindb.InitRinDB(context.Background())
 	if err != nil {
 		fmt.Println("Error initializing database:", err)
 		return
