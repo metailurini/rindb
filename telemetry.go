@@ -1,6 +1,8 @@
 package rindb
 
 import (
+	"log"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -40,23 +42,31 @@ var (
 	walBytesCounter       metric.Int64Counter
 )
 
+func must[T any](v T, err error) T {
+	if err != nil {
+		log.Printf("telemetry init: %v", err)
+		panic(err)
+	}
+	return v
+}
+
 func init() {
-	flushLatency, _ = sstableMeter.Float64Histogram("rindb.sstable.flush.latency", metric.WithUnit("ms"))
-	flushIOSize, _ = sstableMeter.Int64Counter("rindb.sstable.flush.io_bytes", metric.WithUnit("By"))
-	getValueLatency, _ = sstableMeter.Float64Histogram("rindb.sstable.get_value.latency", metric.WithUnit("ms"))
-	getValueIOSize, _ = sstableMeter.Int64Counter("rindb.sstable.get_value.io_bytes", metric.WithUnit("By"))
+	flushLatency = must(sstableMeter.Float64Histogram("rindb.sstable.flush.latency", metric.WithUnit("ms")))
+	flushIOSize = must(sstableMeter.Int64Counter("rindb.sstable.flush.io_bytes", metric.WithUnit("By")))
+	getValueLatency = must(sstableMeter.Float64Histogram("rindb.sstable.get_value.latency", metric.WithUnit("ms")))
+	getValueIOSize = must(sstableMeter.Int64Counter("rindb.sstable.get_value.io_bytes", metric.WithUnit("By")))
 
-	addSSTableLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.add.latency", metric.WithUnit("ms"))
-	addSSTableCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.add.calls")
-	compactLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.compact.latency", metric.WithUnit("ms"))
-	compactCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.compact.calls")
-	getRelevantLatency, _ = sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.get_relevant.latency", metric.WithUnit("ms"))
-	getRelevantCalls, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.calls")
-	getRelevantSSTables, _ = sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.sstables")
+	addSSTableLatency = must(sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.add.latency", metric.WithUnit("ms")))
+	addSSTableCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.add.calls"))
+	compactLatency = must(sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.compact.latency", metric.WithUnit("ms")))
+	compactCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.compact.calls"))
+	getRelevantLatency = must(sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.get_relevant.latency", metric.WithUnit("ms")))
+	getRelevantCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.calls"))
+	getRelevantSSTables = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.sstables"))
 
-	walLoadDuration, _ = walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("s"))
-	walAppendDuration, _ = walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("s"))
-	walAppendManyDuration, _ = walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("s"))
-	walRecordsCounter, _ = walMeter.Int64Counter("rindb.wal.records")
-	walBytesCounter, _ = walMeter.Int64Counter("rindb.wal.bytes")
+	walLoadDuration = must(walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("s")))
+	walAppendDuration = must(walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("s")))
+	walAppendManyDuration = must(walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("s")))
+	walRecordsCounter = must(walMeter.Int64Counter("rindb.wal.records"))
+	walBytesCounter = must(walMeter.Int64Counter("rindb.wal.bytes"))
 }
