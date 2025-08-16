@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"io"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 )
 
 type WAL struct {
@@ -23,24 +20,6 @@ func NewWAL(config Config, fs *FileSystem) WAL {
 		tm:         NewTransactionManager(),
 		config:     config,
 	}
-}
-
-var (
-	walTracer             = otel.Tracer("rindb/wal")
-	walMeter              = otel.Meter("rindb/wal")
-	walLoadDuration       metric.Float64Histogram
-	walAppendDuration     metric.Float64Histogram
-	walAppendManyDuration metric.Float64Histogram
-	walRecordsCounter     metric.Int64Counter
-	walBytesCounter       metric.Int64Counter
-)
-
-func init() {
-	walLoadDuration, _ = walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("s"))
-	walAppendDuration, _ = walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("s"))
-	walAppendManyDuration, _ = walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("s"))
-	walRecordsCounter, _ = walMeter.Int64Counter("rindb.wal.records")
-	walBytesCounter, _ = walMeter.Int64Counter("rindb.wal.bytes")
 }
 
 func (w *WAL) Load(ctx context.Context) (Memtable, error) {

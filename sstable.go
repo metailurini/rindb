@@ -9,9 +9,6 @@ import (
 	"os"
 	"sort"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -75,23 +72,6 @@ type SStable struct {
 	*FileSystem
 	SparseIndex SparseIndex
 	Bloom       *BloomFilter
-}
-
-var (
-	sstableTracer = otel.Tracer("rindb/sstable")
-	sstableMeter  = otel.Meter("rindb/sstable")
-
-	flushLatency    metric.Float64Histogram
-	flushIOSize     metric.Int64Counter
-	getValueLatency metric.Float64Histogram
-	getValueIOSize  metric.Int64Counter
-)
-
-func init() {
-	flushLatency, _ = sstableMeter.Float64Histogram("rindb.sstable.flush.latency", metric.WithUnit("ms"))
-	flushIOSize, _ = sstableMeter.Int64Counter("rindb.sstable.flush.io_bytes", metric.WithUnit("By"))
-	getValueLatency, _ = sstableMeter.Float64Histogram("rindb.sstable.get_value.latency", metric.WithUnit("ms"))
-	getValueIOSize, _ = sstableMeter.Int64Counter("rindb.sstable.get_value.io_bytes", metric.WithUnit("By"))
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
