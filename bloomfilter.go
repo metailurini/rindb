@@ -144,3 +144,8 @@ func hashStr(str Bytes, seed uint32) uint32 {
 	_, _ = h.Write(str)
 	return h.Sum32()
 }
+
+func isEmpty[T comparable](v T) bool {
+	var initValue T
+	return v == initValue
+}
