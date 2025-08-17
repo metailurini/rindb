@@ -24,19 +24,16 @@ type testRindbSetup struct {
 }
 
 // newTestRindbSetup initializes a new test setup for rindb with a temporary directory and manager.
-func newTestRindbSetup(t *testing.T, cfg *Config) *testRindbSetup {
-	tempDir := t.TempDir()
+func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRindbSetup {
 	var finalCfg Config           // Use a value type to copy
 	defaultCfg := DefaultConfig() // Get default values
 
 	if cfg == nil {
 		// If no config provided, use the default one with the temp dir
 		finalCfg = defaultCfg
-		finalCfg.databaseDir = tempDir
 	} else {
 		// If a config is provided, copy it and override the databaseDir
-		finalCfg = *cfg                // Copy the provided config
-		finalCfg.databaseDir = tempDir // Override the directory
+		finalCfg = *cfg // Copy the provided config
 
 		// Ensure essential default values are applied if the provided config missed them
 		// (e.g., if a user created a Config struct manually without using NewConfig)
@@ -67,7 +64,10 @@ func newTestRindbSetup(t *testing.T, cfg *Config) *testRindbSetup {
 		}
 	}
 
-	manager, err := InitSSTableManager(context.Background(), finalCfg)
+	tempDir := t.TempDir()
+	finalCfg.databaseDir = tempDir
+
+	manager, err := InitSSTableManager(ctx, finalCfg)
 	assert.NoError(t, err)
 
 	// Ensure at least 3 levels exist for common test requirements.

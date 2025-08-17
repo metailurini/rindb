@@ -47,18 +47,19 @@ func TestRangeIteratorErrorPropagates(t *testing.T) {
 }
 
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
-	ts := newTestRindbSetup(t, nil)
+	ctx := context.Background()
+	ts := newTestRindbSetup(t, ctx, nil)
 	defer ts.Cleanup()
 
 	mem1 := InitMemtable(ts.Manager.config)
 	mem1.Put(NewRecord(Bytes("a"), Bytes("sstA"), 1))
-	sst1, err := Flush(context.Background(), ts.Manager.config, mem1, ts.newSSTableFS(0))
+	sst1, err := Flush(ctx, ts.Manager.config, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 
 	mem := InitMemtable(ts.Manager.config)
 	r := Rindb{memtable: mem, ssTableManager: ts.Manager, config: ts.Manager.config}
-	iter, err := r.IRange(context.Background(), Bytes("a"), Bytes("z"))
+	iter, err := r.IRange(ctx, Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
 	if iter.HasNext() {

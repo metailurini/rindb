@@ -14,9 +14,10 @@ import (
 func TestSSTableManager_LoadLevels(t *testing.T) {
 	cfg := testConfig()
 	t.Run("LoadLevels validates file names", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
-		assert.NoError(t, ts.Manager.Compact(context.Background()))
+		assert.NoError(t, ts.Manager.Compact(ctx))
 		for levelNumb, level := range ts.Manager.levels {
 			iterator := level.Iterator()
 			for iterator.HasNext() {
@@ -34,7 +35,8 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 	})
 
 	t.Run("Key in older SSTable requires Prev() iteration", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create SSTables
@@ -46,7 +48,7 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 		ts.AddSSTableToLevel(0, newer)
 
 		// Verify search finds the key in older SSTable
-		result, err := ts.Manager.searchKey(context.Background(), Bytes("targetKey"))
+		result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("targetVal"), result)
 	})
@@ -56,43 +58,46 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 	cfg := testConfig()
 
 	t.Run("Empty or Non-existent Level 0", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Case 1: ssTableManager.levels is nil
 		ts.Manager.levels = nil
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 2: ssTableManager.levels is empty slice
 		ts.Manager.levels = []*LinkedList[*FileSystem]{}
-		maxSeqNum, err = getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 3: Level 0 exists but is empty
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		maxSeqNum, err = getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
 
 	t.Run("Single SSTable in Level 0", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create an SSTable with a specific sequence number
 		sstable := ts.createSSTableWithSequence(0, map[string]string{"key1": "val1"}, 100)
 		ts.AddSSTableToLevel(0, sstable)
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(100), maxSeqNum)
 	})
 
 	t.Run("Multiple SSTables in Level 0", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Add SSTables with various sequence numbers
@@ -101,25 +106,27 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k3": "v3"}, 75))
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k4": "v4"}, 200)) // Max
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(200), maxSeqNum)
 	})
 
 	t.Run("SSTables with Zero Sequence Numbers", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k1": "v1"}, 0))
 		ts.AddSSTableToLevel(0, ts.createSSTableWithSequence(0, map[string]string{"k2": "v2"}, 0))
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
 
 	t.Run("Error during fs.Open", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create a dummy FS that will return an error on Open
@@ -127,7 +134,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(badFs)
 
-		maxSeqNum, err := getMaxSequenceNumberFromSSTables(context.Background(), ts.Manager)
+		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no such file or directory")
 		assert.Equal(t, uint64(0), maxSeqNum)
@@ -144,8 +151,9 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 	cfg := NewConfig(WithLevel0CompactionThreshold(3))
 
 	t.Run("Merging sstables via compaction", func(t *testing.T) {
+		ctx := context.Background()
 		// Use the config with the modified threshold
-		ts := newTestRindbSetup(t, &cfg)
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create SSTables and add them to Level 0
@@ -172,7 +180,7 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		assert.Equal(t, 3, ts.Manager.levels[0].Len(), "Level 0 should have 3 SSTables before compaction")
 
 		// Trigger compaction (Level 0 -> Level 1)
-		err := ts.Manager.Compact(context.Background())
+		err := ts.Manager.Compact(ctx)
 		assert.NoError(t, err, "Compaction failed")
 
 		// Verify state after compaction
@@ -184,10 +192,10 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		// Retrieve the merged SSTable from Level 1
 		mergedFs, err := ts.Manager.levels[1].Iterator().Next()
 		assert.NoError(t, err, "Failed to get merged FS from Level 1")
-		err = mergedFs.Open(context.Background()) // Ensure it's open if closed previously
+		err = mergedFs.Open(ctx) // Ensure it's open if closed previously
 		assert.NoError(t, err, "Failed to open merged FS")
 
-		mergedSSTable, err := NewSSTable(context.Background(), ts.Manager.config, mergedFs)
+		mergedSSTable, err := NewSSTable(ctx, ts.Manager.config, mergedFs)
 		assert.NoError(t, err, "Failed to create SStable object from merged FS")
 
 		// Verify the content of the merged SSTable
@@ -210,7 +218,8 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 func TestSSTableManager_SearchKey(t *testing.T) {
 	cfg := testConfig()
 	t.Run("Key absent in empty SSTables", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Ensure levels are initialized but empty (as done by NewTestRindbSetup)
@@ -223,7 +232,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		// Search for a random key in an empty manager
 		key := randStringBytes(10)
-		result, err := ts.Manager.searchKey(context.Background(), key)
+		result, err := ts.Manager.searchKey(ctx, key)
 
 		// Assertions remain the same: expect key not found
 		assert.ErrorIs(t, err, ErrKeyNotFound, "Expected ErrKeyNotFound when searching empty manager")
@@ -231,10 +240,11 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 	})
 
 	t.Run("Key in level 0 only", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
+		fs, err := ts.Manager.NewSSTableFS(ctx, 0)
 		assert.NoError(t, err)
 
 		key := Bytes("level0-key")
@@ -250,24 +260,25 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		}
 		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ts.Manager.searchKey(context.Background(), key)
+		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
 
 	t.Run("Key in level 1 overridden by level 0", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Level 1: older value
-		fs1, err := ts.Manager.NewSSTableFS(context.Background(), 1)
+		fs1, err := ts.Manager.NewSSTableFS(ctx, 1)
 		assert.NoError(t, err)
 		key := randStringBytes(10)
 		oldValue := Bytes("old-value")
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, oldValue})
 
 		// Level 0: newer value
-		fs0, err := ts.Manager.NewSSTableFS(context.Background(), 0)
+		fs0, err := ts.Manager.NewSSTableFS(ctx, 0)
 		assert.NoError(t, err)
 		newValue := Bytes("new-value")
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, newValue})
@@ -283,16 +294,17 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.Equal(t, 1, ts.Manager.levels[0].Len())
 		assert.Equal(t, 1, ts.Manager.levels[1].Len())
 
-		result, err := ts.Manager.searchKey(context.Background(), key)
+		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Equal(t, newValue, result)
 	})
 
 	t.Run("Key not found in any level", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
+		fs, err := ts.Manager.NewSSTableFS(ctx, 0)
 		assert.NoError(t, err)
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("some-key"), Bytes("some-value")})
 
@@ -301,27 +313,29 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs)
 
 		missingKey := randStringBytes(10)
-		result, err := ts.Manager.searchKey(context.Background(), missingKey)
+		result, err := ts.Manager.searchKey(ctx, missingKey)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
 	t.Run("Empty SSTableManager", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		ts.Manager.levels = nil // Explicitly empty
 
-		result, err := ts.Manager.searchKey(context.Background(), Bytes("any-key"))
+		result, err := ts.Manager.searchKey(ctx, Bytes("any-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
 
 	t.Run("Single SSTable in level 0", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
+		fs, err := ts.Manager.NewSSTableFS(ctx, 0)
 		assert.NoError(t, err)
 		key := Bytes("single-key")
 		value := Bytes("single-value")
@@ -329,24 +343,25 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ts.Manager.searchKey(context.Background(), key)
+		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
 
 	t.Run("Tombstone in level 0 overrides level 1", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Level 1: original value
-		fs1, err := ts.Manager.NewSSTableFS(context.Background(), 1)
+		fs1, err := ts.Manager.NewSSTableFS(ctx, 1)
 		assert.NoError(t, err)
 		key := Bytes("tombstone-key")
 		value := Bytes("original-value")
 		_ = createSSTable(t, cfg, fs1, [2]Bytes{key, value})
 
 		// Level 0: tombstone
-		fs0, err := ts.Manager.NewSSTableFS(context.Background(), 0)
+		fs0, err := ts.Manager.NewSSTableFS(ctx, 0)
 		assert.NoError(t, err)
 		_ = createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
 
@@ -354,23 +369,24 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs0)
 		ts.Manager.levels[1].PushBack(fs1)
 
-		result, err := ts.Manager.searchKey(context.Background(), key)
+		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Nil(t, result) // Tombstone returns nil value
 	})
 
 	t.Run("Bloom filter skips irrelevant SSTables", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		fs, err := ts.Manager.NewSSTableFS(context.Background(), 0)
+		fs, err := ts.Manager.NewSSTableFS(ctx, 0)
 		assert.NoError(t, err)
 		_ = createSSTable(t, cfg, fs, [2]Bytes{Bytes("present-key"), Bytes("present-value")})
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(fs)
 
 		// Key not in Bloom filter
-		result, err := ts.Manager.searchKey(context.Background(), Bytes("absent-key"))
+		result, err := ts.Manager.searchKey(ctx, Bytes("absent-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -379,7 +395,8 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 func TestSSTableManager_CompactThreshold(t *testing.T) {
 	t.Run("level 0 file count triggers compaction", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create 4 SSTables in level 0 using the setup helper
@@ -391,8 +408,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			ts.AddSSTableToLevel(0, sstable) // Add the created sstable's FS to the level
 		}
 
-		assert.True(t, ts.Manager.shouldCompact(context.Background(), 0, ts.Manager.levels[0]))
-		assert.NoError(t, ts.Manager.Compact(context.Background()))
+		assert.True(t, ts.Manager.shouldCompact(ctx, 0, ts.Manager.levels[0]))
+		assert.NoError(t, ts.Manager.Compact(ctx))
 		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
 		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Should have created level 1")
 		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist")
@@ -402,7 +419,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 	t.Run("levels below threshold dont compact", func(t *testing.T) {
 		threshold := 4
 		cfg := NewConfig(WithLevel0CompactionThreshold(threshold))
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// --- Test Level 0 ---
@@ -424,7 +442,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.Equal(t, level1FileCount, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d file", level1FileCount)
 
 		// --- Act ---
-		err := ts.Manager.Compact(context.Background())
+		err := ts.Manager.Compact(ctx)
 		assert.NoError(t, err)
 
 		// --- Assert ---
@@ -453,13 +471,14 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 	})
 
 	t.Run("level 1 size above threshold triggers compaction (lowered threshold)", func(t *testing.T) {
+		ctx := context.Background()
 		// Configure low thresholds for easy testing
 		cfg := NewConfig(
 			WithLevel0CompactionThreshold(2), // Low L0 threshold
 			WithBaseCompactionSizeMB(1),      // Low base size: 1MB
 			WithLevelSizeMultiplier(2),       // Low multiplier: 2x per level -> L1 threshold = 1 * 2^1 = 2MB
 		)
-		ts := newTestRindbSetup(t, &cfg) // Setup will use a temp dir
+		ts := newTestRindbSetup(t, ctx, &cfg) // Setup will use a temp dir
 		defer ts.Cleanup()
 
 		numFiles := 2
@@ -469,7 +488,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		level1Paths := make([]string, numFiles)
 		var totalSize int64
 
-		INFO(context.Background(), "Creating SSTables for Level 1 (target > 2MB total)...")
+		INFO(ctx, "Creating SSTables for Level 1 (target > 2MB total)...")
 		for i := 0; i < numFiles; i++ {
 			// Use ts.CreateSSTable which uses the manager's config and FS creation
 			kvs := make(map[string]string)
@@ -484,12 +503,12 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			info, statErr := os.Stat(sstable.Path())
 			assert.NoError(t, statErr)
 			totalSize += info.Size()
-			INFO(context.Background(), "Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), info.Size())
+			INFO(ctx, "Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), info.Size())
 		}
 
 		// Calculate the threshold used in this test
 		level1ThresholdBytes := int64(ts.Manager.config.baseCompactionSizeMB) * int64(math.Pow(float64(ts.Manager.config.levelSizeMultiplier), 1.0)) * 1024 * 1024
-		INFO(context.Background(), "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
+		INFO(ctx, "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
 			totalSize, float64(totalSize)/(1024*1024),
 			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
@@ -497,10 +516,10 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
 		assert.Equal(t, numFiles, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
 
-		INFO(context.Background(), "Calling Compact()...")
-		err := ts.Manager.Compact(context.Background())
+		INFO(ctx, "Calling Compact()...")
+		err := ts.Manager.Compact(ctx)
 		assert.NoError(t, err)
-		INFO(context.Background(), "Compact() finished.")
+		INFO(ctx, "Compact() finished.")
 
 		// Assert:
 		// 1. Level 1 should now be empty.
@@ -521,7 +540,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.NoError(t, err)
 		mergedInfo, err := os.Stat(mergedFs.Path())
 		assert.NoError(t, err)
-		INFO(context.Background(), "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
+		INFO(ctx, "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
 		// Check if size is roughly the sum of originals (minus overhead/duplicates, should be close)
 		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
@@ -529,8 +548,9 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 func TestSSTableManager_compactHigherLevel(t *testing.T) {
 	t.Run("compact level 1 into level 2 with overlap", func(t *testing.T) {
+		ctx := context.Background()
 		cfg := NewConfig() // Use default config, setup will provide temp dir
-		ts := newTestRindbSetup(t, &cfg)
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// --- Create SSTables using TestRindbSetup ---
@@ -559,7 +579,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		// --- Act ---
 		// Manually call compactHigherLevel using the manager from the setup
-		err := ts.Manager.compactHigherLevel(context.Background(), ts.Manager.levels[1], 2)
+		err := ts.Manager.compactHigherLevel(ctx, ts.Manager.levels[1], 2)
 		assert.NoError(t, err)
 
 		// --- Assert ---
@@ -588,37 +608,37 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		assert.Equal(t, fs2NoOverlapPath, oldNonOverlappingFS.Path())
 
 		// 4. Verify content of the new merged SSTable
-		err = newMergedFS.Open(context.Background()) // Ensure FS is open
+		err = newMergedFS.Open(ctx) // Ensure FS is open
 		assert.NoError(t, err)
-		mergedSSTable, err := NewSSTable(context.Background(), ts.Manager.config, newMergedFS)
+		mergedSSTable, err := NewSSTable(ctx, ts.Manager.config, newMergedFS)
 		assert.NoError(t, err)
 
 		// Expected merged content: B(L2), C(L1 - newer), D(L1)
 		assert.Equal(t, 3, len(mergedSSTable.SparseIndex), "Merged SSTable should have 3 keys")
 
-		val, err := mergedSSTable.GetValue(context.Background(), Bytes("keyA")) // Should not be present
+		val, err := mergedSSTable.GetValue(ctx, Bytes("keyA")) // Should not be present
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, val)
 
-		val, err = mergedSSTable.GetValue(context.Background(), Bytes("keyB"))
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyB"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueB_L2"), val)
 
-		val, err = mergedSSTable.GetValue(context.Background(), Bytes("keyC"))
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyC"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueC_L1"), val) // Level 1 is newer, takes precedence
 
-		val, err = mergedSSTable.GetValue(context.Background(), Bytes("keyD"))
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyD"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueD_L1"), val)
 
 		// 5. Verify content of the non-overlapping SSTable (should be unchanged)
-		err = oldNonOverlappingFS.Open(context.Background()) // Ensure FS is open
+		err = oldNonOverlappingFS.Open(ctx) // Ensure FS is open
 		assert.NoError(t, err)
-		nonOverlappingSSTable, err := NewSSTable(context.Background(), ts.Manager.config, oldNonOverlappingFS)
+		nonOverlappingSSTable, err := NewSSTable(ctx, ts.Manager.config, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
-		val, err = nonOverlappingSSTable.GetValue(context.Background(), Bytes("keyA"))
+		val, err = nonOverlappingSSTable.GetValue(ctx, Bytes("keyA"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueA_L2"), val)
 	})
@@ -627,7 +647,8 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 // TestSSTableManager_shouldCompact tests the logic for deciding when to compact a level.
 func TestSSTableManager_shouldCompact(t *testing.T) {
 	cfg := testConfig() // Use default test config, setup will override dir
-	ts := newTestRindbSetup(t, &cfg)
+	ctx := context.Background()
+	ts := newTestRindbSetup(t, ctx, &cfg)
 	defer ts.Cleanup()
 
 	// Helper to create a FileSystem linked list (using dummy files)
@@ -686,7 +707,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 		WithBaseCompactionSizeMB(1), // 1MB base size
 		WithLevelSizeMultiplier(2),  // 2x multiplier per level
 	)
-	tsLowThreshold := newTestRindbSetup(t, &cfgLowThreshold) // Use a separate setup with the low threshold config
+	tsLowThreshold := newTestRindbSetup(t, ctx, &cfgLowThreshold) // Use a separate setup with the low threshold config
 	defer tsLowThreshold.Cleanup()
 	tempDirLow := tsLowThreshold.TempDir // Use the temp dir from the low threshold setup
 
@@ -750,11 +771,12 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 	})
 
 	t.Run("EmptyLevel", func(t *testing.T) {
+		ctx := context.Background()
 		// Use the original setup (ts) as it doesn't matter which config for empty levels
 		levelList := createLevelList() // Empty list
-		assert.False(t, ts.Manager.shouldCompact(context.Background(), 0, levelList))
-		assert.False(t, ts.Manager.shouldCompact(context.Background(), 1, levelList))
-		assert.False(t, ts.Manager.shouldCompact(context.Background(), 2, levelList)) // Check level 2 as well
+		assert.False(t, ts.Manager.shouldCompact(ctx, 0, levelList))
+		assert.False(t, ts.Manager.shouldCompact(ctx, 1, levelList))
+		assert.False(t, ts.Manager.shouldCompact(ctx, 2, levelList)) // Check level 2 as well
 	})
 }
 
@@ -762,7 +784,8 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 	cfg := testConfig()
 
 	t.Run("Level 0 returns all SSTables in newest-first order", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create SSTables for Level 0
@@ -772,7 +795,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, sstableL0_2)
 
 		// Call GetRelevantSSTables for Level 0
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("z"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 2, relevantSSTables.Len(), "Expected 2 relevant SSTables in Level 0")
@@ -792,7 +815,8 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 	})
 
 	t.Run("Level 1+ returns only overlapping SSTables in oldest-first order", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create SSTables for Level 1
@@ -810,7 +834,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		// Call GetRelevantSSTables for Level 1 with a specific range
 		startKey := Bytes("b")
 		endKey := Bytes("d")
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), startKey, endKey)
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(ctx, startKey, endKey)
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 2, relevantSSTables.Len(), "Expected 2 relevant SSTables in Level 1")
@@ -835,14 +859,15 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 	})
 
 	t.Run("No relevant SSTables found", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create some SSTables that won't overlap
 		sstableL1_nonOverlap := ts.createSSTable(1, map[string]string{"x": "1", "y": "2"})
 		ts.AddSSTableToLevel(1, sstableL1_nonOverlap)
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("b"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("b"))
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 0, relevantSSTables.Len(), "Expected 0 relevant SSTables")
@@ -853,19 +878,21 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 	})
 
 	t.Run("Empty SSTableManager", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		ts.Manager.levels = nil // Explicitly empty manager
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("z"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 		assert.Equal(t, 0, relevantSSTables.Len(), "Expected 0 relevant SSTables from empty manager")
 	})
 
 	t.Run("Error opening SSTable", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Create a dummy FS that will return an error on Open
@@ -873,14 +900,15 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(badFs)
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), Bytes("a"), Bytes("z"))
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no such file or directory")
 		assert.Nil(t, relevantSSTables)
 	})
 
 	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
-		ts := newTestRindbSetup(t, &cfg)
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
 		// Level 0 (newest first)
@@ -903,7 +931,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		startKey := Bytes("key0_A")
 		endKey := Bytes("key1_Y")
 
-		relevantSSTables, err := ts.Manager.GetRelevantSSTables(context.Background(), startKey, endKey)
+		relevantSSTables, err := ts.Manager.GetRelevantSSTables(ctx, startKey, endKey)
 		assert.NoError(t, err)
 		assert.NotNil(t, relevantSSTables)
 
