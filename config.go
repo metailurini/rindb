@@ -37,6 +37,9 @@ type Config struct {
 
 	// ExporterInsecure disables TLS for the OTLP exporter
 	ExporterInsecure bool
+
+	// TelemetrySamplingRate sets the sampling rate for traces (0.0 - 1.0)
+	TelemetrySamplingRate float64
 }
 
 // Option defines a functional option type for Config.
@@ -66,6 +69,7 @@ func DefaultConfig() Config {
 		EnableTelemetry:           false,
 		ExporterEndpoint:          "",
 		ExporterInsecure:          false,
+		TelemetrySamplingRate:     0.1, // Default to sample 10% of traces
 	}
 }
 
@@ -116,4 +120,8 @@ func WithExporterEndpoint(endpoint string) Option {
 
 func WithExporterInsecure(insecure bool) Option {
 	return func(c *Config) { c.ExporterInsecure = insecure }
+}
+
+func WithTelemetrySamplingRate(rate float64) Option {
+	return func(c *Config) { c.TelemetrySamplingRate = rate }
 }

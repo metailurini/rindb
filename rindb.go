@@ -53,7 +53,7 @@ type Rindb struct {
 func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 	cfg := NewConfig(opts...)
 
-	shutdownTelemetry, err := OtelInit(ctx, cfg.EnableTelemetry, cfg.ExporterEndpoint, cfg.ExporterInsecure)
+	shutdownTelemetry, err := OtelInit(ctx, cfg.EnableTelemetry, cfg.ExporterEndpoint, cfg.ExporterInsecure, cfg.TelemetrySamplingRate)
 	if err != nil {
 		return Rindb{}, fmt.Errorf("failed to initialize telemetry: %w", err)
 	}
