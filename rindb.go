@@ -122,10 +122,11 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 //	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
 func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.Get")
+	defer span.End()
+	getCalls.Add(ctx, 1)
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
-	defer span.End()
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -151,13 +152,14 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 // any associated resources.
 func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.IRange")
+	defer span.End()
+	iRangeCalls.Add(ctx, 1)
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("start_key_size", len(start)),
 			attribute.Int("end_key_size", len(end)),
 		)
 	}
-	defer span.End()
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -211,13 +213,14 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 //	        flushing, SSTable registration, or WAL cleaning.
 func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	ctx, span := tracer.Start(ctx, "Rindb.Put")
+	defer span.End()
+	putCalls.Add(ctx, 1)
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("key_size", len(key)),
 			attribute.Int("value_size", len(value)),
 		)
 	}
-	defer span.End()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -234,16 +237,11 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	r.memtable.Put(record) // This now updates the internal size estimate
 
 	memSize := r.memtable.ByteSize()
-	flushCount := 0
-	if span.IsRecording() {
-		span.SetAttributes(attribute.Int("memtable_size", int(memSize)))
-	}
-
 	// Check estimated byte size and flush if needed
 	// Cast ByteSize() to uint to match maxMemtableSize type
 	// Check estimated byte size and flush if needed
 	if uint(memSize) >= r.config.maxMemtableSize {
-		flushCount = 1
+		flushCount.Add(ctx, 1)
 		INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
 		// Create new SSTable file system for level 0
@@ -288,10 +286,6 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		}(compactionCtx)
 	}
 
-	if span.IsRecording() {
-		span.SetAttributes(attribute.Int("flush_count", flushCount))
-	}
-
 	return nil
 }
 
@@ -306,10 +300,11 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 //	error - An error if the database is closed, or if an error occurs during WAL append or memtable update.
 func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 	ctx, span := tracer.Start(ctx, "Rindb.Remove")
+	defer span.End()
+	removeCalls.Add(ctx, 1)
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
-	defer span.End()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -355,9 +350,7 @@ func (r *Rindb) Close() error {
 	INFO(ctx, "Waiting for background operations to finish...")
 	waitStart := time.Now()
 	r.wg.Wait()
-	if span.IsRecording() {
-		span.SetAttributes(attribute.Int64("background_wait_ms", time.Since(waitStart).Milliseconds()))
-	}
+	closeBackgroundWaitDuration.Record(ctx, float64(time.Since(waitStart).Milliseconds()))
 	INFO(ctx, "Background operations finished.")
 
 	// Re-acquire lock to safely close resources

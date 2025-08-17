@@ -40,6 +40,16 @@ var (
 	walAppendManyDuration metric.Float64Histogram
 	walRecordsCounter     metric.Int64Counter
 	walBytesCounter       metric.Int64Counter
+
+	// RinDB metrics
+	rindbMeter = otel.Meter("rindb")
+
+	getCalls                    metric.Int64Counter
+	putCalls                    metric.Int64Counter
+	removeCalls                 metric.Int64Counter
+	iRangeCalls                 metric.Int64Counter
+	flushCount                  metric.Int64Counter
+	closeBackgroundWaitDuration metric.Float64Histogram
 )
 
 func must[T any](v T, err error) T {
@@ -64,9 +74,17 @@ func init() {
 	getRelevantCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.calls"))
 	getRelevantSSTables = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.sstables"))
 
-	walLoadDuration = must(walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("s")))
-	walAppendDuration = must(walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("s")))
-	walAppendManyDuration = must(walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("s")))
+	walLoadDuration = must(walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("ms")))
+	walAppendDuration = must(walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("ms")))
+	walAppendManyDuration = must(walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("ms")))
 	walRecordsCounter = must(walMeter.Int64Counter("rindb.wal.records"))
 	walBytesCounter = must(walMeter.Int64Counter("rindb.wal.bytes"))
+
+	getCalls = must(rindbMeter.Int64Counter("rindb.get.calls"))
+	putCalls = must(rindbMeter.Int64Counter("rindb.put.calls"))
+	removeCalls = must(rindbMeter.Int64Counter("rindb.remove.calls"))
+	iRangeCalls = must(rindbMeter.Int64Counter("rindb.irange.calls"))
+	flushCount = must(rindbMeter.Int64Counter("rindb.flush.count"))
+	closeBackgroundWaitDuration = must(rindbMeter.Float64Histogram("rindb.close.background_wait.duration", metric.WithUnit("ms")))
+
 }

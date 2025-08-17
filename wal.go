@@ -26,7 +26,7 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 	ctx, span := walTracer.Start(ctx, "WAL.Load")
 	start := time.Now()
 	defer func() {
-		walLoadDuration.Record(ctx, time.Since(start).Seconds())
+		walLoadDuration.Record(ctx, float64(time.Since(start).Milliseconds()))
 		span.End()
 	}()
 
@@ -53,7 +53,7 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 	ctx, span := walTracer.Start(ctx, "WAL.Append")
 	start := time.Now()
 	defer func() {
-		walAppendDuration.Record(ctx, time.Since(start).Seconds())
+		walAppendDuration.Record(ctx, float64(time.Since(start).Milliseconds()))
 		span.End()
 	}()
 
@@ -87,7 +87,7 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 	ctx, span := walTracer.Start(ctx, "WAL.AppendMany")
 	start := time.Now()
 	defer func() {
-		walAppendManyDuration.Record(ctx, time.Since(start).Seconds())
+		walAppendManyDuration.Record(ctx, float64(time.Since(start).Milliseconds()))
 		span.End()
 	}()
 
