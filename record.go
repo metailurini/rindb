@@ -17,7 +17,7 @@ func CalOnDiskSize(r Record) int {
 var _ Record = RecordImpl{}
 
 type RecordImpl struct {
-	Key, Value      Bytes
+	Key, Value     Bytes
 	SequenceNumber uint64
 }
 

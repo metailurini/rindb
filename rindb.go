@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-  "github.com/metailurini/rindb/telemetry"
+	"github.com/metailurini/rindb/telemetry"
 )
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
