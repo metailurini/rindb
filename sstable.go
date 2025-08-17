@@ -75,7 +75,7 @@ type SStable struct {
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
-	ctx, span := sstableTracer.Start(ctx, "SSTable.GetValue")
+	ctx, span := sstableTracer.Start(ctx, "SStable.GetValue")
 	start := time.Now()
 	var bytesRead int
 	defer func() {

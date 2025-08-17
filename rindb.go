@@ -121,7 +121,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 //	Bytes - The value associated with the key, or nil if the key is not found.
 //	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
 func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
-	ctx, span := tracer.Start(ctx, "db.get")
+	ctx, span := tracer.Start(ctx, "Rindb.Get")
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
@@ -150,7 +150,7 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 // The returned iterator must be closed when no longer needed to release
 // any associated resources.
 func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
-	ctx, span := tracer.Start(ctx, "db.irange")
+	ctx, span := tracer.Start(ctx, "Rindb.IRange")
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("start_key_size", len(start)),
@@ -210,7 +210,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 //	error - An error if the database is closed, or if an error occurs during WAL append, memtable update,
 //	        flushing, SSTable registration, or WAL cleaning.
 func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
-	ctx, span := tracer.Start(ctx, "db.put")
+	ctx, span := tracer.Start(ctx, "Rindb.Put")
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("key_size", len(key)),
@@ -305,7 +305,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 //
 //	error - An error if the database is closed, or if an error occurs during WAL append or memtable update.
 func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
-	ctx, span := tracer.Start(ctx, "db.remove")
+	ctx, span := tracer.Start(ctx, "Rindb.Remove")
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
@@ -337,7 +337,7 @@ func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 func (r *Rindb) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	ctx, span := tracer.Start(ctx, "db.close")
+	ctx, span := tracer.Start(ctx, "Rindb.Close")
 	defer span.End()
 
 	r.mu.Lock()
