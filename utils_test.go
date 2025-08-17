@@ -8,11 +8,22 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"io"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func testOptions() []Option {
+	return []Option{
+		WithDatabaseDir("testdata"),
+	}
+}
+
+func testConfig() Config {
+	return NewConfig(testOptions()...)
+}
 
 // testRindbSetup encapsulates setup and cleanup logic for rindb tests.
 type testRindbSetup struct {
@@ -88,12 +99,16 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	}
 
 	cleanup := func() {
-		manager.Close(context.Background())
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(3*time.Minute))
+		defer cancel()
+
+		manager.Close(ctx)
+		assert.NoError(t, os.RemoveAll(tempDir), "Failed to remove temp dir")
 	}
 
 	return &testRindbSetup{
 		T:            t,
-		Manager:      manager, // Manager now has the correct config
+		Manager:      manager,
 		TempDir:      tempDir,
 		Levels:       manager.levels,
 		CleanupFuncs: []func(){cleanup},
