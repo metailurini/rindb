@@ -79,12 +79,6 @@ type LLIterator[V any] struct {
 // EOI is end of iteration
 var EOI = errors.New("EOI")
 
-// Iterator TODO: move it to somewhere
-type Iterator[T any] interface {
-	HasNext() bool
-	Next() (T, error)
-}
-
 var _ Iterator[any] = (*LLIterator[any])(nil)
 
 func (l *LLIterator[V]) Value() V {
