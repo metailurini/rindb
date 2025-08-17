@@ -48,7 +48,8 @@ func TestRangeIteratorErrorPropagates(t *testing.T) {
 
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	ctx := context.Background()
-	ts := newTestRindbSetup(t, ctx, nil)
+	cfg := testConfig()
+	ts := newTestRindbSetup(t, ctx, &cfg)
 	defer ts.Cleanup()
 
 	mem1 := InitMemtable(ts.Manager.config)

@@ -13,16 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testOptions() []Option {
-	return []Option{
-		WithDatabaseDir("testdata"),
-	}
-}
-
-func testConfig() Config {
-	return NewConfig(testOptions()...)
-}
-
 // TestRindb_Init tests the initialization of the Rindb database using the helper.
 func TestRindb_Init(t *testing.T) {
 	// Use the helper, which includes initialization and cleanup
@@ -58,9 +48,10 @@ func TestRindb_Get(t *testing.T) {
 	assert.Equal(t, Bytes("value"), value)
 }
 
-func TestRindbRange(t *testing.T) {
+func TestRindb_IRange(t *testing.T) {
 	ctx := context.Background()
-	ts := newTestRindbSetup(t, ctx, nil)
+	cfg := testConfig()
+	ts := newTestRindbSetup(t, ctx, &cfg)
 	defer ts.Cleanup()
 
 	// Create SSTable with older records
