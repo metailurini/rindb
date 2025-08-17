@@ -1,3 +1,22 @@
+check:
+	@$(MAKE) check-spanname
+	@go fmt ./...
+	@echo "Running staticcheck..."
+	@go install honnef.co/go/tools/cmd/staticcheck@v0.5.0
+	@staticcheck ./...
+	@echo "Done."
+
+check-spanname:
+	@go build -o ./bin/spanname ./tool/spanname
+	@go vet -vettool=$$(pwd)/bin/spanname ./...
+
+
+test:
+	@rm -rf testdata/*
+	@echo "Running tests..."
+	@go test -v ./...
+
+
 test-coverage:
 	@rm -rf testdata/*
 	@echo "Running tests with coverage..."
