@@ -76,9 +76,6 @@ type LLIterator[V any] struct {
 	list    *LinkedList[V]
 }
 
-// EOI is end of iteration
-var EOI = errors.New("EOI")
-
 var _ Iterator[any] = (*LLIterator[any])(nil)
 
 func (l *LLIterator[V]) Value() V {
