@@ -11,15 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// errorWriter simulates an io.Writer that returns an error.
-type errorWriter struct {
-	err error
-}
-
-func (ew *errorWriter) Write(p []byte) (n int, err error) {
-	return 0, ew.err
-}
-
 // errorReader simulates an io.Reader that returns an error.
 type errorReader struct {
 	err error

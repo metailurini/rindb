@@ -1,4 +1,4 @@
-package telemetry
+package rindb
 
 import (
 	"context"
@@ -12,10 +12,10 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
-// Init initializes OpenTelemetry providers when enabled.
+// OtelInit initializes OpenTelemetry providers when enabled.
 // The returned shutdown function should be called to flush data.
 // If insecure is true, transport security is disabled for the OTLP exporters.
-func Init(ctx context.Context, enable bool, endpoint string, insecure bool) (func(context.Context) error, error) {
+func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool) (func(context.Context) error, error) {
 	if !enable {
 		return func(context.Context) error { return nil }, nil
 	}

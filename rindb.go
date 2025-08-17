@@ -12,8 +12,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/metailurini/rindb/telemetry"
 )
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
@@ -55,7 +53,7 @@ type Rindb struct {
 func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 	cfg := NewConfig(opts...)
 
-	shutdownTelemetry, err := telemetry.Init(ctx, cfg.EnableTelemetry, cfg.ExporterEndpoint, cfg.ExporterInsecure)
+	shutdownTelemetry, err := OtelInit(ctx, cfg.EnableTelemetry, cfg.ExporterEndpoint, cfg.ExporterInsecure)
 	if err != nil {
 		return Rindb{}, fmt.Errorf("failed to initialize telemetry: %w", err)
 	}
