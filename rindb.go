@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
-	"github.com/metailurini/rindb/telemetry"
+  "github.com/metailurini/rindb/telemetry"
 )
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
@@ -382,6 +383,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		// Trigger compaction in a goroutine *after* flushing
 		INFO(ctx, "Triggering background compaction check.")
 		r.wg.Add(1)
+		compactionCtx := trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx))
 		go func(ctx context.Context) {
 			defer r.wg.Done()
 			INFO(ctx, "Background compaction goroutine started.")
@@ -390,7 +392,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			} else {
 				INFO(ctx, "Background compaction goroutine finished.")
 			}
-		}(ctx)
+		}(compactionCtx)
 	}
 
 	if span.IsRecording() {
