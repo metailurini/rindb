@@ -22,9 +22,9 @@ func TestDefaultConfig(t *testing.T) {
 		{"skipListDefaultLevel", cfg.skipListDefaultLevel, uint(2)},
 		{"skipListMaxLevel", cfg.skipListMaxLevel, uint(32)},
 		{"skipListP", cfg.skipListP, 0.5},
-		{"EnableTelemetry", cfg.EnableTelemetry, false},
-		{"ExporterEndpoint", cfg.ExporterEndpoint, ""},
-		{"ExporterInsecure", cfg.ExporterInsecure, false},
+		{"EnableTelemetry", cfg.enableTelemetry, false},
+		{"ExporterEndpoint", cfg.exporterEndpoint, ""},
+		{"ExporterInsecure", cfg.exporterInsecure, false},
 	}
 
 	for _, tt := range tests {
@@ -128,8 +128,8 @@ func TestNewConfigWithOptions(t *testing.T) {
 			name: "WithEnableTelemetry",
 			opts: []Option{WithEnableTelemetry(true)},
 			verify: func(t *testing.T, cfg Config) {
-				if !cfg.EnableTelemetry {
-					t.Errorf("EnableTelemetry = %v, want %v", cfg.EnableTelemetry, true)
+				if !cfg.enableTelemetry {
+					t.Errorf("EnableTelemetry = %v, want %v", cfg.enableTelemetry, true)
 				}
 			},
 		},
@@ -137,8 +137,8 @@ func TestNewConfigWithOptions(t *testing.T) {
 			name: "WithExporterEndpoint",
 			opts: []Option{WithExporterEndpoint("localhost:4317")},
 			verify: func(t *testing.T, cfg Config) {
-				if cfg.ExporterEndpoint != "localhost:4317" {
-					t.Errorf("ExporterEndpoint = %v, want %v", cfg.ExporterEndpoint, "localhost:4317")
+				if cfg.exporterEndpoint != "localhost:4317" {
+					t.Errorf("ExporterEndpoint = %v, want %v", cfg.exporterEndpoint, "localhost:4317")
 				}
 			},
 		},
@@ -146,8 +146,8 @@ func TestNewConfigWithOptions(t *testing.T) {
 			name: "WithExporterInsecure",
 			opts: []Option{WithExporterInsecure(true)},
 			verify: func(t *testing.T, cfg Config) {
-				if !cfg.ExporterInsecure {
-					t.Errorf("ExporterInsecure = %v, want %v", cfg.ExporterInsecure, true)
+				if !cfg.exporterInsecure {
+					t.Errorf("ExporterInsecure = %v, want %v", cfg.exporterInsecure, true)
 				}
 			},
 		},

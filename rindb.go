@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"sync"
 	"time"
 
@@ -50,10 +49,10 @@ type Rindb struct {
 // 2. Initialize Write-Ahead Log (WAL)
 // 3. Load existing memtable from WAL
 // 4. Initialize SSTable storage manager
-func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
+func InitRinDB(ctx context.Context, opts ...Option) (_ Rindb, err error) {
 	cfg := NewConfig(opts...)
 
-	shutdownTelemetry, err := OtelInit(ctx, cfg.EnableTelemetry, cfg.ExporterEndpoint, cfg.ExporterInsecure, cfg.TelemetrySamplingRate)
+	shutdownTelemetry, err := OtelInit(ctx, cfg.enableTelemetry, cfg.exporterEndpoint, cfg.exporterInsecure, cfg.telemetrySamplingRate)
 	if err != nil {
 		return Rindb{}, fmt.Errorf("failed to initialize telemetry: %w", err)
 	}
@@ -63,12 +62,17 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 		return Rindb{}, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
-	walPath := path.Join(cfg.databaseDir, "WAL")
-	fs, err := OpenFS(ctx, walPath)
+	wal, err := cfg.newWALFunc(ctx, cfg)
 	if err != nil {
-		return Rindb{}, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
+		return Rindb{}, err
 	}
-	wal := NewWAL(cfg, fs)
+	defer func() {
+		if err != nil {
+			// Close WAL if there's an error after this point while opening database
+			_ = wal.Close()
+		}
+	}()
+
 	memtable, err := wal.Load(ctx)
 	if err != nil {
 		return Rindb{}, err
@@ -84,10 +88,8 @@ func InitRinDB(ctx context.Context, opts ...Option) (Rindb, error) {
 	}
 	maxSeqNum = max(maxSeqNum, memMaxSeqNum)
 
-	ssTableManager, err := InitSSTableManager(ctx, cfg)
+	ssTableManager, err := cfg.newSSTableManagerFunc(ctx, cfg)
 	if err != nil {
-		// Consider closing the WAL file system if manager init fails
-		_ = fs.Close()
 		return Rindb{}, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
 
@@ -251,7 +253,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			return fmt.Errorf("failed to create new SSTable file system: %w", err)
 		}
 
-		_, err = Flush(ctx, r.config, r.memtable, fs)
+		_, err = flush(ctx, r.config, r.memtable, fs)
 		if err != nil {
 			_ = fs.Close() // Attempt to close FS on flush error
 			ERROR(ctx, "Failed to flush memtable: %v", err)

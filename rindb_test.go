@@ -55,32 +55,26 @@ func TestRindb_IRange(t *testing.T) {
 	defer ts.Cleanup()
 
 	// Create SSTable with older records
-	mem1 := InitMemtable(ts.Manager.config)
+	mem1 := InitMemtable(cfg)
 	mem1.Put(NewRecord(Bytes("a"), Bytes("sstA"), 1))
 	mem1.Put(NewRecord(Bytes("b"), Bytes("sstB"), 2))
-	sst1, err := Flush(ctx, ts.Manager.config, mem1, ts.newSSTableFS(0))
+	sst1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 
 	// Create SSTable with tombstone and another record
-	mem2 := InitMemtable(ts.Manager.config)
+	mem2 := InitMemtable(cfg)
 	mem2.Put(NewRecord(Bytes("k"), Bytes(""), 3)) // tombstone
 	mem2.Put(NewRecord(Bytes("z"), Bytes("sstZ"), 4))
-	sst2, err := Flush(ctx, ts.Manager.config, mem2, ts.newSSTableFS(0))
+	sst2, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst2)
 
 	// Memtable with latest updates
-	mem := InitMemtable(ts.Manager.config)
+	mem := ts.RinDB.memtable
 	mem.Put(NewRecord(Bytes("a"), Bytes("memA"), 5))
 	mem.Put(NewRecord(Bytes("b"), Bytes(""), 6)) // delete b
 	mem.Put(NewRecord(Bytes("k"), Bytes("memK"), 7))
-
-	r := Rindb{
-		memtable:       mem,
-		ssTableManager: ts.Manager,
-		config:         ts.Manager.config,
-	}
 
 	recA := NewRecord(Bytes("a"), Bytes("memA"), 5)
 	recK := NewRecord(Bytes("k"), Bytes("memK"), 7)
@@ -150,7 +144,7 @@ func TestRindb_IRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			iter, err := r.IRange(ctx, tt.start, tt.end)
+			iter, err := ts.RinDB.IRange(ctx, tt.start, tt.end)
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
 		})
@@ -188,7 +182,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
-	newSStable, err := Flush(ctx, rin.config, rin.memtable, newSSTableFS)
+	newSStable, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
@@ -408,7 +402,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem := InitMemtable(rin.config)
 		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 50))
 		mem.Put(NewRecord(Bytes("sk2"), Bytes("sv2"), 60))
-		_, err = Flush(ctx, rin.config, mem, fs)
+		_, err = flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
 
@@ -446,7 +440,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		mem := InitMemtable(rin.config)
 		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 70))
-		_, err = Flush(ctx, rin.config, mem, fs)
+		_, err = flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
 

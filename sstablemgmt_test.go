@@ -195,7 +195,7 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		err = mergedFs.Open(ctx) // Ensure it's open if closed previously
 		assert.NoError(t, err, "Failed to open merged FS")
 
-		mergedSSTable, err := NewSSTable(ctx, ts.Manager.config, mergedFs)
+		mergedSSTable, err := NewSSTable(ctx, cfg, mergedFs)
 		assert.NoError(t, err, "Failed to create SStable object from merged FS")
 
 		// Verify the content of the merged SSTable
@@ -507,7 +507,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		}
 
 		// Calculate the threshold used in this test
-		level1ThresholdBytes := int64(ts.Manager.config.baseCompactionSizeMB) * int64(math.Pow(float64(ts.Manager.config.levelSizeMultiplier), 1.0)) * 1024 * 1024
+		level1ThresholdBytes := int64(cfg.baseCompactionSizeMB) * int64(math.Pow(float64(cfg.levelSizeMultiplier), 1.0)) * 1024 * 1024
 		INFO(ctx, "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
 			totalSize, float64(totalSize)/(1024*1024),
 			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
@@ -610,7 +610,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// 4. Verify content of the new merged SSTable
 		err = newMergedFS.Open(ctx) // Ensure FS is open
 		assert.NoError(t, err)
-		mergedSSTable, err := NewSSTable(ctx, ts.Manager.config, newMergedFS)
+		mergedSSTable, err := NewSSTable(ctx, cfg, newMergedFS)
 		assert.NoError(t, err)
 
 		// Expected merged content: B(L2), C(L1 - newer), D(L1)
@@ -635,7 +635,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// 5. Verify content of the non-overlapping SSTable (should be unchanged)
 		err = oldNonOverlappingFS.Open(ctx) // Ensure FS is open
 		assert.NoError(t, err)
-		nonOverlappingSSTable, err := NewSSTable(ctx, ts.Manager.config, oldNonOverlappingFS)
+		nonOverlappingSSTable, err := NewSSTable(ctx, cfg, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
 		val, err = nonOverlappingSSTable.GetValue(ctx, Bytes("keyA"))

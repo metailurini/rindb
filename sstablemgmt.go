@@ -623,7 +623,7 @@ func mergeSSTables(ctx context.Context, config Config, target *FileSystem, sourc
 			memtable.Put(record)
 		}
 	}
-	sstable, err := Flush(ctx, config, memtable, target)
+	sstable, err := flush(ctx, config, memtable, target)
 	if err != nil {
 		return SStable{}, err
 	}

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"io"
 
@@ -18,6 +17,10 @@ import (
 func testOptions() []Option {
 	return []Option{
 		WithDatabaseDir("testdata"),
+		WithEnableTelemetry(true),
+		WithExporterEndpoint("tempo.magpie-gopher.ts.net:4317"),
+		WithExporterInsecure(true),
+		WithTelemetrySamplingRate(1.0),
 	}
 }
 
@@ -28,9 +31,11 @@ func testConfig() Config {
 // testRindbSetup encapsulates setup and cleanup logic for rindb tests.
 type testRindbSetup struct {
 	T            *testing.T
+	Config       *Config
 	Manager      *SSTableManager
 	TempDir      string
 	Levels       []*LinkedList[*FileSystem]
+	RinDB        *Rindb
 	CleanupFuncs []func()
 }
 
@@ -98,16 +103,22 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 		}
 	}
 
-	cleanup := func() {
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(3*time.Minute))
-		defer cancel()
+	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config) (*SSTableManager, error) {
+		return manager, nil
+	}
 
-		manager.Close(ctx)
+	db, err := InitRinDB(ctx, WithConfig(finalCfg))
+	assert.NoError(t, err)
+
+	cleanup := func() {
+		assert.NoError(t, db.Close(), "Failed to close RinDB")
 		assert.NoError(t, os.RemoveAll(tempDir), "Failed to remove temp dir")
 	}
 
 	return &testRindbSetup{
 		T:            t,
+		Config:       &finalCfg,
+		RinDB:        &db,
 		Manager:      manager,
 		TempDir:      tempDir,
 		Levels:       manager.levels,
@@ -138,13 +149,13 @@ func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
 // createSSTable creates an SSTable with the given key-value pairs.
 func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStable {
 	fs := ts.newSSTableFS(level)
-	mem := InitMemtable(ts.Manager.config)
+	mem := InitMemtable(*ts.Config)
 	var seqNum uint64 = 0
 	for k, v := range kvs {
 		seqNum++
 		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
 	}
-	sstable, err := Flush(context.Background(), ts.Manager.config, mem, fs)
+	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -152,13 +163,13 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 // createSSTableWithSequence creates an SSTable with the given key-value pairs and a starting sequence number.
 func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]string, startSeqNum uint64) *SStable {
 	fs := ts.newSSTableFS(level)
-	mem := InitMemtable(ts.Manager.config)
+	mem := InitMemtable(*ts.Config)
 	seqNum := startSeqNum
 	for k, v := range kvs {
 		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
 		seqNum++
 	}
-	sstable, err := Flush(context.Background(), ts.Manager.config, mem, fs)
+	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -251,7 +262,7 @@ func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) SStable {
 	t.Helper() // Mark this as a test helper function
 	mem := populateMemtable(cfg, pairs...)
-	sstable, err := Flush(context.Background(), cfg, mem, fs)
+	sstable, err := flush(context.Background(), cfg, mem, fs)
 	assert.NoError(t, err, "Failed to flush memtable to create SSTable")
 	return sstable
 }

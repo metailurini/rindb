@@ -23,7 +23,7 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		_, err := Flush(context.Background(), cfg, mem, fs)
+		_, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 	})
 	t.Run("FlushWithElements", func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestSStable(t *testing.T) {
 				SequenceNumber: uint64(i),
 			})
 		}
-		sstable, err := Flush(ctx, cfg, mem, fs)
+		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
 		assert.NoError(t, err)
@@ -94,7 +94,7 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
-		sstable1, err := Flush(ctx, cfg, mem, fs)
+		sstable1, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		sstable2, err := NewSSTable(ctx, cfg, fs)
 		assert.NoError(t, err)
@@ -109,7 +109,7 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
-		_, err := Flush(ctx, cfg, mem, fs)
+		_, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		sstable, err := NewSSTable(ctx, cfg, fs)
 		assert.NoError(t, err)
@@ -133,7 +133,7 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
 		assert.Equal(t, uint(3), mem.data.Len())
-		sstable, err := Flush(ctx, cfg, mem, fs)
+		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(0), mem.data.Len())
 		value, err := sstable.GetValue(ctx, Bytes("2"))
@@ -157,7 +157,7 @@ func TestSStable(t *testing.T) {
 		mem.Put(RecordImpl{Bytes("2"), Bytes("3"), 1})
 		mem.Put(RecordImpl{Bytes("1"), Bytes("2"), 2})
 		mem.Put(RecordImpl{Bytes("3"), Bytes("4"), 3})
-		sstable, err := Flush(context.Background(), cfg, mem, fs)
+		sstable, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 		iterator, err := sstable.Iterator()
 		assert.NoError(t, err)
@@ -207,7 +207,7 @@ func TestSStable(t *testing.T) {
 				SequenceNumber: uint64(i),
 			})
 		}
-		sstable, err := Flush(context.Background(), cfg, mem, fs)
+		sstable, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 
 		tests := []struct {
@@ -485,7 +485,7 @@ func TestFlushWithTombstones(t *testing.T) {
 	mem := InitMemtable(cfg)
 	mem.Put(RecordImpl{k1, Bytes("v1"), 1})
 	mem.Put(RecordImpl{k2, nil, 2})
-	sstable, err := Flush(ctx, cfg, mem, fs)
+	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
 	v1, err := sstable.GetValue(ctx, k1)
 	assert.NoError(t, err)
@@ -504,7 +504,7 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	fs := fss[0]
 	mem := InitMemtable(cfg)
 	mem.Put(RecordImpl{Bytes("k1"), Bytes("v1"), 2})
-	sstable, err := Flush(ctx, cfg, mem, fs)
+	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
 	_, err = sstable.GetValue(ctx, Bytes("k2"))
 	assert.ErrorIs(t, err, ErrKeyNotFound)

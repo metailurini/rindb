@@ -1,5 +1,15 @@
 package rindb
 
+import (
+	"context"
+)
+
+// NewWALFunc defines the signature for a function that creates a WAL instance.
+type NewWALFunc func(ctx context.Context, cfg Config) (WAL, error)
+
+// NewSSTableManagerFunc defines the signature for a function that creates an SSTableManager instance.
+type NewSSTableManagerFunc func(ctx context.Context, cfg Config) (*SSTableManager, error)
+
 type Config struct {
 	// databaseDir specifies the directory where WAL and SSTables are stored
 	databaseDir string
@@ -29,17 +39,23 @@ type Config struct {
 	// skipListP is probability for skip list level promotion
 	skipListP float64
 
-	// EnableTelemetry toggles OpenTelemetry collection
-	EnableTelemetry bool
+	// enableTelemetry toggles OpenTelemetry collection
+	enableTelemetry bool
 
-	// ExporterEndpoint configures OTLP gRPC endpoint
-	ExporterEndpoint string
+	// exporterEndpoint configures OTLP gRPC endpoint
+	exporterEndpoint string
 
-	// ExporterInsecure disables TLS for the OTLP exporter
-	ExporterInsecure bool
+	// exporterInsecure disables TLS for the OTLP exporter
+	exporterInsecure bool
 
-	// TelemetrySamplingRate sets the sampling rate for traces (0.0 - 1.0)
-	TelemetrySamplingRate float64
+	// telemetrySamplingRate sets the sampling rate for traces (0.0 - 1.0)
+	telemetrySamplingRate float64
+
+	// newWALFunc allows custom WAL initialization logic.
+	newWALFunc NewWALFunc
+
+	// newSSTableManagerFunc allows custom SSTableManager initialization logic.
+	newSSTableManagerFunc NewSSTableManagerFunc
 }
 
 // Option defines a functional option type for Config.
@@ -66,11 +82,17 @@ func DefaultConfig() Config {
 		skipListDefaultLevel:      2,
 		skipListMaxLevel:          32,
 		skipListP:                 0.5,
-		EnableTelemetry:           false,
-		ExporterEndpoint:          "",
-		ExporterInsecure:          false,
-		TelemetrySamplingRate:     0.1, // Default to sample 10% of traces
+		enableTelemetry:           false,
+		exporterEndpoint:          "",
+		exporterInsecure:          false,
+		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
+		newWALFunc:                DefaultNewWALFunc,
+		newSSTableManagerFunc:     InitSSTableManager,
 	}
+}
+
+func WithConfig(cfg Config) Option {
+	return func(c *Config) { *c = cfg }
 }
 
 // Option functions
@@ -111,17 +133,25 @@ func WithSkipListP(p float64) Option {
 }
 
 func WithEnableTelemetry(enable bool) Option {
-	return func(c *Config) { c.EnableTelemetry = enable }
+	return func(c *Config) { c.enableTelemetry = enable }
 }
 
 func WithExporterEndpoint(endpoint string) Option {
-	return func(c *Config) { c.ExporterEndpoint = endpoint }
+	return func(c *Config) { c.exporterEndpoint = endpoint }
 }
 
 func WithExporterInsecure(insecure bool) Option {
-	return func(c *Config) { c.ExporterInsecure = insecure }
+	return func(c *Config) { c.exporterInsecure = insecure }
 }
 
 func WithTelemetrySamplingRate(rate float64) Option {
-	return func(c *Config) { c.TelemetrySamplingRate = rate }
+	return func(c *Config) { c.telemetrySamplingRate = rate }
+}
+
+func WithNewWALFunc(f NewWALFunc) Option {
+	return func(c *Config) { c.newWALFunc = f }
+}
+
+func WithNewSSTableManagerFunc(f NewSSTableManagerFunc) Option {
+	return func(c *Config) { c.newSSTableManagerFunc = f }
 }
