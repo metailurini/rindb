@@ -16,7 +16,7 @@ func buildRangePQ(iterators []Iterator[Record]) *PriorityQueue[pqItem] {
 		return cmp == CmpLess
 	}
 
-	pq := NewPriorityQueue[pqItem](less)
+	pq := NewPriorityQueue(less)
 	for _, it := range iterators {
 		if it.HasNext() {
 			rec, err := it.Next()
