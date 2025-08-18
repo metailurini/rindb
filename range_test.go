@@ -9,16 +9,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// errIterator yields one record then returns an error on subsequent Next calls.
+// errIterator injects an error at a specified index.
 type errIterator struct {
 	records []Record
 	idx     int
+	failIdx int
 }
 
 func (e *errIterator) HasNext() bool { return e.idx < len(e.records) }
 
 func (e *errIterator) Next() (Record, error) {
-	if e.idx == 1 {
+	if e.idx == e.failIdx {
+		e.idx++
 		var empty Record
 		return empty, errors.New("boom")
 	}
@@ -30,7 +32,7 @@ func (e *errIterator) Next() (Record, error) {
 func TestRangeIteratorErrorPropagates(t *testing.T) {
 	r1 := NewRecord(Bytes("a"), Bytes("1"), 1)
 	r2 := NewRecord(Bytes("b"), Bytes("2"), 2)
-	it := &errIterator{records: []Record{r1, r2}}
+	it := &errIterator{records: []Record{r1, r2}, failIdx: 1}
 	pq, err := buildRangePQ([]Iterator[Record]{it})
 	assert.NoError(t, err)
 	cleaned := false
@@ -47,17 +49,9 @@ func TestRangeIteratorErrorPropagates(t *testing.T) {
 	assert.True(t, cleaned)
 }
 
-// setupErrIterator returns an error on the first Next call.
-type setupErrIterator struct{}
-
-func (s *setupErrIterator) HasNext() bool { return true }
-func (s *setupErrIterator) Next() (Record, error) {
-	var empty Record
-	return empty, errors.New("boom")
-}
-
 func TestBuildRangePQInitialError(t *testing.T) {
-	it := &setupErrIterator{}
+	r := NewRecord(Bytes("a"), Bytes("1"), 1)
+	it := &errIterator{records: []Record{r}, failIdx: 0}
 	pq, err := buildRangePQ([]Iterator[Record]{it})
 	assert.Nil(t, pq)
 	assert.EqualError(t, err, "boom")
