@@ -1,0 +1,6 @@
+{
+  "release-type": "go",
+  "packages": {
+    ".": {}
+  }
+}
