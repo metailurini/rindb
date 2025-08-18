@@ -55,20 +55,24 @@ type Rindb struct {
 
 // Stats returns current statistics of the database.
 func (r *Rindb) Stats() Stats {
-	r.mu.RLock()
+	// Read atomic stats without locking first.
 	stats := Stats{
-		MemtableBytes:  r.memtable.ByteSize(),
-		SequenceNumber: r.sequenceNumber,
-		WALBytes:       r.wal.bytes.Load(),
-		WALRecords:     r.wal.records.Load(),
-		GetCalls:       r.getCalls.Load(),
-		PutCalls:       r.putCalls.Load(),
-		RemoveCalls:    r.removeCalls.Load(),
-		IRangeCalls:    r.iRangeCalls.Load(),
-		Flushes:        r.flushCount.Load(),
+		WALBytes:    r.wal.bytes.Load(),
+		WALRecords:  r.wal.records.Load(),
+		GetCalls:    r.getCalls.Load(),
+		PutCalls:    r.putCalls.Load(),
+		RemoveCalls: r.removeCalls.Load(),
+		IRangeCalls: r.iRangeCalls.Load(),
+		Flushes:     r.flushCount.Load(),
 	}
+
+	// Lock to get memtable stats and sequence number.
+	r.mu.RLock()
+	stats.MemtableBytes = r.memtable.ByteSize()
+	stats.SequenceNumber = r.sequenceNumber
 	r.mu.RUnlock()
 
+	// Lock separately for SSTable manager stats.
 	r.ssTableManager.mu.RLock()
 	stats.SSTablesPerLevel = make([]int, len(r.ssTableManager.levels))
 	for i, level := range r.ssTableManager.levels {

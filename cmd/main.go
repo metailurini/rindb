@@ -85,9 +85,16 @@ func main() {
 			}
 		case "stats":
 			s := db.Stats()
-			fmt.Printf("MemtableBytes=%d SequenceNumber=%d WALBytes=%d WALRecords=%d SSTablesPerLevel=%v GetCalls=%d PutCalls=%d RemoveCalls=%d IRangeCalls=%d Flushes=%d\n",
-				s.MemtableBytes, s.SequenceNumber, s.WALBytes, s.WALRecords, s.SSTablesPerLevel,
-				s.GetCalls, s.PutCalls, s.RemoveCalls, s.IRangeCalls, s.Flushes)
+			fmt.Printf("MemtableBytes: %d\n", s.MemtableBytes)
+			fmt.Printf("SequenceNumber: %d\n", s.SequenceNumber)
+			fmt.Printf("WALBytes: %d\n", s.WALBytes)
+			fmt.Printf("WALRecords: %d\n", s.WALRecords)
+			fmt.Printf("SSTablesPerLevel: %v\n", s.SSTablesPerLevel)
+			fmt.Printf("GetCalls: %d\n", s.GetCalls)
+			fmt.Printf("PutCalls: %d\n", s.PutCalls)
+			fmt.Printf("RemoveCalls: %d\n", s.RemoveCalls)
+			fmt.Printf("IRangeCalls: %d\n", s.IRangeCalls)
+			fmt.Printf("Flushes: %d\n", s.Flushes)
 		case "exit":
 			return
 		default:
