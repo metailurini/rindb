@@ -259,7 +259,7 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	}()
 
 	if mem.data.Len() == 0 {
-		WARN(ctx, "Flushing empty memtable!")
+		ERROR(ctx, "Flushing empty memtable! It's a bug!")
 		log.Panic("empty memtable!")
 	}
 
