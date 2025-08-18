@@ -32,23 +32,25 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Range Queries**:
-    - [ ] Add `Range(start, end Bytes) ([]Record, error)` to `Rindb` in `rindb.go`.
-    - [ ] Extend `SStable.Iterator()` in `sstable.go` for range filtering (leverages existing `sstableIterator`).
+    - [x] Add `IRange(start, end Bytes) (*RangeIterator, error)` to `Rindb` in `rindb.go`.
+    - [x] Extend `SStable.IRange()` in `sstable.go` for range filtering (leverages existing `sstableIterator`).
+    - [x] Implement `Memtable.IRange` and `RangeIterator` for comprehensive range query support.
   - **Advanced Compaction**:
-    - [ ] Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`.
+    - [ ] Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`. (Current implementation uses configurable thresholds, but not dynamic triggers based on system load.)
   - **Configuration Validation**:
-    - [ ] Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
-    - [ ] Add `Config.Validate()` method.
+    - [x] Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
+    - [x] Add `Config.Validate()` method.
   - **Basic Metrics**:
-    - [ ] Expose stats (Memtable size via `Memtable.ByteSize()`, SSTable count from `SSTableManager.levels`) via `Stats()` in `rindb.go`.
+    - [x] Implement OpenTelemetry for metrics collection (e.g., `putCalls`, `getCalls`, `compactLatency`). (Supersedes the original plan to expose stats via a `Stats()` method in `rindb.go`.)
 
 - **Deliverables**:
-  - [ ] Range query support in API and CLI.
-  - [ ] Configurable compaction strategies.
-  - [ ] Basic observability (e.g., stats output).
+  - [x] Comprehensive range query support in API.
+  - [ ] Configurable compaction strategies with dynamic triggers.
+  - [x] Robust configuration validation.
+  - [x] Advanced observability via OpenTelemetry.
 
 - **Version**: `v0.3.0`
-  - **Rationale**: Range queries and advanced compaction are significant new features, justifying a minor version bump. The codebase lacks these (e.g., no `Range` method in `rindb.go`, basic compaction in `SSTableManager`), so this is a natural next step.
+  - **Rationale**: Range queries and configuration validation are significant new features, justifying a minor version bump. The codebase has made substantial progress in these areas, with OpenTelemetry providing a more advanced metrics solution than initially planned.
 
 ---
 
@@ -59,7 +61,6 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 - **Tasks**:
   - **Benchmarking Suite**:
     - [ ] Add benchmarks for CRUD (`Put`, `Get`, `Remove`) and compaction in `Makefile` (e.g., extend `test-coverage` target).
-    - [ ] Compare with LevelDB/RocksDB using existing test utils (e.g., `test_utils.go`).
   - **Read Optimization**:
     - [ ] Cache SSTable sparse indexes in `SStable` (modify `sstable.go`).
     - [ ] Parallelize `Get` searches in `SSTableManager.searchKey` using goroutines.
