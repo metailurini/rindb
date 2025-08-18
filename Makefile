@@ -5,6 +5,7 @@ check:
 	@go run honnef.co/go/tools/cmd/staticcheck@v0.5.0 ./...
 	@echo "Done."
 
+
 check-spanname:
 	@go build -o ./bin/spanname ./tool/spanname
 	@go vet -vettool=$$(pwd)/bin/spanname ./...
