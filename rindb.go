@@ -196,7 +196,11 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 		iterators = append(iterators, rangeIter)
 	}
 
-	pq := buildRangePQ(iterators)
+	pq, err := buildRangePQ(iterators)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
 
 	return &RangeIterator{pq: pq, cleanup: cleanup}, nil
 }
