@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"errors"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -65,15 +66,21 @@ func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool, 
 
 	shutdown := func(ctx context.Context) error {
 		INFO(ctx, "Shutting down OpenTelemetry trace provider...")
-		if err := tp.Shutdown(ctx); err != nil {
-			ERROR(ctx, "Error shutting down trace provider: %v", err)
-			return err
+		tpErr := tp.Shutdown(ctx)
+		if tpErr != nil {
+			ERROR(ctx, "Error shutting down trace provider: %v", tpErr)
 		}
+
 		INFO(ctx, "Shutting down OpenTelemetry meter provider...")
-		if err := mp.Shutdown(ctx); err != nil {
-			ERROR(ctx, "Error shutting down meter provider: %v", err)
-			return err
+		mpErr := mp.Shutdown(ctx)
+		if mpErr != nil {
+			ERROR(ctx, "Error shutting down meter provider: %v", mpErr)
 		}
+
+		if tpErr != nil || mpErr != nil {
+			return errors.Join(tpErr, mpErr)
+		}
+
 		INFO(ctx, "OpenTelemetry shutdown complete.")
 		return nil
 	}
