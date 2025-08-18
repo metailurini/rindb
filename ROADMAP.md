@@ -35,7 +35,6 @@ This roadmap outlines the development path for `rindb`, starting from version `v
     - [ ] Add `Range(start, end Bytes) ([]Record, error)` to `Rindb` in `rindb.go`.
     - [ ] Extend `SStable.Iterator()` in `sstable.go` for range filtering (leverages existing `sstableIterator`).
   - **Advanced Compaction**:
-    - [ ] Implement tiered compaction in `sstable_manager.go` as an alternative to leveled compaction.
     - [ ] Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`.
   - **Configuration Validation**:
     - [ ] Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
