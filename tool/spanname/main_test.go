@@ -50,19 +50,15 @@ func (t T) MethodValueBad() { tracer.Start(context.Background(), "MethodValueBad
 func Ignored() { tracer.Start(context.Background(), "Whatever") }
 `
 	diags := runAnalyzer(t, src)
-	msgs := map[string]struct{}{}
-	for _, d := range diags {
-		msgs[d.Message] = struct{}{}
-	}
-	require.Len(t, msgs, 3)
+	require.Len(t, diags, 3)
 	want := []string{
 		"span name \"Nope\" does not match function \"Bad\"",
 		"span name \"MethodPointerBad\" does not match function \"S.MethodPointerBad\"",
 		"span name \"MethodValueBad\" does not match function \"T.MethodValueBad\"",
 	}
-	got := make([]string, 0, len(msgs))
-	for m := range msgs {
-		got = append(got, m)
+	got := make([]string, 0, len(diags))
+	for _, d := range diags {
+		got = append(got, d.Message)
 	}
 	require.ElementsMatch(t, want, got)
 }
