@@ -7,7 +7,7 @@ type pqItem struct {
 	iter Iterator[Record]
 }
 
-func buildRangePQ(iterators []Iterator[Record]) *PriorityQueue[pqItem] {
+func buildRangePQ(iterators []Iterator[Record]) (*PriorityQueue[pqItem], error) {
 	less := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
@@ -20,12 +20,16 @@ func buildRangePQ(iterators []Iterator[Record]) *PriorityQueue[pqItem] {
 	for _, it := range iterators {
 		if it.HasNext() {
 			rec, err := it.Next()
-			if err == nil {
-				pq.PushItem(pqItem{rec: rec, iter: it})
+			if err != nil {
+				if !errors.Is(err, EOI) {
+					return nil, err
+				}
+				continue
 			}
+			pq.PushItem(pqItem{rec: rec, iter: it})
 		}
 	}
-	return pq
+	return pq, nil
 }
 
 // RangeIterator merges multiple iterators and iterates over them in order.

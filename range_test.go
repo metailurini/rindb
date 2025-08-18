@@ -31,7 +31,8 @@ func TestRangeIteratorErrorPropagates(t *testing.T) {
 	r1 := NewRecord(Bytes("a"), Bytes("1"), 1)
 	r2 := NewRecord(Bytes("b"), Bytes("2"), 2)
 	it := &errIterator{records: []Record{r1, r2}}
-	pq := buildRangePQ([]Iterator[Record]{it})
+	pq, err := buildRangePQ([]Iterator[Record]{it})
+	assert.NoError(t, err)
 	cleaned := false
 	iter := &RangeIterator{pq: pq, cleanup: func() { cleaned = true }}
 
@@ -44,6 +45,22 @@ func TestRangeIteratorErrorPropagates(t *testing.T) {
 	_, err = iter.Next()
 	assert.EqualError(t, err, "boom")
 	assert.True(t, cleaned)
+}
+
+// setupErrIterator returns an error on the first Next call.
+type setupErrIterator struct{}
+
+func (s *setupErrIterator) HasNext() bool { return true }
+func (s *setupErrIterator) Next() (Record, error) {
+	var empty Record
+	return empty, errors.New("boom")
+}
+
+func TestBuildRangePQInitialError(t *testing.T) {
+	it := &setupErrIterator{}
+	pq, err := buildRangePQ([]Iterator[Record]{it})
+	assert.Nil(t, pq)
+	assert.EqualError(t, err, "boom")
 }
 
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
