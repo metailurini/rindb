@@ -48,7 +48,7 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 		ts.AddSSTableToLevel(0, newer)
 
 		// Verify search finds the key in older SSTable
-		result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"))
+		result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("targetVal"), result)
 	})
@@ -232,7 +232,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		// Search for a random key in an empty manager
 		key := randStringBytes(10)
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.searchKey(ctx, key, math.MaxUint64)
 
 		// Assertions remain the same: expect key not found
 		assert.ErrorIs(t, err, ErrKeyNotFound, "Expected ErrKeyNotFound when searching empty manager")
@@ -260,7 +260,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		}
 		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.searchKey(ctx, key, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
@@ -294,7 +294,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.Equal(t, 1, ts.Manager.levels[0].Len())
 		assert.Equal(t, 1, ts.Manager.levels[1].Len())
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.searchKey(ctx, key, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, newValue, result)
 	})
@@ -313,7 +313,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs)
 
 		missingKey := randStringBytes(10)
-		result, err := ts.Manager.searchKey(ctx, missingKey)
+		result, err := ts.Manager.searchKey(ctx, missingKey, math.MaxUint64)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -325,7 +325,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		ts.Manager.levels = nil // Explicitly empty
 
-		result, err := ts.Manager.searchKey(ctx, Bytes("any-key"))
+		result, err := ts.Manager.searchKey(ctx, Bytes("any-key"), math.MaxUint64)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -343,7 +343,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		ts.Manager.levels[0].PushBack(fs)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.searchKey(ctx, key, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
@@ -369,7 +369,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs0)
 		ts.Manager.levels[1].PushBack(fs1)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.searchKey(ctx, key, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, result) // Tombstone returns nil value
 	})
@@ -386,7 +386,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[0].PushBack(fs)
 
 		// Key not in Bloom filter
-		result, err := ts.Manager.searchKey(ctx, Bytes("absent-key"))
+		result, err := ts.Manager.searchKey(ctx, Bytes("absent-key"), math.MaxUint64)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -616,19 +616,19 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		// Expected merged content: B(L2), C(L1 - newer), D(L1)
 		assert.Equal(t, 3, len(mergedSSTable.SparseIndex), "Merged SSTable should have 3 keys")
 
-		val, err := mergedSSTable.GetValue(ctx, Bytes("keyA")) // Should not be present
+		val, err := mergedSSTable.GetValue(ctx, Bytes("keyA"), math.MaxUint64) // Should not be present
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, val)
 
-		val, err = mergedSSTable.GetValue(ctx, Bytes("keyB"))
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyB"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueB_L2"), val)
 
-		val, err = mergedSSTable.GetValue(ctx, Bytes("keyC"))
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyC"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueC_L1"), val) // Level 1 is newer, takes precedence
 
-		val, err = mergedSSTable.GetValue(ctx, Bytes("keyD"))
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyD"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueD_L1"), val)
 
@@ -638,7 +638,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		nonOverlappingSSTable, err := NewSSTable(ctx, cfg, oldNonOverlappingFS)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(nonOverlappingSSTable.SparseIndex))
-		val, err = nonOverlappingSSTable.GetValue(ctx, Bytes("keyA"))
+		val, err = nonOverlappingSSTable.GetValue(ctx, Bytes("keyA"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueA_L2"), val)
 	})

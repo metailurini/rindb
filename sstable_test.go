@@ -3,6 +3,7 @@ package rindb
 import (
 	"context"
 	"io"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,16 +137,16 @@ func TestSStable(t *testing.T) {
 		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, uint(0), mem.data.Len())
-		value, err := sstable.GetValue(ctx, Bytes("2"))
+		value, err := sstable.GetValue(ctx, Bytes("2"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("3"), value)
-		value, err = sstable.GetValue(ctx, Bytes("1"))
+		value, err = sstable.GetValue(ctx, Bytes("1"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("2"), value)
-		value, err = sstable.GetValue(ctx, Bytes("3"))
+		value, err = sstable.GetValue(ctx, Bytes("3"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("4"), value)
-		value, err = sstable.GetValue(ctx, Bytes(".3"))
+		value, err = sstable.GetValue(ctx, Bytes(".3"), math.MaxUint64)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Equal(t, Bytes(nil), value)
 	})
@@ -487,10 +488,10 @@ func TestFlushWithTombstones(t *testing.T) {
 	mem.Put(RecordImpl{k2, nil, 2})
 	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
-	v1, err := sstable.GetValue(ctx, k1)
+	v1, err := sstable.GetValue(ctx, k1, math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
-	v2, err := sstable.GetValue(ctx, k2)
+	v2, err := sstable.GetValue(ctx, k2, math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Nil(t, v2)
 }
@@ -506,7 +507,7 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	mem.Put(RecordImpl{Bytes("k1"), Bytes("v1"), 2})
 	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
-	_, err = sstable.GetValue(ctx, Bytes("k2"))
+	_, err = sstable.GetValue(ctx, Bytes("k2"), math.MaxUint64)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 	pos, err := fs.CursorPos()
 	assert.NoError(t, err)

@@ -58,7 +58,7 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 
-	iter, err := ts.RinDB.IRange(ctx, Bytes("a"), Bytes("z"))
+	iter, err := ts.RinDB.IRange(ctx, Bytes("a"), Bytes("z"), nil)
 	assert.NoError(t, err)
 
 	if iter.HasNext() {

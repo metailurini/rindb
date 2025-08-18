@@ -3,6 +3,7 @@ package rindb
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path"
@@ -43,7 +44,7 @@ func TestRindb_Get(t *testing.T) {
 	key := Bytes("key")
 	err := rin.Put(ctx, key, Bytes("value"))
 	assert.NoError(t, err)
-	value, err := rin.Get(ctx, key)
+	value, err := rin.Get(ctx, key, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value"), value)
 }
@@ -144,7 +145,7 @@ func TestRindb_IRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			iter, err := ts.RinDB.IRange(ctx, tt.start, tt.end)
+			iter, err := ts.RinDB.IRange(ctx, tt.start, tt.end, nil)
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
 		})
@@ -161,7 +162,7 @@ func TestRindb_Remove(t *testing.T) {
 	assert.NoError(t, err)
 	err = rin.Remove(ctx, key)
 	assert.NoError(t, err)
-	value, err := rin.Get(ctx, key)
+	value, err := rin.Get(ctx, key, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes(nil), value)
 }
@@ -186,12 +187,38 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	assert.NoError(t, err)
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
-	value, err := newSStable.GetValue(ctx, Bytes("rm-key"))
+	value, err := newSStable.GetValue(ctx, Bytes("rm-key"), math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes(nil), value)
-	value, err = newSStable.GetValue(ctx, Bytes("key"))
+	value, err = newSStable.GetValue(ctx, Bytes("key"), math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value"), value)
+}
+
+func TestRindb_Snapshot(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
+
+	err := rin.Put(ctx, Bytes("k"), Bytes("v1"))
+	assert.NoError(t, err)
+	snap, release := rin.GetSnapshot()
+	defer release()
+	err = rin.Put(ctx, Bytes("k"), Bytes("v2"))
+	assert.NoError(t, err)
+
+	valSnap, err := rin.Get(ctx, Bytes("k"), snap)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), valSnap)
+
+	valLatest, err := rin.Get(ctx, Bytes("k"), nil)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), valLatest)
+
+	iter, err := rin.IRange(ctx, Bytes("k"), Bytes("k"), snap)
+	assert.NoError(t, err)
+	expected := []Record{NewRecord(Bytes("k"), Bytes("v1"), uint64(snap.seq))}
+	assertIteratorRecords(t, iter, expected)
 }
 
 // TestRindb_GetPrecedence tests that Get prioritizes Memtable over SSTables.
@@ -218,7 +245,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	rin.ssTableManager.levels[0].PushBack(fs)        // Add the newly created SSTable FS to the manager
 	err = rin.Put(ctx, Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
-	v, err := rin.Get(ctx, Bytes("k1"))
+	v, err := rin.Get(ctx, Bytes("k1"), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1-mem"), v)
 }
@@ -237,7 +264,7 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 			key := Bytes(fmt.Sprintf("k%d", i))
 			value := Bytes(fmt.Sprintf("v%d", i))
 			assert.NoError(t, rin.Put(ctx, key, value))
-			v, err := rin.Get(ctx, key)
+			v, err := rin.Get(ctx, key, nil)
 			assert.NoError(t, err)
 
 			assert.Equal(t, value, v)
@@ -246,7 +273,7 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 			assert.NoError(t, rin.Put(ctx, key, value))
 
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-			v, err = rin.Get(ctx, key)
+			v, err = rin.Get(ctx, key, nil)
 			assert.NoError(t, err)
 			assert.Equal(t, value, v)
 			assert.NoError(t, rin.Remove(ctx, key))
@@ -269,7 +296,7 @@ func TestRindb_Close(t *testing.T) {
 	assert.True(t, rin.closed, "Rindb instance should be marked as closed")
 
 	// Verify operations fail after close
-	_, getErr := rin.Get(ctx, Bytes("key1"))
+	_, getErr := rin.Get(ctx, Bytes("key1"), nil)
 	assert.ErrorIs(t, getErr, ErrDatabaseClosed, "Get should fail with ErrDatabaseClosed after Close")
 
 	putErr := rin.Put(ctx, Bytes("key2"), Bytes("value2"))
@@ -328,15 +355,15 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 
 	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
 	// We can Get the keys back to ensure they were persisted correctly
-	val1, err := rin.Get(ctx, Bytes("key1"))
+	val1, err := rin.Get(ctx, Bytes("key1"), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value1-loooooooooong"), val1)
 
-	val2, err := rin.Get(ctx, Bytes("key2"))
+	val2, err := rin.Get(ctx, Bytes("key2"), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value2-loooooooooong"), val2)
 
-	val3, err := rin.Get(ctx, Bytes("key3"))
+	val3, err := rin.Get(ctx, Bytes("key3"), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value3-loooooooooong"), val3)
 }
@@ -352,7 +379,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
-		assert.Equal(t, rin.sequenceNumber, uint64(0), "Expected sequence number to be at least 1 for empty database")
+		assert.Equal(t, rin.nextSeq, uint64(0), "Expected sequence number to be at least 1 for empty database")
 	})
 
 	t.Run("MemtableHasHighestSequence", func(t *testing.T) {
@@ -378,7 +405,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
-		assert.Equal(t, uint64(30), rin.sequenceNumber, "Expected sequence number from memtable")
+		assert.Equal(t, uint64(30), rin.nextSeq, "Expected sequence number from memtable")
 	})
 
 	t.Run("SSTableHasHighestSequence", func(t *testing.T) {
@@ -418,7 +445,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		rin, cleanup = initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
-		assert.Equal(t, uint64(60), rin.sequenceNumber, "Expected sequence number from SSTable")
+		assert.Equal(t, uint64(60), rin.nextSeq, "Expected sequence number from SSTable")
 	})
 
 	t.Run("EqualMaxSequenceNumbers", func(t *testing.T) {
@@ -457,6 +484,6 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		rin, cleanup = initRinDBWithCleanup(t, opts...)
 		defer cleanup()
 
-		assert.Equal(t, uint64(70), rin.sequenceNumber, "Expected sequence number to be the common max")
+		assert.Equal(t, uint64(70), rin.nextSeq, "Expected sequence number to be the common max")
 	})
 }

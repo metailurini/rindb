@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -71,7 +72,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		assert.NoError(t, err)
 		mem, err := w.Load(context.Background())
 		assert.NoError(t, err)
-		got, err := mem.Get(Bytes("single_key"))
+		got, err := mem.Get(Bytes("single_key"), math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("single_value"), got)
 	})
@@ -96,7 +97,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		for i := 0; i < recordsSize; i++ {
 			key := Bytes(fmt.Sprintf("key.%d", i))
 			expectedValue := Bytes(fmt.Sprintf("value.%d", i))
-			got, err := mem.Get(key)
+			got, err := mem.Get(key, math.MaxUint64)
 			assert.NoError(t, err)
 			assert.Equal(t, expectedValue, got)
 		}
@@ -125,10 +126,10 @@ func TestWALCrashRecovery(t *testing.T) {
 	w = NewWAL(cfg, fs)
 	mem, err := w.Load(context.Background())
 	assert.NoError(t, err)
-	v1, err := mem.Get(k1)
+	v1, err := mem.Get(k1, math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
-	v2, err := mem.Get(k2)
+	v2, err := mem.Get(k2, math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v2"), v2)
 }
@@ -181,15 +182,15 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	assert.NoError(t, err) // Load should ideally not return an error for partial records
 
 	// Verify records 1 and 2 are present
-	v1, err := mem.Get(Bytes("key1"))
+	v1, err := mem.Get(Bytes("key1"), math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value1"), v1)
 
-	v2, err := mem.Get(Bytes("key2"))
+	v2, err := mem.Get(Bytes("key2"), math.MaxUint64)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value2"), v2)
 
 	// Verify record 3 is NOT present
-	_, err = mem.Get(Bytes("key3"))
+	_, err = mem.Get(Bytes("key3"), math.MaxUint64)
 	assert.Error(t, err) // Should return an error as key3 was not fully written
 }

@@ -45,7 +45,7 @@ func main() {
 				fmt.Println("Usage: get <key>")
 				continue
 			}
-			value, err := db.Get(ctx, rindb.Bytes(parts[1]))
+			value, err := db.Get(ctx, rindb.Bytes(parts[1]), nil)
 			if err != nil {
 				fmt.Println("Error:", err)
 			} else {
@@ -67,7 +67,7 @@ func main() {
 				fmt.Println("Usage: range <start> <end>")
 				continue
 			}
-			iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
+			iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]), nil)
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -74,7 +75,7 @@ type SStable struct {
 	Bloom       *BloomFilter
 }
 
-func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
+func (s SStable) GetValue(ctx context.Context, key Bytes, seq uint64) (Bytes, error) {
 	ctx, span := sstableTracer.Start(ctx, "SStable.GetValue")
 	start := time.Now()
 	var bytesRead int
@@ -86,41 +87,26 @@ func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
 		}
 	}()
 
-	if !s.Bloom.Lookup(key) {
-		return nil, ErrKeyNotFound
-	}
-
-	offset, err := s.SparseIndex.GetOffset(key)
+	iter, err := s.IRange(key, key)
 	if err != nil {
 		return nil, err
 	}
-
-	if _, err := s.file.Seek(offset, io.SeekStart); err != nil {
-		ERROR(ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
-		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	it := newSnapshotIterator(iter, seq)
+	if it.HasNext() {
+		rec, _ := it.Next()
+		bytesRead = CalOnDiskSize(rec)
+		return rec.GetValue(), nil
 	}
-
-	record, err := ReadRecord(s)
-	if err != nil {
-		// Check for EOF specifically, might indicate corruption if seeking led here
-		if errors.Is(err, io.EOF) {
-			ERROR(ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
-			return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
-		}
-		ERROR(ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
-		return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
-	}
-	bytesRead = CalOnDiskSize(record)
-	return record.GetValue(), nil
+	return nil, ErrKeyNotFound
 }
 
 // GetKeyRange returns the minimum and maximum keys in the SStable.
 func (s SStable) GetKeyRange() (Bytes, Bytes) {
 	if len(s.SparseIndex) == 0 {
-		return nil, nil // Or handle as an error, depending on desired behavior
+		return nil, nil
 	}
-	minKey := s.SparseIndex[0].key
-	maxKey := s.SparseIndex[len(s.SparseIndex)-1].key
+	minKey := DecodeInternalKey(s.SparseIndex[0].key).user
+	maxKey := DecodeInternalKey(s.SparseIndex[len(s.SparseIndex)-1].key).user
 	return minKey, maxKey
 }
 
@@ -307,7 +293,7 @@ func genSparseIndex(mem Memtable) SparseIndex {
 	cursor := int64(0)
 	runNode := mem.data.Head().Next()
 	for runNode != nil {
-		sparseIndex = append(sparseIndex, KeyOffset{runNode.Key, cursor})
+		sparseIndex = append(sparseIndex, KeyOffset{runNode.Key.Encode(), cursor})
 		cursor += int64(CalOnDiskSize(runNode.Value))
 		runNode = runNode.Next()
 	}
@@ -380,14 +366,16 @@ func (sri *sstableIRange) Next() (Record, error) {
 
 // IRange returns an iterator over records with keys in [start, end].
 func (s SStable) IRange(start, end Bytes) (Iterator[Record], error) {
+	startEnc := NewInternalKey(start, math.MaxUint64).Encode()
+	endEnc := NewInternalKey(end, 0).Encode()
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
-		return s.SparseIndex[i].key.Compare(start) >= 0
+		return s.SparseIndex[i].key.Compare(startEnc) >= 0
 	})
 	if startIdx >= len(s.SparseIndex) {
-		return &sstableIRange{s: &s, current: startIdx, endKey: end}, nil
+		return &sstableIRange{s: &s, current: startIdx, endKey: endEnc}, nil
 	}
 	if _, err := s.file.Seek(s.SparseIndex[startIdx].offset, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return &sstableIRange{s: &s, current: startIdx, endKey: end}, nil
+	return &sstableIRange{s: &s, current: startIdx, endKey: endEnc}, nil
 }

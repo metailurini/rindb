@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,7 @@ func TestMemtable_Basic(t *testing.T) {
 	for _, pair := range pairs {
 		key := pair[0]
 		expectedValue := pair[1]
-		got, err := mem.Get(key)
+		got, err := mem.Get(key, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedValue, got)
 	}
@@ -205,7 +206,7 @@ func TestMemtable_Tombstone(t *testing.T) {
 		key := pair[0]
 		expectedValue := pair[1]
 
-		got, err := mem.Get(key)
+		got, err := mem.Get(key, math.MaxUint64)
 		assert.NoError(t, err)
 
 		if _, isTombstone := tombstoneKeys[string(key)]; isTombstone {

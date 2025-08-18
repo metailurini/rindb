@@ -64,7 +64,7 @@ func main() {
     }
 
     // Get a value by key
-    value, err := db.Get(ctx, []byte("key1"))
+    value, err := db.Get(ctx, []byte("key1"), nil)
     if err != nil {
         fmt.Println("Error getting key:", err)
         return

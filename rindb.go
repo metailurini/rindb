@@ -26,7 +26,8 @@ type Rindb struct {
 	mu                sync.RWMutex   // Mutex for thread-safe access
 	wg                sync.WaitGroup // WaitGroup to track background goroutines
 	closed            bool           // Flag to indicate if the database is closed
-	sequenceNumber    uint64
+	nextSeq           uint64
+	snapshots         map[*Snapshot]int
 }
 
 // InitRinDB initializes a new RinDB instance with provided configuration options.
@@ -108,8 +109,26 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ Rindb, err error) {
 		ssTableManager:    ssTableManager,
 		config:            cfg,
 		shutdownTelemetry: shutdownTelemetry,
-		sequenceNumber:    maxSeqNum,
+		nextSeq:           maxSeqNum,
+		snapshots:         make(map[*Snapshot]int),
 	}, nil
+}
+
+func (r *Rindb) GetSnapshot() (*Snapshot, func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := &Snapshot{seq: int64(r.nextSeq)}
+	r.snapshots[snap]++
+	release := func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.snapshots[snap] > 1 {
+			r.snapshots[snap]--
+		} else {
+			delete(r.snapshots, snap)
+		}
+	}
+	return snap, release
 }
 
 // Get retrieves the value associated with the given key from the database.
@@ -122,7 +141,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ Rindb, err error) {
 //
 //	Bytes - The value associated with the key, or nil if the key is not found.
 //	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
-func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
+func (r *Rindb) Get(ctx context.Context, key Bytes, snap *Snapshot) (Bytes, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.Get")
 	defer span.End()
 	getCalls.Add(ctx, 1)
@@ -137,14 +156,20 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 		return nil, ErrDatabaseClosed
 	}
 
-	value, err := r.memtable.Get(key)
+	var seq uint64
+	if snap == nil || snap.seq == -1 {
+		seq = r.nextSeq
+	} else {
+		seq = uint64(snap.seq)
+	}
+	value, err := r.memtable.Get(key, seq)
 	if err == nil {
 		return value, nil
 	}
 	if !errors.Is(err, ErrKeyNotFound) {
 		return nil, err
 	}
-	return r.ssTableManager.searchKey(ctx, key)
+	return r.ssTableManager.searchKey(ctx, key, seq)
 }
 
 // IRange returns an iterator over records with keys in [start, end],
@@ -152,7 +177,7 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 //
 // The returned iterator must be closed when no longer needed to release
 // any associated resources.
-func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
+func (r *Rindb) IRange(ctx context.Context, start, end Bytes, snap *Snapshot) (*RangeIterator, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.IRange")
 	defer span.End()
 	iRangeCalls.Add(ctx, 1)
@@ -170,7 +195,13 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 		return nil, ErrDatabaseClosed
 	}
 
-	iterators := []Iterator[Record]{r.memtable.IRange(start, end)}
+	var seq uint64
+	if snap == nil || snap.seq == -1 {
+		seq = r.nextSeq
+	} else {
+		seq = uint64(snap.seq)
+	}
+	iterators := []Iterator[Record]{r.memtable.IRange(start, end, seq)}
 
 	sstables, err := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
@@ -193,7 +224,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 			cleanup()
 			return nil, err
 		}
-		iterators = append(iterators, rangeIter)
+		iterators = append(iterators, newSnapshotIterator(rangeIter, seq))
 	}
 
 	pq := buildRangePQ(iterators)
@@ -231,8 +262,8 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		return ErrDatabaseClosed
 	}
 
-	r.sequenceNumber++
-	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber}
+	r.nextSeq++
+	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.nextSeq}
 	if err := r.wal.Append(ctx, record); err != nil {
 		return err
 	}
@@ -315,8 +346,8 @@ func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 		return ErrDatabaseClosed
 	}
 
-	r.sequenceNumber++
-	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.sequenceNumber}
+	r.nextSeq++
+	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.nextSeq}
 	if err := r.wal.Append(ctx, record); err != nil {
 		return err
 	}
