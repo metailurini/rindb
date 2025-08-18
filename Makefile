@@ -2,8 +2,7 @@ check:
 	@$(MAKE) check-spanname
 	@go fmt ./...
 	@echo "Running staticcheck..."
-	@go install honnef.co/go/tools/cmd/staticcheck@v0.5.0
-	@staticcheck ./...
+	@go run honnef.co/go/tools/cmd/staticcheck@v0.5.0 ./...
 	@echo "Done."
 
 check-spanname:
