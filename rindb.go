@@ -56,8 +56,6 @@ type Rindb struct {
 // Stats returns current statistics of the database.
 func (r *Rindb) Stats() Stats {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	stats := Stats{
 		MemtableBytes:  r.memtable.ByteSize(),
 		SequenceNumber: r.sequenceNumber,
@@ -69,6 +67,7 @@ func (r *Rindb) Stats() Stats {
 		IRangeCalls:    r.iRangeCalls.Load(),
 		Flushes:        r.flushCount.Load(),
 	}
+	r.mu.RUnlock()
 
 	r.ssTableManager.mu.RLock()
 	stats.SSTablesPerLevel = make([]int, len(r.ssTableManager.levels))
