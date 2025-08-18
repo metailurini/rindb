@@ -17,7 +17,7 @@ func main() {
 		fmt.Println("Error initializing database:", err)
 		return
 	}
-	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end>, exit")
+	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end>, stats, exit")
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -83,6 +83,11 @@ func main() {
 			if err := iter.Close(); err != nil {
 				fmt.Println("Error:", err)
 			}
+		case "stats":
+			s := db.Stats()
+			fmt.Printf("MemtableBytes=%d SequenceNumber=%d WALBytes=%d WALRecords=%d SSTablesPerLevel=%v GetCalls=%d PutCalls=%d RemoveCalls=%d IRangeCalls=%d Flushes=%d\n",
+				s.MemtableBytes, s.SequenceNumber, s.WALBytes, s.WALRecords, s.SSTablesPerLevel,
+				s.GetCalls, s.PutCalls, s.RemoveCalls, s.IRangeCalls, s.Flushes)
 		case "exit":
 			return
 		default:

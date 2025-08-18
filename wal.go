@@ -7,12 +7,16 @@ import (
 	"io"
 	"path"
 	"time"
+
+	"sync/atomic"
 )
 
 type WAL struct {
 	*FileSystem
-	tm     *TransactionManager
-	config Config
+	tm      *TransactionManager
+	config  Config
+	records atomic.Uint64
+	bytes   atomic.Uint64
 }
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
@@ -56,6 +60,8 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 		}
 
 		mem.Put(record)
+		w.records.Add(1)
+		w.bytes.Add(uint64(CalOnDiskSize(record)))
 	}
 	return mem, nil
 }
@@ -90,6 +96,8 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 
 	walRecordsCounter.Add(ctx, 1)
 	walBytesCounter.Add(ctx, int64(CalOnDiskSize(record)))
+	w.records.Add(1)
+	w.bytes.Add(uint64(CalOnDiskSize(record)))
 
 	return nil
 }
@@ -128,6 +136,17 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 
 	walRecordsCounter.Add(ctx, int64(len(records)))
 	walBytesCounter.Add(ctx, int64(totalBytes))
+	w.records.Add(uint64(len(records)))
+	w.bytes.Add(uint64(totalBytes))
 
+	return nil
+}
+
+func (w *WAL) Clean() error {
+	if err := w.FileSystem.Clean(); err != nil {
+		return err
+	}
+	w.records.Store(0)
+	w.bytes.Store(0)
 	return nil
 }

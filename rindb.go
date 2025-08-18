@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -15,6 +16,23 @@ import (
 
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
 var ErrDatabaseClosed = errors.New("database is closed")
+
+// Stats represents runtime statistics of the database.
+//
+// It includes information about memtable size, sequence number,
+// per-level SSTable counts, WAL usage and operation counters.
+type Stats struct {
+	MemtableBytes    int
+	SequenceNumber   uint64
+	SSTablesPerLevel []int
+	WALBytes         uint64
+	WALRecords       uint64
+	GetCalls         uint64
+	PutCalls         uint64
+	RemoveCalls      uint64
+	IRangeCalls      uint64
+	Flushes          uint64
+}
 
 // Rindb is the main database structure
 type Rindb struct {
@@ -27,6 +45,41 @@ type Rindb struct {
 	wg                sync.WaitGroup // WaitGroup to track background goroutines
 	closed            bool           // Flag to indicate if the database is closed
 	sequenceNumber    uint64
+
+	getCalls    atomic.Uint64
+	putCalls    atomic.Uint64
+	removeCalls atomic.Uint64
+	iRangeCalls atomic.Uint64
+	flushCount  atomic.Uint64
+}
+
+// Stats returns current statistics of the database.
+func (r *Rindb) Stats() Stats {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	stats := Stats{
+		MemtableBytes:  r.memtable.ByteSize(),
+		SequenceNumber: r.sequenceNumber,
+		WALBytes:       r.wal.bytes.Load(),
+		WALRecords:     r.wal.records.Load(),
+		GetCalls:       r.getCalls.Load(),
+		PutCalls:       r.putCalls.Load(),
+		RemoveCalls:    r.removeCalls.Load(),
+		IRangeCalls:    r.iRangeCalls.Load(),
+		Flushes:        r.flushCount.Load(),
+	}
+
+	r.ssTableManager.mu.RLock()
+	stats.SSTablesPerLevel = make([]int, len(r.ssTableManager.levels))
+	for i, level := range r.ssTableManager.levels {
+		if level != nil {
+			stats.SSTablesPerLevel[i] = level.Len()
+		}
+	}
+	r.ssTableManager.mu.RUnlock()
+
+	return stats
 }
 
 // InitRinDB initializes a new RinDB instance with provided configuration options.
@@ -126,6 +179,7 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.Get")
 	defer span.End()
 	getCalls.Add(ctx, 1)
+	r.getCalls.Add(1)
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
@@ -156,6 +210,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 	ctx, span := tracer.Start(ctx, "Rindb.IRange")
 	defer span.End()
 	iRangeCalls.Add(ctx, 1)
+	r.iRangeCalls.Add(1)
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("start_key_size", len(start)),
@@ -221,6 +276,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	ctx, span := tracer.Start(ctx, "Rindb.Put")
 	defer span.End()
 	putCalls.Add(ctx, 1)
+	r.putCalls.Add(1)
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("key_size", len(key)),
@@ -248,6 +304,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	// Check estimated byte size and flush if needed
 	if uint(memSize) >= r.config.maxMemtableSize {
 		flushCount.Add(ctx, 1)
+		r.flushCount.Add(1)
 		INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
 		// Create new SSTable file system for level 0
@@ -308,6 +365,7 @@ func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 	ctx, span := tracer.Start(ctx, "Rindb.Remove")
 	defer span.End()
 	removeCalls.Add(ctx, 1)
+	r.removeCalls.Add(1)
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
