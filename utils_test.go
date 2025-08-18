@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"io"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -92,7 +91,7 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	minLevels := 3
 	if len(manager.levels) < minLevels {
 		needed := minLevels - len(manager.levels)
-		for i := 0; i < needed; i++ {
+		for range needed {
 			manager.levels = append(manager.levels, InitLinkedList[*FileSystem]())
 		}
 	}

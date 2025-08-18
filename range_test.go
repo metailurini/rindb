@@ -2,9 +2,8 @@ package rindb
 
 import (
 	"context"
-	"testing"
-
 	"errors"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
