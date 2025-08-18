@@ -29,7 +29,7 @@ var Analyzer = &analysis.Analyzer{
 					currentFunc = nil
 				}
 			case *ast.CallExpr:
-				if currentFunc == nil {
+				if !push || currentFunc == nil {
 					return true
 				}
 				// opt-out via comment
