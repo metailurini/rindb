@@ -41,7 +41,8 @@ This roadmap outlines the development path for `rindb`, starting from version `v
     - [x] Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
     - [x] Add `Config.Validate()` method.
   - **Basic Metrics**:
-    - [x] Implement OpenTelemetry for metrics collection (e.g., `putCalls`, `getCalls`, `compactLatency`). (Supersedes the original plan to expose stats via a `Stats()` method in `rindb.go`.)
+    - [x] Implement OpenTelemetry for metrics collection (e.g., `putCalls`, `getCalls`, `compactLatency`).
+    - [x] Expose runtime statistics via a `Stats()` API and CLI command.
 
 - **Deliverables**:
   - [x] Comprehensive range query support in API.
@@ -92,7 +93,8 @@ This roadmap outlines the development path for `rindb`, starting from version `v
   - **Advanced Transactions**:
     - [ ] Support multi-key transactions in `transaction_manager.go` with conflict detection.
   - **CLI Enhancements**:
-    - [ ] Add `stats`, `backup`, and `config` commands to `cmd/main.go`.
+    - [x] Add `stats` command to `cmd/main.go`.
+    - [ ] Add `backup` and `config` commands to `cmd/main.go`.
   - **Packaging**:
     - [ ] Publish Go module with versioning (update `go.mod`).
     - [ ] Create Docker image (add `Dockerfile`).
