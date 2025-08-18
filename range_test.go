@@ -29,24 +29,88 @@ func (e *errIterator) Next() (Record, error) {
 	return rec, nil
 }
 
-func TestRangeIteratorErrorPropagates(t *testing.T) {
-	r1 := NewRecord(Bytes("a"), Bytes("1"), 1)
-	r2 := NewRecord(Bytes("b"), Bytes("2"), 2)
-	it := &errIterator{records: []Record{r1, r2}, failIdx: 1}
-	pq, err := buildRangePQ([]Iterator[Record]{it})
-	assert.NoError(t, err)
-	cleaned := false
-	iter := &RangeIterator{pq: pq, cleanup: func() { cleaned = true }}
+func TestRangeIterator(t *testing.T) {
+	rec := func(k, v string, seq uint64) Record {
+		return NewRecord(Bytes(k), Bytes(v), seq)
+	}
 
-	assert.True(t, iter.HasNext())
-	rec, err := iter.Next()
-	assert.NoError(t, err)
-	assert.Equal(t, Bytes("a"), rec.GetKey())
+	type iterSpec struct {
+		records []Record
+		failIdx int
+	}
 
-	assert.False(t, iter.HasNext())
-	_, err = iter.Next()
-	assert.EqualError(t, err, "boom")
-	assert.True(t, cleaned)
+	type exp struct {
+		k, v string
+	}
+
+	tests := []struct {
+		name    string
+		iters   []iterSpec
+		want    []exp
+		wantErr string
+	}{
+		{
+			name: "basic order",
+			iters: []iterSpec{
+				{records: []Record{rec("a", "1", 1)}, failIdx: -1},
+				{records: []Record{rec("b", "2", 1)}, failIdx: -1},
+			},
+			want: []exp{{"a", "1"}, {"b", "2"}},
+		},
+		{
+			name: "skip duplicates",
+			iters: []iterSpec{
+				{records: []Record{rec("a", "v2", 2), rec("b", "vb", 1)}, failIdx: -1},
+				{records: []Record{rec("a", "v1", 1)}, failIdx: -1},
+			},
+			want: []exp{{"a", "v2"}, {"b", "vb"}},
+		},
+		{
+			name: "skip tombstones",
+			iters: []iterSpec{
+				{records: []Record{rec("a", "", 2), rec("b", "2", 1)}, failIdx: -1},
+				{records: []Record{rec("a", "1", 1)}, failIdx: -1},
+			},
+			want: []exp{{"b", "2"}},
+		},
+		{
+			name: "iterator error",
+			iters: []iterSpec{
+				{records: []Record{rec("a", "1", 1), rec("b", "2", 2), rec("c", "3", 3)}, failIdx: 2},
+			},
+			want:    []exp{{"a", "1"}, {"b", "2"}},
+			wantErr: "boom",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var iterators []Iterator[Record]
+			for _, spec := range tt.iters {
+				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
+			}
+			pq, err := buildRangePQ(iterators)
+			assert.NoError(t, err)
+			cleaned := false
+			iter := &RangeIterator{pq: pq, cleanup: func() { cleaned = true }}
+
+			var got []exp
+			for iter.HasNext() {
+				r, err := iter.Next()
+				assert.NoError(t, err)
+				got = append(got, exp{string(r.GetKey()), string(r.GetValue())})
+			}
+			assert.Equal(t, tt.want, got)
+
+			_, err = iter.Next()
+			if tt.wantErr != "" {
+				assert.EqualError(t, err, tt.wantErr)
+				assert.True(t, cleaned)
+			} else {
+				assert.ErrorIs(t, err, EOI)
+			}
+		})
+	}
 }
 
 func TestBuildRangePQInitialError(t *testing.T) {
