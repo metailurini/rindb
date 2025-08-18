@@ -67,6 +67,7 @@ func NewConfig(opts ...Option) Config {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	cfg.Validate()
 	return cfg
 }
 
@@ -88,6 +89,52 @@ func DefaultConfig() Config {
 		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
 		newWALFunc:                DefaultNewWALFunc,
 		newSSTableManagerFunc:     InitSSTableManager,
+	}
+}
+
+// Validate checks if the Config has valid values.
+func (c Config) Validate() {
+	if c.databaseDir == "" {
+		panic("databaseDir cannot be empty")
+	}
+	if c.maxMemtableSize == 0 {
+		panic("maxMemtableSize cannot be zero")
+	}
+	if c.level0CompactionThreshold <= 0 {
+		panic("level0CompactionThreshold must be greater than zero")
+	}
+	if c.baseCompactionSizeMB <= 0 {
+		panic("baseCompactionSizeMB must be greater than zero")
+	}
+	if c.levelSizeMultiplier <= 0 {
+		panic("levelSizeMultiplier must be greater than zero")
+	}
+	if c.bloomFalsePositiveRate <= 0 || c.bloomFalsePositiveRate >= 1 {
+		panic("bloomFalsePositiveRate must be between 0 and 1")
+	}
+	if c.skipListDefaultLevel == 0 {
+		panic("skipListDefaultLevel cannot be zero")
+	}
+	if c.skipListMaxLevel == 0 {
+		panic("skipListMaxLevel cannot be zero")
+	}
+	if c.skipListDefaultLevel > c.skipListMaxLevel {
+		panic("skipListDefaultLevel cannot be greater than skipListMaxLevel")
+	}
+	if c.skipListP <= 0 || c.skipListP >= 1 {
+		panic("skipListP must be between 0 and 1")
+	}
+	if c.enableTelemetry && c.exporterEndpoint == "" {
+		panic("exporterEndpoint cannot be empty if telemetry is enabled")
+	}
+	if c.telemetrySamplingRate < 0 || c.telemetrySamplingRate > 1 {
+		panic("telemetrySamplingRate must be between 0 and 1")
+	}
+	if c.newWALFunc == nil {
+		panic("newWALFunc cannot be nil")
+	}
+	if c.newSSTableManagerFunc == nil {
+		panic("newSSTableManagerFunc cannot be nil")
 	}
 }
 

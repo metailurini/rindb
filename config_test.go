@@ -126,10 +126,13 @@ func TestNewConfigWithOptions(t *testing.T) {
 		},
 		{
 			name: "WithEnableTelemetry",
-			opts: []Option{WithEnableTelemetry(true)},
+			opts: []Option{WithEnableTelemetry(true), WithExporterEndpoint("localhost:4317")},
 			verify: func(t *testing.T, cfg Config) {
 				if !cfg.enableTelemetry {
 					t.Errorf("EnableTelemetry = %v, want %v", cfg.enableTelemetry, true)
+				}
+				if cfg.exporterEndpoint != "localhost:4317" {
+					t.Errorf("ExporterEndpoint = %v, want %v", cfg.exporterEndpoint, "localhost:4317")
 				}
 			},
 		},
