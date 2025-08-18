@@ -29,6 +29,86 @@ func (e *errIterator) Next() (Record, error) {
 	return rec, nil
 }
 
+func TestRangeIteratorPrepare(t *testing.T) {
+	rec := func(k, v string, seq uint64) Record {
+		return NewRecord(Bytes(k), Bytes(v), seq)
+	}
+
+	t.Run("basic order", func(t *testing.T) {
+		it1 := &errIterator{records: []Record{rec("a", "1", 1)}, failIdx: -1}
+		it2 := &errIterator{records: []Record{rec("b", "2", 1)}, failIdx: -1}
+		pq, err := buildRangePQ([]Iterator[Record]{it1, it2})
+		assert.NoError(t, err)
+		iter := &RangeIterator{pq: pq}
+
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("a"), iter.next.GetKey())
+
+		iter.prepared = false
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("b"), iter.next.GetKey())
+	})
+
+	t.Run("skip duplicates", func(t *testing.T) {
+		it1 := &errIterator{records: []Record{rec("a", "v2", 2), rec("b", "vb", 1)}, failIdx: -1}
+		it2 := &errIterator{records: []Record{rec("a", "v1", 1)}, failIdx: -1}
+		pq, err := buildRangePQ([]Iterator[Record]{it1, it2})
+		assert.NoError(t, err)
+		iter := &RangeIterator{pq: pq}
+
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("a"), iter.next.GetKey())
+
+		iter.prepared = false
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("b"), iter.next.GetKey())
+
+		iter.prepared = false
+		iter.prepare()
+		assert.False(t, iter.prepared)
+	})
+
+	t.Run("skip tombstones", func(t *testing.T) {
+		it1 := &errIterator{records: []Record{rec("a", "", 2), rec("b", "2", 1)}, failIdx: -1}
+		it2 := &errIterator{records: []Record{rec("a", "1", 1)}, failIdx: -1}
+		pq, err := buildRangePQ([]Iterator[Record]{it1, it2})
+		assert.NoError(t, err)
+		iter := &RangeIterator{pq: pq}
+
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("b"), iter.next.GetKey())
+
+		iter.prepared = false
+		iter.prepare()
+		assert.False(t, iter.prepared)
+	})
+
+	t.Run("error closes", func(t *testing.T) {
+		it := &errIterator{records: []Record{rec("a", "1", 1), rec("b", "2", 2), rec("c", "3", 3)}, failIdx: 2}
+		pq, err := buildRangePQ([]Iterator[Record]{it})
+		assert.NoError(t, err)
+		cleaned := false
+		iter := &RangeIterator{pq: pq, cleanup: func() { cleaned = true }}
+
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("a"), iter.next.GetKey())
+		assert.False(t, cleaned)
+
+		iter.prepared = false
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, Bytes("b"), iter.next.GetKey())
+		assert.EqualError(t, iter.err, "boom")
+		assert.True(t, cleaned)
+	})
+}
+
 func TestRangeIteratorErrorPropagates(t *testing.T) {
 	r1 := NewRecord(Bytes("a"), Bytes("1"), 1)
 	r2 := NewRecord(Bytes("b"), Bytes("2"), 2)
