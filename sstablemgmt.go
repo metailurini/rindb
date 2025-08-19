@@ -18,6 +18,10 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
+// writeRateAlpha is the smoothing factor for write-rate exponential moving
+// average. A higher value weights recent samples more heavily.
+const writeRateAlpha = 0.2
+
 // SSTableManager manages SSTable storage and compaction in a leveled structure.
 // Responsibilities:
 // - Maintains multiple levels of SSTables (L0, L1, etc.)
@@ -107,8 +111,8 @@ func (h *SSTableManager) recordWrite() {
 	if now.Sub(h.lastWriteSample) >= time.Second {
 		duration := now.Sub(h.lastWriteSample).Seconds()
 		rate := float64(h.writeCounter) / duration
-		// exponential moving average with smoothing factor 0.2
-		h.writeRate = 0.8*h.writeRate + 0.2*rate
+		// exponential moving average with smoothing factor writeRateAlpha
+		h.writeRate = (1-writeRateAlpha)*h.writeRate + writeRateAlpha*rate
 		h.writeCounter = 0
 		h.lastWriteSample = now
 	}
@@ -121,6 +125,12 @@ func (h *SSTableManager) sampleIOLoad() {
 	}
 	now := h.now()
 	if !h.lastIOSample.IsZero() {
+		if total < h.lastIOTotal {
+			// Counter reset detected; reset baseline.
+			h.lastIOTotal = total
+			h.lastIOSample = now
+			return
+		}
 		deltaIO := total - h.lastIOTotal
 		deltaTime := now.Sub(h.lastIOSample).Milliseconds()
 		if deltaTime > 0 {
