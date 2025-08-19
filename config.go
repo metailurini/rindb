@@ -5,7 +5,7 @@ import (
 )
 
 // NewWALFunc defines the signature for a function that creates a WAL instance.
-type NewWALFunc func(ctx context.Context, cfg Config) (WAL, error)
+type NewWALFunc func(ctx context.Context, cfg Config) (*WAL, error)
 
 // NewSSTableManagerFunc defines the signature for a function that creates an SSTableManager instance.
 type NewSSTableManagerFunc func(ctx context.Context, cfg Config) (*SSTableManager, error)

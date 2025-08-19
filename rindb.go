@@ -36,7 +36,7 @@ type Stats struct {
 
 // Rindb is the main database structure
 type Rindb struct {
-	wal               WAL
+	wal               *WAL
 	memtable          Memtable
 	ssTableManager    *SSTableManager
 	config            Config

@@ -20,17 +20,17 @@ type WAL struct {
 }
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
-func DefaultNewWALFunc(ctx context.Context, cfg Config) (WAL, error) {
+func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 	walPath := path.Join(cfg.databaseDir, "WAL")
 	fs, err := OpenFS(ctx, walPath)
 	if err != nil {
-		return WAL{}, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
+		return nil, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
 	}
 	return NewWAL(cfg, fs), nil
 }
 
-func NewWAL(config Config, fs *FileSystem) WAL {
-	return WAL{
+func NewWAL(config Config, fs *FileSystem) *WAL {
+	return &WAL{
 		FileSystem: fs,
 		tm:         NewTransactionManager(),
 		config:     config,
