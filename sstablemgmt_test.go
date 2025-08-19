@@ -1,12 +1,14 @@
 package rindb
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"math"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -964,5 +966,69 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		assert.False(t, sstableL1_Z.IsOpened(), "Non-overlapping L1 SSTable should be closed")
 		sstableL2_P.Close()
 		assert.False(t, sstableL2_P.IsOpened(), "Non-overlapping L2 SSTable should be closed")
+	})
+}
+
+func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
+	cfg := NewConfig(
+		WithLevel0CompactionThreshold(1000),
+		WithWriteRateTrigger(10),
+		WithIOLoadMax(0.5),
+	)
+
+	ctx := context.Background()
+
+	t.Run("high write rate low io load triggers", func(t *testing.T) {
+		current := time.Unix(0, 0)
+		ioVal := uint64(0)
+
+		sm := &SSTableManager{
+			openedFs:    list.New(),
+			levels:      []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
+			config:      cfg,
+			now:         func() time.Time { return current },
+			diskSampler: func() (uint64, error) { return ioVal, nil },
+		}
+		sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
+
+		for i := 0; i < 100; i++ {
+			sm.recordWrite()
+		}
+		current = current.Add(time.Second)
+		sm.recordWrite()
+
+		sm.sampleIOLoad()
+		ioVal = 100
+		current = current.Add(time.Second)
+		sm.sampleIOLoad()
+
+		assert.True(t, sm.shouldCompact(ctx, 0, sm.levels[0]))
+	})
+
+	t.Run("high write rate high io load defers", func(t *testing.T) {
+		current := time.Unix(0, 0)
+		ioVal := uint64(0)
+
+		sm := &SSTableManager{
+			openedFs:    list.New(),
+			levels:      []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
+			config:      cfg,
+			now:         func() time.Time { return current },
+			diskSampler: func() (uint64, error) { return ioVal, nil },
+		}
+		sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
+
+		for i := 0; i < 100; i++ {
+			sm.recordWrite()
+		}
+		current = current.Add(time.Second)
+		sm.recordWrite()
+
+		sm.sampleIOLoad()
+		ioVal = 900
+		current = current.Add(time.Second)
+		sm.sampleIOLoad()
+
+		assert.False(t, sm.shouldCompact(ctx, 0, sm.levels[0]))
 	})
 }
