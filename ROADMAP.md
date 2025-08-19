@@ -36,7 +36,7 @@ This roadmap outlines the development path for `rindb`, starting from version `v
     - [x] Extend `SStable.IRange()` in `sstable.go` for range filtering (leverages existing `sstableIterator`).
     - [x] Implement `Memtable.IRange` and `RangeIterator` for comprehensive range query support.
   - **Advanced Compaction**:
-    - [ ] Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`. (Current implementation uses configurable thresholds, but not dynamic triggers based on system load.)
+    - [x] Add triggers (write rate, I/O load) to `SSTableManager.shouldCompact`.
   - **Configuration Validation**:
     - [x] Validate `Config` options in `config.go` (e.g., ensure `maxMemtableSize` > 0).
     - [x] Add `Config.Validate()` method.
@@ -49,7 +49,7 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Deliverables**:
   - [x] Comprehensive range query support in API.
-  - [ ] Configurable compaction strategies with dynamic triggers.
+  - [x] Configurable compaction strategies with dynamic triggers.
   - [x] Robust configuration validation.
   - [x] Advanced observability via OpenTelemetry.
 
