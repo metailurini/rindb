@@ -977,58 +977,41 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 	)
 
 	ctx := context.Background()
+	cases := []struct {
+		name   string
+		ioVal  uint64
+		expect bool
+	}{
+		{"high write rate low io load triggers", 100, true},
+		{"high write rate high io load defers", 900, false},
+	}
 
-	t.Run("high write rate low io load triggers", func(t *testing.T) {
-		current := time.Unix(0, 0)
-		ioVal := uint64(0)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			current := time.Unix(0, 0)
+			ioVal := uint64(0)
 
-		sm := &SSTableManager{
-			openedFs:    list.New(),
-			levels:      []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
-			config:      cfg,
-			now:         func() time.Time { return current },
-			diskSampler: func() (uint64, error) { return ioVal, nil },
-		}
-		sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
+			sm := &SSTableManager{
+				openedFs:    list.New(),
+				levels:      []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
+				config:      cfg,
+				now:         func() time.Time { return current },
+				diskSampler: func() (uint64, error) { return ioVal, nil },
+			}
+			sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
 
-		for i := 0; i < 100; i++ {
+			for i := 0; i < 100; i++ {
+				sm.recordWrite()
+			}
+			current = current.Add(time.Second)
 			sm.recordWrite()
-		}
-		current = current.Add(time.Second)
-		sm.recordWrite()
 
-		sm.sampleIOLoad()
-		ioVal = 100
-		current = current.Add(time.Second)
-		sm.sampleIOLoad()
+			sm.sampleIOLoad()
+			ioVal = tc.ioVal
+			current = current.Add(time.Second)
+			sm.sampleIOLoad()
 
-		assert.True(t, sm.shouldCompact(ctx, 0, sm.levels[0]))
-	})
-
-	t.Run("high write rate high io load defers", func(t *testing.T) {
-		current := time.Unix(0, 0)
-		ioVal := uint64(0)
-
-		sm := &SSTableManager{
-			openedFs:    list.New(),
-			levels:      []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
-			config:      cfg,
-			now:         func() time.Time { return current },
-			diskSampler: func() (uint64, error) { return ioVal, nil },
-		}
-		sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
-
-		for i := 0; i < 100; i++ {
-			sm.recordWrite()
-		}
-		current = current.Add(time.Second)
-		sm.recordWrite()
-
-		sm.sampleIOLoad()
-		ioVal = 900
-		current = current.Add(time.Second)
-		sm.sampleIOLoad()
-
-		assert.False(t, sm.shouldCompact(ctx, 0, sm.levels[0]))
-	})
+			assert.Equal(t, tc.expect, sm.shouldCompact(ctx, 0, sm.levels[0]))
+		})
+	}
 }
