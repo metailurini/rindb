@@ -73,23 +73,28 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 }
 
 func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, error) {
-	h := &SSTableManager{openedFs: list.New(), config: config}
-	h.stopIOLoadSampler = make(chan struct{})
-	h.now = time.Now
-	h.diskSampler = func() (uint64, error) {
-		counters, err := disk.IOCounters()
-		if err != nil {
-			return 0, err
-		}
-		var total uint64
-		for _, c := range counters {
-			total += c.IoTime
-		}
-		return total, nil
+	h := &SSTableManager{
+		openedFs:          list.New(),
+		config:            config,
+		stopIOLoadSampler: make(chan struct{}),
+		now:               time.Now,
+		// diskSampler aggregates the IoTime from all available disk
+		// counters. IoTime is the number of milliseconds the disk has
+		// been busy since boot.
+		diskSampler: func() (uint64, error) {
+			counters, err := disk.IOCounters()
+			if err != nil {
+				return 0, err
+			}
+			var total uint64
+			for _, c := range counters {
+				total += c.IoTime
+			}
+			return total, nil
+		},
 	}
 
-	err := h.LoadLevels(config.databaseDir)
-	if err != nil {
+	if err := h.LoadLevels(config.databaseDir); err != nil {
 		return nil, err
 	}
 
@@ -99,6 +104,9 @@ func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, er
 	return h, nil
 }
 
+// recordWrite increments the write counter and, once a second has elapsed,
+// updates the moving average of writes per second using an exponential moving
+// average. It is called for every `Put`.
 func (h *SSTableManager) recordWrite() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -111,13 +119,17 @@ func (h *SSTableManager) recordWrite() {
 	if now.Sub(h.lastWriteSample) >= time.Second {
 		duration := now.Sub(h.lastWriteSample).Seconds()
 		rate := float64(h.writeCounter) / duration
-		// exponential moving average with smoothing factor writeRateAlpha
+		// Exponential moving average with smoothing factor writeRateAlpha
+		// to smooth out short-term spikes in throughput.
 		h.writeRate = (1-writeRateAlpha)*h.writeRate + writeRateAlpha*rate
 		h.writeCounter = 0
 		h.lastWriteSample = now
 	}
 }
 
+// sampleIOLoad reads the cumulative IoTime counter and derives the fraction of
+// time the disk was busy since the last sample. If the counter decreases it is
+// assumed to have reset and the sample is skipped.
 func (h *SSTableManager) sampleIOLoad() {
 	total, err := h.diskSampler()
 	if err != nil {
@@ -144,6 +156,9 @@ func (h *SSTableManager) sampleIOLoad() {
 	h.lastIOSample = now
 }
 
+// startIOLoadSampler periodically records disk utilization until signalled to
+// stop. It is launched in a background goroutine by `InitSSTableManager` and
+// terminates when `stopIOLoadSampler` is closed.
 func (h *SSTableManager) startIOLoadSampler() {
 	defer h.ioSamplerWG.Done()
 	ticker := time.NewTicker(time.Second)
@@ -156,6 +171,16 @@ func (h *SSTableManager) startIOLoadSampler() {
 			h.sampleIOLoad()
 		}
 	}
+}
+
+// dynamicTriggerHit evaluates whether the dynamic compaction conditions are
+// met: the write rate exceeds the configured trigger while disk utilization is
+// below the allowed maximum.
+func (h *SSTableManager) dynamicTriggerHit() bool {
+	if h.config.writeRateTrigger <= 0 || h.config.ioLoadMax <= 0 {
+		return false
+	}
+	return h.writeRate > h.config.writeRateTrigger && h.ioLoad < h.config.ioLoadMax
 }
 
 // AddSSTable registers a new SSTable file system with the manager at the specified level.
@@ -296,7 +321,7 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level
 		return false // Cannot compact an empty or non-existent level
 	}
 
-	if h.config.writeRateTrigger > 0 && h.config.ioLoadMax > 0 && h.writeRate > h.config.writeRateTrigger && h.ioLoad < h.config.ioLoadMax {
+	if h.dynamicTriggerHit() {
 		return true
 	}
 

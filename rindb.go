@@ -300,6 +300,8 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		return err
 	}
 	r.memtable.Put(record) // This now updates the internal size estimate
+	// Feed metrics used by the SSTable manager to compute write throughput
+	// for dynamic compaction decisions.
 	r.ssTableManager.recordWrite()
 
 	memSize := r.memtable.ByteSize()
