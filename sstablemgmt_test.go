@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1014,4 +1015,74 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			assert.Equal(t, tc.expect, sm.shouldCompact(ctx, 0, sm.levels[0]))
 		})
 	}
+}
+
+func TestSSTableManager_IOLoadSampler(t *testing.T) {
+	t.Run("records io load", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := testConfig()
+		cfg.databaseDir = t.TempDir()
+		sm, err := InitSSTableManager(ctx, cfg)
+		assert.NoError(t, err)
+		defer sm.Close(ctx)
+
+		var total uint64
+		sm.diskSampler = func() (uint64, error) {
+			total += 100
+			return total, nil
+		}
+
+		time.Sleep(2100 * time.Millisecond)
+
+		sm.mu.RLock()
+		load := sm.ioLoad
+		sm.mu.RUnlock()
+
+		assert.Greater(t, load, float64(0), "expected io load to be recorded")
+	})
+
+	t.Run("stops on close", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := testConfig()
+		cfg.databaseDir = t.TempDir()
+		sm, err := InitSSTableManager(ctx, cfg)
+		assert.NoError(t, err)
+
+		var mu sync.Mutex
+		var calls int
+		sm.diskSampler = func() (uint64, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			return uint64(calls), nil
+		}
+
+		time.Sleep(1100 * time.Millisecond)
+
+		mu.Lock()
+		first := calls
+		mu.Unlock()
+		assert.Greater(t, first, 0, "expected sampler to be invoked")
+
+		sm.Close(ctx)
+
+		time.Sleep(1100 * time.Millisecond)
+
+		mu.Lock()
+		final := calls
+		mu.Unlock()
+		assert.Equal(t, first, final, "sampler should stop after Close")
+
+		done := make(chan struct{})
+		go func() {
+			sm.ioSamplerWG.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("sampler goroutine did not exit")
+		}
+	})
 }
