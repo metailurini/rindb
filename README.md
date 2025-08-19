@@ -1,7 +1,7 @@
 # RinDB
 
 <p align="center">
-  <img src='./assets/mascot.jpeg' width='70%'>
+  <img src='./assets/mascot.png' width='70%'>
 </p>
 
 <p align="center">
