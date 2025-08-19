@@ -17,10 +17,12 @@
 - **Compaction**: Background process to manage disk space and optimize read performance.
 - **Configurable**: Customize database behavior with options like memtable size, compaction thresholds, and bloom filter settings.
 - **Concurrent Access**: Thread-safe operations with transaction support.
+- **Range Queries**: Efficient retrieval of key-value pairs within a specified key range.
+- **Telemetry**: OpenTelemetry integration for metrics and tracing to monitor database performance.
 
 ## Installation
 
-RinDB is written in Go and requires Go 1.21.6 or later. To include it in your project:
+RinDB is written in Go and requires Go 1.23.0 or later. To include it in your project:
 
 ```bash
 go get github.com/metailurini/rindb
@@ -97,6 +99,12 @@ defer db.Close()
 ```
 
 ## Building and Testing
+
+Run tests:
+
+```bash
+make test
+```
 
 Run tests with coverage:
 
