@@ -43,6 +43,9 @@ This roadmap outlines the development path for `rindb`, starting from version `v
   - **Basic Metrics**:
     - [x] Implement OpenTelemetry for metrics collection (e.g., `putCalls`, `getCalls`, `compactLatency`).
     - [x] Expose runtime statistics via a `Stats()` API and CLI command.
+  - **Pprof Tests**:
+    - [x] Add `test-pprof` target to `Makefile` for generating CPU and memory profiles.
+    - [x] Create `scripts/run-pprof-tests.sh` to automate pprof file generation for all packages.
 
 - **Deliverables**:
   - [x] Comprehensive range query support in API.

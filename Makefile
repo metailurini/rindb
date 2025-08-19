@@ -23,3 +23,7 @@ test-coverage:
 	@go test -v -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out
 	@rm coverage.out
+
+
+test-pprof:
+	@./scripts/run-pprof-tests.sh
