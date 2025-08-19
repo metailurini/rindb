@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/metailurini/rindb/compare/v0.3.0...v0.4.0) (2025-08-19)
+
+
+### Features
+
+* Enhance README with new features and build instructions ([843b702](https://github.com/metailurini/rindb/commit/843b702b3a087619931de4fe06fb4efa1298e2c5))
+
 ## [0.3.0](https://github.com/metailurini/rindb/compare/v0.2.1...v0.3.0) (2025-08-19)
 
 
