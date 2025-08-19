@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+	"github.com/shirou/gopsutil/v3/disk"
 )
 
 // SSTableManager manages SSTable storage and compaction in a leveled structure.
@@ -28,6 +29,27 @@ type SSTableManager struct {
 	levels   []*LinkedList[*FileSystem]
 	config   Config
 	mu       sync.RWMutex
+
+	// writeRate is the moving average of writes per second.
+	writeRate float64
+
+	// ioLoad represents the fraction of time the disk was busy with I/O
+	// operations in the last sampling interval (0-1).
+	ioLoad float64
+
+	// internal counters for sampling
+	writeCounter    uint64
+	lastWriteSample time.Time
+	lastIOTotal     uint64
+	lastIOSample    time.Time
+
+	// goroutine management for I/O load sampler
+	stopIOLoadSampler chan struct{}
+	ioSamplerWG       sync.WaitGroup
+
+	// dependency injection for testing
+	now         func() time.Time
+	diskSampler func() (uint64, error)
 }
 
 // openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
@@ -48,11 +70,82 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 
 func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, error) {
 	h := &SSTableManager{openedFs: list.New(), config: config}
+	h.stopIOLoadSampler = make(chan struct{})
+	h.now = time.Now
+	h.diskSampler = func() (uint64, error) {
+		counters, err := disk.IOCounters()
+		if err != nil {
+			return 0, err
+		}
+		var total uint64
+		for _, c := range counters {
+			total += c.IoTime
+		}
+		return total, nil
+	}
+
 	err := h.LoadLevels(config.databaseDir)
 	if err != nil {
 		return nil, err
 	}
+
+	h.ioSamplerWG.Add(1)
+	go h.startIOLoadSampler()
+
 	return h, nil
+}
+
+func (h *SSTableManager) recordWrite() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.writeCounter++
+	now := h.now()
+	if h.lastWriteSample.IsZero() {
+		h.lastWriteSample = now
+		return
+	}
+	if now.Sub(h.lastWriteSample) >= time.Second {
+		duration := now.Sub(h.lastWriteSample).Seconds()
+		rate := float64(h.writeCounter) / duration
+		// exponential moving average with smoothing factor 0.2
+		h.writeRate = 0.8*h.writeRate + 0.2*rate
+		h.writeCounter = 0
+		h.lastWriteSample = now
+	}
+}
+
+func (h *SSTableManager) sampleIOLoad() {
+	total, err := h.diskSampler()
+	if err != nil {
+		return
+	}
+	now := h.now()
+	if !h.lastIOSample.IsZero() {
+		deltaIO := total - h.lastIOTotal
+		deltaTime := now.Sub(h.lastIOSample).Milliseconds()
+		if deltaTime > 0 {
+			load := float64(deltaIO) / float64(deltaTime)
+			h.mu.Lock()
+			h.ioLoad = load
+			h.mu.Unlock()
+		}
+	}
+	h.lastIOTotal = total
+	h.lastIOSample = now
+}
+
+func (h *SSTableManager) startIOLoadSampler() {
+	defer h.ioSamplerWG.Done()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-h.stopIOLoadSampler:
+			return
+		case <-ticker.C:
+			h.sampleIOLoad()
+		}
+	}
 }
 
 // AddSSTable registers a new SSTable file system with the manager at the specified level.
@@ -135,6 +228,11 @@ func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*File
 }
 
 func (h *SSTableManager) Close(ctx context.Context) {
+	if h.stopIOLoadSampler != nil {
+		close(h.stopIOLoadSampler)
+		h.ioSamplerWG.Wait()
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -186,6 +284,10 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level
 
 	if level == nil || level.Len() == 0 {
 		return false // Cannot compact an empty or non-existent level
+	}
+
+	if h.config.writeRateTrigger > 0 && h.config.ioLoadMax > 0 && h.writeRate > h.config.writeRateTrigger && h.ioLoad < h.config.ioLoadMax {
+		return true
 	}
 
 	if levelNumb == 0 {

@@ -27,6 +27,14 @@ type Config struct {
 	// levelSizeMultiplier is the multiplier for calculating compaction thresholds for levels > 0.
 	levelSizeMultiplier int
 
+	// writeRateTrigger defines the write throughput in writes/sec at which
+	// background compaction should be attempted.
+	writeRateTrigger float64
+
+	// ioLoadMax specifies the maximum fraction (0-1) of disk utilization
+	// allowed for dynamic compaction triggers.
+	ioLoadMax float64
+
 	// bloomFalsePositiveRate sets the Bloom filter’s false positive rate.
 	bloomFalsePositiveRate float64
 
@@ -79,6 +87,8 @@ func DefaultConfig() Config {
 		level0CompactionThreshold: 2,
 		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
 		levelSizeMultiplier:       10, // Default: Level N threshold = base * (multiplier^N)
+		writeRateTrigger:          0,
+		ioLoadMax:                 0,
 		bloomFalsePositiveRate:    0.01,
 		skipListDefaultLevel:      2,
 		skipListMaxLevel:          32,
@@ -108,6 +118,12 @@ func (c Config) Validate() {
 	}
 	if c.levelSizeMultiplier <= 0 {
 		panic("levelSizeMultiplier must be greater than zero")
+	}
+	if c.writeRateTrigger < 0 {
+		panic("writeRateTrigger must be >= 0")
+	}
+	if c.ioLoadMax < 0 || c.ioLoadMax > 1 {
+		panic("ioLoadMax must be between 0 and 1")
 	}
 	if c.bloomFalsePositiveRate <= 0 || c.bloomFalsePositiveRate >= 1 {
 		panic("bloomFalsePositiveRate must be between 0 and 1")
@@ -161,6 +177,14 @@ func WithBaseCompactionSizeMB(size int) Option {
 
 func WithLevelSizeMultiplier(multiplier int) Option {
 	return func(c *Config) { c.levelSizeMultiplier = multiplier }
+}
+
+func WithWriteRateTrigger(trigger float64) Option {
+	return func(c *Config) { c.writeRateTrigger = trigger }
+}
+
+func WithIOLoadMax(max float64) Option {
+	return func(c *Config) { c.ioLoadMax = max }
 }
 
 func WithBloomFalsePositiveRate(rate float64) Option {
