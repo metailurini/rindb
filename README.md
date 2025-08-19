@@ -4,6 +4,13 @@
   <img src='./assets/mascot.jpeg' width='70%'>
 </p>
 
+<p align="center">
+    <img src='https://img.shields.io/codecov/c/github/metailurini/rindb.svg?maxAge=2592000'>
+    <img src='https://qlty.sh/gh/metailurini/projects/rindb/maintainability.svg'>
+    <img src='https://img.shields.io/github/license/metailurini/rindb'>
+</p>
+
+
 **RinDB** is a lightweight, embeddable key-value database inspired by Log-Structured Merge (LSM) trees and LevelDB. It is designed for simplicity, performance, and extensibility, making it suitable for applications requiring fast, persistent storage.
 
 🚧 *The project is under active development. Expect incomplete documentation and potential unexpected behavior.* 🚧
