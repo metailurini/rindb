@@ -3,5 +3,6 @@
   "bump-path-for-minor-pre-major": true,
   "packages": {
     ".": {}
-  }
+  },
+  ".": "0.3.0"
 }
