@@ -23,6 +23,7 @@
 - Frameworks: Standard `testing` with `testify` for assertions.
 - Style: Prefer table‑driven tests; name tests `TestXxx` in `*_test.go`.
 - Data: Write temp files under `testdata/`. Tests clean this directory; do not commit generated artifacts.
+- Integration tests live in `integration/` and are gated by the `integration` build tag. Run them with `go test -tags integration ./integration` using the `initTestDB` helper.
 - Run: `make test` locally; use `t.Helper()` for helpers and avoid global state between tests.
 
 ## Commit & Pull Requests
