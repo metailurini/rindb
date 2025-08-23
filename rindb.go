@@ -92,8 +92,8 @@ func (r *Rindb) Stats() Stats {
 //
 // Returns:
 //
-//	Rindb - Initialized database instance
-//	error - Any initialization error encountered
+//	*Rindb - Initialized database instance
+//	error  - Any initialization error encountered
 //
 // Errors:
 //   - Filesystem errors during directory creation
@@ -105,22 +105,22 @@ func (r *Rindb) Stats() Stats {
 // 2. Initialize Write-Ahead Log (WAL)
 // 3. Load existing memtable from WAL
 // 4. Initialize SSTable storage manager
-func InitRinDB(ctx context.Context, opts ...Option) (_ Rindb, err error) {
+func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	cfg := NewConfig(opts...)
 
 	shutdownTelemetry, err := OtelInit(ctx, cfg.enableTelemetry, cfg.exporterEndpoint, cfg.exporterInsecure, cfg.telemetrySamplingRate)
 	if err != nil {
-		return Rindb{}, fmt.Errorf("failed to initialize telemetry: %w", err)
+		return nil, fmt.Errorf("failed to initialize telemetry: %w", err)
 	}
 
 	// Create database directory with secure permissions (0750 = owner RWX, group RX, others none)
 	if err := os.MkdirAll(cfg.databaseDir, 0750); err != nil {
-		return Rindb{}, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
+		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
 	wal, err := cfg.newWALFunc(ctx, cfg)
 	if err != nil {
-		return Rindb{}, err
+		return nil, err
 	}
 	defer func() {
 		if err != nil {
@@ -131,7 +131,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ Rindb, err error) {
 
 	memtable, err := wal.Load(ctx)
 	if err != nil {
-		return Rindb{}, err
+		return nil, err
 	}
 
 	// Set default is 0, while inserting new record, it will automatically increase
@@ -140,25 +140,25 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ Rindb, err error) {
 
 	memMaxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
 	if err != nil {
-		return Rindb{}, err
+		return nil, err
 	}
 	maxSeqNum = max(maxSeqNum, memMaxSeqNum)
 
 	ssTableManager, err := cfg.newSSTableManagerFunc(ctx, cfg)
 	if err != nil {
-		return Rindb{}, fmt.Errorf("failed to initialize SSTable manager: %w", err)
+		return nil, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
 
 	// Only scan L0 SSTables for max sequence number during initialization.
 	// L0 SSTables contain the most recent data after the memtable.
 	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ssTableManager)
 	if err != nil {
-		return Rindb{}, err
+		return nil, err
 	}
 	maxSeqNum = max(maxSeqNum, sstMaxSeqNum)
 
 	INFO(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
-	return Rindb{
+	return &Rindb{
 		wal:               wal,
 		memtable:          memtable,
 		ssTableManager:    ssTableManager,
