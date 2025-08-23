@@ -11,11 +11,14 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestRecovery(t *testing.T) {
+func TestDataPersistenceOnReopen(t *testing.T) {
 	dir := t.TempDir()
-
-	db, cleanup := initTestDB(t, rindb.WithDatabaseDir(dir))
 	ctx := context.Background()
+	dbOpt := rindb.WithDatabaseDir(dir)
+
+	db, err := rindb.InitRinDB(ctx, dbOpt)
+	require.NoError(t, err)
+
 	kvs := []struct{ key, val string }{
 		{"k1", "v1"},
 		{"k2", "v2"},
@@ -24,10 +27,11 @@ func TestRecovery(t *testing.T) {
 	for _, kv := range kvs {
 		require.NoError(t, db.Put(ctx, rindb.Bytes(kv.key), rindb.Bytes(kv.val)))
 	}
-	cleanup()
+	require.NoError(t, db.Close())
 
-	db, cleanup = initTestDB(t, rindb.WithDatabaseDir(dir))
-	defer cleanup()
+	db, err = rindb.InitRinDB(ctx, dbOpt)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
 
 	for _, kv := range kvs {
 		got, err := db.Get(ctx, rindb.Bytes(kv.key))
