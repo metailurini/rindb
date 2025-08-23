@@ -137,7 +137,7 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	return &testRindbSetup{
 		T:            t,
 		Config:       &finalCfg,
-		RinDB:        &db,
+		RinDB:        db,
 		Manager:      manager,
 		TempDir:      tempDir,
 		Levels:       manager.levels,
@@ -333,7 +333,7 @@ func initRinDBWithCleanup(t *testing.T, opts ...Option) (*Rindb, func()) {
 
 	}
 
-	return &rin, cleanup
+	return rin, cleanup
 }
 
 // assertFileExists checks if a file exists at the given path and fails the test if not.

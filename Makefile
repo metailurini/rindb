@@ -16,6 +16,10 @@ test:
 	@echo "Running tests..."
 	@go test -v ./...
 
+test-integration:
+	@rm -rf testdata/*
+	@echo "Running integration tests..."
+	@go test -v -tags integration ./integration
 
 test-coverage:
 	@rm -rf testdata/*

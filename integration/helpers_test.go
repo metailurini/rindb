@@ -22,5 +22,5 @@ func initTestDB(t *testing.T, opts ...rindb.Option) (*rindb.Rindb, func()) {
 
 	cleanup := func() { require.NoError(t, db.Close()) }
 
-	return &db, cleanup
+	return db, cleanup
 }
