@@ -4,8 +4,6 @@ package rindb_test
 
 import (
 	"context"
-	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -14,19 +12,6 @@ import (
 
 	"github.com/metailurini/rindb"
 )
-
-func countOpenFiles(t *testing.T) int {
-	t.Helper()
-
-	dir := "/proc/self/fd"
-	if runtime.GOOS == "darwin" {
-		dir = "/dev/fd"
-	}
-
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	return len(entries)
-}
 
 func TestIRangeRangeQuery(t *testing.T) {
 	// Increase maxMemtableSize so some records remain unflushed.
@@ -48,7 +33,7 @@ func TestIRangeRangeQuery(t *testing.T) {
 	require.NoError(t, db.Put(ctx, rindb.Bytes("mem1"), rindb.Bytes("1")))
 	require.NoError(t, db.Put(ctx, rindb.Bytes("mem2"), rindb.Bytes("2")))
 
-	filesBefore := countOpenFiles(t)
+	filesBefore := countNumericEntriesInFDDirectory(t)
 
 	iter, err := db.IRange(ctx, rindb.Bytes("a"), rindb.Bytes("z"))
 	require.NoError(t, err)
@@ -65,6 +50,6 @@ func TestIRangeRangeQuery(t *testing.T) {
 	require.NotContains(t, keys, "old")
 
 	require.NoError(t, iter.Close())
-	filesAfter := countOpenFiles(t)
+	filesAfter := countNumericEntriesInFDDirectory(t)
 	require.Less(t, filesAfter, filesBefore)
 }
