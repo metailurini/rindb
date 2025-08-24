@@ -29,9 +29,7 @@ test-integration: test-integration-full
 
 test-coverage: clean-testdata
 	@echo "Running tests with coverage..."
-	@go test -v -coverprofile=coverage.out ./...
-	@go tool cover -html=coverage.out
-	@rm coverage.out
+	@go test -v -coverprofile=coverage.txt ./...
 
 test-pprof:
 	@./scripts/run-pprof-tests.sh

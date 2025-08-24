@@ -23,8 +23,10 @@ jobs:
             ${{ runner.os }}-go-
       - name: Run checks
         run: make check
-      - name: Run tests
-        run: go test -v -coverprofile=coverage.txt ./...
+      - name: Run unit tests with coverage
+        run: make test-coverage
+      - name: Run smoke integration tests
+        run: make test-integration-smoke
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
