@@ -9,25 +9,25 @@ check-spanname:
 	@go build -o ./bin/spanname ./tool/spanname
 	@go vet -vettool=$$(pwd)/bin/spanname ./...
 
-test:
+.PHONY: clean-testdata
+clean-testdata:
 	@rm -rf testdata/*
+
+test: clean-testdata
 	@echo "Running tests..."
 	@go test -v ./...
 
-test-integration-smoke:
-	@rm -rf testdata/*
+test-integration-smoke: clean-testdata
 	@echo "Running smoke integration tests..."
 	@go test -v -tags "integration smoke" ./integration
 
-test-integration-full:
-	@rm -rf testdata/*
+test-integration-full: clean-testdata
 	@echo "Running full integration tests..."
 	@go test -v -tags integration ./integration
 
 test-integration: test-integration-full
 
-test-coverage:
-	@rm -rf testdata/*
+test-coverage: clean-testdata
 	@echo "Running tests with coverage..."
 	@go test -v -coverprofile=coverage.out ./...
 	@go tool cover -html=coverage.out
