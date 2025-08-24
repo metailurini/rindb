@@ -616,7 +616,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, 0, ts.Manager.levels[0].Len())
-		assert.Equal(t, 3, ts.Manager.levels[1].Len())
+		assert.Equal(t, 2, ts.Manager.levels[1].Len())
 
 		assertFileNotExists(t, l0aPath)
 		assertFileNotExists(t, l0bPath)
@@ -627,7 +627,6 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		var (
 			mergedFS        *FileSystem
 			oldNonOverlapFS *FileSystem
-			oldOverlapFS    *FileSystem
 		)
 		it := ts.Manager.levels[1].Iterator()
 		for it.HasNext() {
@@ -635,15 +634,13 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 			switch fs.Path() {
 			case l1NonPath:
 				oldNonOverlapFS = fs
-			case l1OverlapPath:
-				oldOverlapFS = fs
 			default:
+				// The other file must be the newly merged one.
 				mergedFS = fs
 			}
 		}
 		assert.NotNil(t, mergedFS)
 		assert.NotNil(t, oldNonOverlapFS)
-		assert.NotNil(t, oldOverlapFS)
 
 		assert.NoError(t, mergedFS.Open(ctx))
 		merged, err := NewSSTable(ctx, cfg, mergedFS)
@@ -658,7 +655,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		val, err = merged.GetValue(ctx, Bytes("keyC"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueC_L1"), val)
-		val, err = merged.GetValue(ctx, Bytes("keyD"))
+		_, err = merged.GetValue(ctx, Bytes("keyD"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 
 		// Ensure non-overlapping SSTable remains intact
@@ -670,7 +667,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		assert.Equal(t, Bytes("valueD_L1"), val)
 
 		// Overlapping SSTable should be removed from disk
-		assertFileNotExists(t, oldOverlapFS.Path())
+		assertFileNotExists(t, l1OverlapPath)
 	})
 
 	t.Run("returns error when a level 0 SSTable cannot be opened", func(t *testing.T) {

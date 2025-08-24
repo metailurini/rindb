@@ -440,7 +440,28 @@ func (h *SSTableManager) compactLevel0(ctx context.Context, level *LinkedList[*F
 	}
 
 	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
-	return h.mergeSSTables(ctx, newLevelNumb, sstablesToMerge)
+	if err := h.mergeSSTables(ctx, newLevelNumb, sstablesToMerge); err != nil {
+		return err
+	}
+
+	// Remove overlapping SSTables from the next level after successful merge
+	if len(overlappingSSTables) > 0 {
+		iter = h.levels[newLevelNumb].Iterator()
+		for iter.HasNext() {
+			fs, err := iter.Next()
+			if err != nil {
+				return err
+			}
+			for _, sst := range overlappingSSTables {
+				if fs.Path() == sst.Path() {
+					iter.RemoveCurrent()
+					break
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedList[*FileSystem], newLevelNumb int) error {
