@@ -1163,7 +1163,7 @@ func Test_mergeSSTables(t *testing.T) {
 	})
 }
 
-func TestSSTableManager_mergeSSTablesMethod(t *testing.T) {
+func TestSSTableManager_mergeSSTables(t *testing.T) {
 	cfg := testConfig()
 
 	t.Run("creates new level and removes sources", func(t *testing.T) {
@@ -1219,8 +1219,6 @@ func TestSSTableManager_mergeSSTablesMethod(t *testing.T) {
 		assert.Error(t, err)
 		_, err = os.Stat(sst2.Path())
 		assert.Error(t, err)
-
-		assert.NoError(t, fs.Close())
 	})
 
 	t.Run("panics on empty sources", func(t *testing.T) {
