@@ -455,7 +455,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		currentLevel0Files := make([]*FileSystem, 0, ts.Manager.levels[0].Len())
 		iter0 := ts.Manager.levels[0].Iterator()
 		for iter0.HasNext() {
-			f, _ := iter0.Next()
+			f, err := iter0.Next()
+			assert.NoError(t, err)
 			currentLevel0Files = append(currentLevel0Files, f)
 		}
 		assert.ElementsMatch(t, initialLevel0Files, currentLevel0Files, "Level 0 files should be the same instances")
@@ -465,7 +466,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		currentLevel1Files := make([]*FileSystem, 0, ts.Manager.levels[1].Len())
 		iter1 := ts.Manager.levels[1].Iterator()
 		for iter1.HasNext() {
-			f, _ := iter1.Next()
+			f, err := iter1.Next()
+			assert.NoError(t, err)
 			currentLevel1Files = append(currentLevel1Files, f)
 		}
 		assert.ElementsMatch(t, initialLevel1Files, currentLevel1Files, "Level 1 files should be the same instances")
@@ -579,7 +581,8 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		assertFileNotExists(t, path2)
 
 		iter := ts.Manager.levels[1].Iterator()
-		mergedFS, _ := iter.Next()
+		mergedFS, err := iter.Next()
+		assert.NoError(t, err)
 		assert.NoError(t, mergedFS.Open(ctx))
 		merged, err := NewSSTable(ctx, cfg, mergedFS)
 		assert.NoError(t, err)
@@ -630,7 +633,8 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		)
 		it := ts.Manager.levels[1].Iterator()
 		for it.HasNext() {
-			fs, _ := it.Next()
+			fs, err := it.Next()
+			assert.NoError(t, err)
 			switch fs.Path() {
 			case l1NonPath:
 				oldNonOverlapFS = fs
@@ -765,7 +769,8 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		var newMergedFS, oldNonOverlappingFS *FileSystem
 		iter2 := ts.Manager.levels[2].Iterator()
 		for iter2.HasNext() {
-			fs, _ := iter2.Next()
+			fs, err := iter2.Next()
+			assert.NoError(t, err)
 			if fs.Path() == fs2NoOverlapPath {
 				oldNonOverlappingFS = fs
 			} else {
@@ -847,7 +852,8 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		var newMergedFS *FileSystem
 		iter2 := ts.Manager.levels[2].Iterator()
 		for iter2.HasNext() {
-			fs, _ := iter2.Next()
+			fs, err := iter2.Next()
+			assert.NoError(t, err)
 			if fs.Path() != fs2Path {
 				newMergedFS = fs
 			}
