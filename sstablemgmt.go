@@ -315,8 +315,6 @@ func (h *SSTableManager) Close(ctx context.Context) {
 }
 
 func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level *LinkedList[*FileSystem]) bool {
-	// No longer need internal constants
-
 	if level == nil || level.Len() == 0 {
 		return false // Cannot compact an empty or non-existent level
 	}
