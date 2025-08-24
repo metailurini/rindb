@@ -235,9 +235,11 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
 		ts.Manager.levels[1].PushBack(badFs)
 
+		initial := ts.Manager.openedFs.Len()
 		_, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
 		assert.Error(t, err)
 		assert.False(t, goodFs.IsOpened(), "file system for successfully opened sstable should be closed on subsequent error")
+		assert.Equal(t, initial, ts.Manager.openedFs.Len(), "openedFs should be restored after cleanup")
 	})
 
 	t.Run("Empty sources", func(t *testing.T) {
