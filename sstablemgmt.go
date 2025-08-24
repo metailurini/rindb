@@ -513,10 +513,12 @@ func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb 
 	for iter.HasNext() {
 		fs, err := iter.Next()
 		if err != nil {
+			closeSSTables(overlapping)
 			return nil, err
 		}
 		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
+			closeSSTables(overlapping)
 			return nil, err
 		}
 		if sstable.Overlaps(minKey, maxKey) {
@@ -526,6 +528,12 @@ func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb 
 		}
 	}
 	return overlapping, nil
+}
+
+func closeSSTables(sstables []SStable) {
+	for i := range sstables {
+		_ = sstables[i].Close()
+	}
 }
 
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
@@ -726,18 +734,25 @@ func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTab
 }
 
 func getKeyRange(sstables []SStable) (Bytes, Bytes) {
-	var minKey, maxKey Bytes
-	for i, sst := range sstables {
-		sstMin, sstMax := sst.GetKeyRange() // Assume SStable has GetKeyRange
-		if i == 0 {
+	var (
+		minKey, maxKey Bytes
+		initialized    bool
+	)
+	for _, sst := range sstables {
+		sstMin, sstMax := sst.GetKeyRange()
+		if sstMin == nil || sstMax == nil {
+			continue
+		}
+		if !initialized {
 			minKey, maxKey = sstMin, sstMax
-		} else {
-			if minKey.Compare(sstMin) > 0 {
-				minKey = sstMin
-			}
-			if maxKey.Compare(sstMax) < 0 {
-				maxKey = sstMax
-			}
+			initialized = true
+			continue
+		}
+		if minKey.Compare(sstMin) > 0 {
+			minKey = sstMin
+		}
+		if maxKey.Compare(sstMax) < 0 {
+			maxKey = sstMax
 		}
 	}
 	return minKey, maxKey
