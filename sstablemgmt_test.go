@@ -223,16 +223,21 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		assert.Len(t, res, 0)
 	})
 
-	t.Run("Error opening SSTable", func(t *testing.T) {
+	t.Run("Error opening SSTable and resource cleanup", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
+		source := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+		goodFs := ts.createSSTable(1, map[string]string{"j": "1", "m": "2"})
+		ts.AddSSTableToLevel(1, goodFs)
+
 		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
 		ts.Manager.levels[1].PushBack(badFs)
 
-		_, err := ts.Manager.findOverlappingSSTables(ctx, 1, nil)
+		_, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
 		assert.Error(t, err)
+		assert.False(t, goodFs.IsOpened(), "file system for successfully opened sstable should be closed on subsequent error")
 	})
 
 	t.Run("Empty sources", func(t *testing.T) {
@@ -246,6 +251,25 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, nil)
 		assert.NoError(t, err)
 		assert.Len(t, res, 0)
+	})
+
+	t.Run("With empty and non-empty source sstables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		emptyFs := ts.newSSTableFS(0)
+		emptySource := SStable{FileSystem: emptyFs}
+		nonEmptySource := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+
+		overlap := ts.createSSTable(1, map[string]string{"j": "1", "m": "2"})
+		ts.AddSSTableToLevel(1, overlap)
+
+		sources := []SStable{emptySource, *nonEmptySource}
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, sources)
+		assert.NoError(t, err)
+		assert.Len(t, res, 1)
+		assert.Equal(t, overlap.Path(), res[0].Path())
 	})
 }
 
