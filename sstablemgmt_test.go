@@ -149,6 +149,106 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 	// The current setup tests the happy path and file system errors.
 }
 
+func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("Level does not exist", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		sources := []SStable{*ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})}
+		res, err := ts.Manager.findOverlappingSSTables(ctx, len(ts.Manager.levels), sources)
+		assert.NoError(t, err)
+		assert.Nil(t, res)
+	})
+
+	t.Run("Level is nil", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.levels[1] = nil
+		sources := []SStable{*ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})}
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, sources)
+		assert.NoError(t, err)
+		assert.Nil(t, res)
+	})
+
+	t.Run("Level empty", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 2, []SStable{*ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})})
+		assert.NoError(t, err)
+		assert.Len(t, res, 0)
+	})
+
+	t.Run("Return only overlapping SSTables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		// Source SSTable with range [g, k]
+		source := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+
+		// Level 1 SSTables
+		before := ts.createSSTable(1, map[string]string{"a": "1", "d": "2"})
+		overlap := ts.createSSTable(1, map[string]string{"j": "1", "m": "2"})
+		after := ts.createSSTable(1, map[string]string{"x": "1", "z": "2"})
+		ts.AddSSTableToLevel(1, before)
+		ts.AddSSTableToLevel(1, overlap)
+		ts.AddSSTableToLevel(1, after)
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
+		assert.NoError(t, err)
+		assert.Len(t, res, 1)
+		assert.Equal(t, overlap.Path(), res[0].Path())
+	})
+
+	t.Run("No overlapping SSTables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		source := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+		before := ts.createSSTable(1, map[string]string{"a": "1", "d": "2"})
+		after := ts.createSSTable(1, map[string]string{"x": "1", "z": "2"})
+		ts.AddSSTableToLevel(1, before)
+		ts.AddSSTableToLevel(1, after)
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
+		assert.NoError(t, err)
+		assert.Len(t, res, 0)
+	})
+
+	t.Run("Error opening SSTable", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
+		ts.Manager.levels[1].PushBack(badFs)
+
+		_, err := ts.Manager.findOverlappingSSTables(ctx, 1, nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("Empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		overlap := ts.createSSTable(1, map[string]string{"a": "1", "d": "2"})
+		ts.AddSSTableToLevel(1, overlap)
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, nil)
+		assert.NoError(t, err)
+		assert.Len(t, res, 0)
+	})
+}
+
 func TestSSTableManager_MergeSSTables(t *testing.T) {
 	// Configure the manager to trigger compaction after 3 files in level 0
 	cfg := NewConfig(WithLevel0CompactionThreshold(3))
