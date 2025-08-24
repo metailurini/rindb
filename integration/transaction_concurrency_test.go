@@ -24,8 +24,10 @@ func TestTransactionCommitRollbackConcurrency(t *testing.T) {
 	txnCommit := tm.Begin()
 	txnRollback := tm.Begin()
 
-	recCommit := rindb.RecordImpl{Key: rindb.Bytes("key"), Value: rindb.Bytes("commit"), SequenceNumber: 1}
-	recRollback := rindb.RecordImpl{Key: rindb.Bytes("key"), Value: rindb.Bytes("rollback"), SequenceNumber: 1}
+	seq := uint64(1)
+	recCommit := rindb.RecordImpl{Key: rindb.Bytes("key"), Value: rindb.Bytes("commit"), SequenceNumber: seq}
+	seq++
+	recRollback := rindb.RecordImpl{Key: rindb.Bytes("key"), Value: rindb.Bytes("rollback"), SequenceNumber: seq}
 
 	require.NoError(t, rindb.WriteRecord(txnCommit, recCommit))
 	require.NoError(t, rindb.WriteRecord(txnRollback, recRollback))
