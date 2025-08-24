@@ -680,24 +680,26 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error
 			}
 
 			value, err := sstable.GetValue(ctx, key)
+			closeErr := fs.Close()
+			h.removeOpenedFS(fs)
 			if err == nil {
 				// Found a value or tombstone; this is the latest so far
 				latestValue = value
 				found = true
-				_ = fs.Close()
-				h.removeOpenedFS(fs)
+				if closeErr != nil {
+					return nil, closeErr
+				}
 				break
 			}
 			if !errors.Is(err, ErrKeyNotFound) {
-				_ = fs.Close()
-				h.removeOpenedFS(fs)
+				if closeErr != nil {
+					return nil, closeErr
+				}
 				return nil, err
 			}
-			if err := fs.Close(); err != nil {
-				h.removeOpenedFS(fs)
-				return nil, err
+			if closeErr != nil {
+				return nil, closeErr
 			}
-			h.removeOpenedFS(fs)
 
 			if !iterator.HasPrev() {
 				break
@@ -744,11 +746,11 @@ func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTab
 
 			maxSeqNum = max(maxSeqNum, sstSeqNum)
 
-			if err := fs.Close(); err != nil {
-				ssTableManager.removeOpenedFS(fs)
-				return 0, err
-			}
+			closeErr := fs.Close()
 			ssTableManager.removeOpenedFS(fs)
+			if closeErr != nil {
+				return 0, closeErr
+			}
 		}
 	}
 	return maxSeqNum, nil
