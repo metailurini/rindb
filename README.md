@@ -119,6 +119,18 @@ Run tests with coverage:
 make test-coverage
 ```
 
+Run smoke integration tests:
+
+```bash
+make test-integration-smoke
+```
+
+Run full integration tests:
+
+```bash
+make test-integration-full
+```
+
 Build the CLI:
 
 ```bash

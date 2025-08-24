@@ -10,7 +10,9 @@
 - `make check`: Formats (`go fmt`), builds `tool/spanname`, runs `go vet` with it, then `staticcheck`.
 - `make test`: Cleans `testdata/` and runs all tests verbosely.
 - `make test-coverage`: Runs tests with coverage and opens the HTML report.
-- `make test-integration`: Runs integration tests (requires the `integration` build tag).
+- `make test-integration-smoke`: Runs quick integration tests with `integration` and `smoke` build tags.
+- `make test-integration-full`: Runs full integration tests (requires the `integration` build tag).
+- `make test-integration`: Alias for `make test-integration-full`.
 - `go build -o rindb cmd/main.go`: Builds the sample CLI. Example: `./rindb` then `put key val`.
 
 ## Coding Style & Naming
@@ -24,7 +26,7 @@
 - Frameworks: Standard `testing` with `testify` for assertions.
 - Style: Prefer table‑driven tests; name tests `TestXxx` in `*_test.go`.
 - Data: Write temp files under `testdata/`. Tests clean this directory; do not commit generated artifacts.
-- Integration tests live in `integration/` and are gated by the `integration` build tag. Run them with `make test-integration`.
+- Integration tests live in `integration/` and use build tags. Run quick tests with `make test-integration-smoke` and the full suite with `make test-integration-full`.
 - Run: `make test` locally; use `t.Helper()` for helpers and avoid global state between tests.
 
 ## Commit & Pull Requests
