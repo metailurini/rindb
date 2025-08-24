@@ -811,6 +811,107 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("valueA_L2"), val)
 	})
+
+	t.Run("compact level 1 into level 2 without overlap", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := NewConfig()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		// Source SSTable in level 1
+		sstable1 := ts.createSSTable(1, map[string]string{
+			"keyE": "valueE_L1",
+			"keyF": "valueF_L1",
+		})
+		ts.AddSSTableToLevel(1, sstable1)
+		fs1Path := sstable1.Path()
+
+		// Non-overlapping SSTable in level 2
+		sstable2 := ts.createSSTable(2, map[string]string{
+			"keyA": "valueA_L2",
+		})
+		ts.AddSSTableToLevel(2, sstable2)
+		fs2Path := sstable2.Path()
+
+		err := ts.Manager.compactHigherLevel(ctx, ts.Manager.levels[1], 2)
+		assert.NoError(t, err)
+
+		// Original level1 file removed, level2 file remains
+		assertFileNotExists(t, fs1Path)
+		assertFileExists(t, fs2Path)
+
+		assert.Equal(t, 0, ts.Manager.levels[1].Len())
+		assert.Equal(t, 2, ts.Manager.levels[2].Len())
+
+		// Identify new merged file
+		var newMergedFS *FileSystem
+		iter2 := ts.Manager.levels[2].Iterator()
+		for iter2.HasNext() {
+			fs, _ := iter2.Next()
+			if fs.Path() != fs2Path {
+				newMergedFS = fs
+			}
+		}
+		assert.NotNil(t, newMergedFS)
+
+		err = newMergedFS.Open(ctx)
+		assert.NoError(t, err)
+		mergedSSTable, err := NewSSTable(ctx, cfg, newMergedFS)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(mergedSSTable.SparseIndex))
+
+		val, err := mergedSSTable.GetValue(ctx, Bytes("keyE"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("valueE_L1"), val)
+
+		val, err = mergedSSTable.GetValue(ctx, Bytes("keyF"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("valueF_L1"), val)
+	})
+
+	t.Run("returns error when source SSTable cannot be opened", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := NewConfig()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		badFS := &FileSystem{filePath: ts.TempDir}
+		ts.Manager.levels[1].PushBack(badFS)
+
+		err := ts.Manager.compactHigherLevel(ctx, ts.Manager.levels[1], 2)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns error when overlapping SSTable cannot be opened", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := NewConfig()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		sstable1 := ts.createSSTable(1, map[string]string{"key": "val"})
+		ts.AddSSTableToLevel(1, sstable1)
+
+		badFS := &FileSystem{filePath: ts.TempDir}
+		ts.Manager.levels[2].PushBack(badFS)
+
+		err := ts.Manager.compactHigherLevel(ctx, ts.Manager.levels[1], 2)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns error when new SSTable cannot be created", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := NewConfig()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		sstable1 := ts.createSSTable(1, map[string]string{"key": "val"})
+		ts.AddSSTableToLevel(1, sstable1)
+
+		ts.Manager.config.databaseDir = path.Join(ts.TempDir, "missing", "dir")
+
+		err := ts.Manager.compactHigherLevel(ctx, ts.Manager.levels[1], 2)
+		assert.Error(t, err)
+	})
 }
 
 // TestSSTableManager_shouldCompact tests the logic for deciding when to compact a level.

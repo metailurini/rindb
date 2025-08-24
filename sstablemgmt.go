@@ -506,16 +506,18 @@ func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedLi
 	}
 
 	// Remove overlapping SSTables from the level after successful merge
-	iter = h.levels[newLevelNumb].Iterator()
-	for iter.HasNext() {
-		fs, err := iter.Next()
-		if err != nil {
-			return err
-		}
-		for _, sst := range overlappingSSTables {
-			if fs.Path() == sst.Path() {
-				iter.RemoveCurrent()
-				break
+	if len(overlappingSSTables) > 0 {
+		iter = h.levels[newLevelNumb].Iterator()
+		for iter.HasNext() {
+			fs, err := iter.Next()
+			if err != nil {
+				return err
+			}
+			for _, sst := range overlappingSSTables {
+				if fs.Path() == sst.Path() {
+					iter.RemoveCurrent()
+					break
+				}
 			}
 		}
 	}
