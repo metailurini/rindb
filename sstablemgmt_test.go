@@ -150,6 +150,132 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 	// The current setup tests the happy path and file system errors.
 }
 
+func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("Level does not exist", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		sources := []SStable{*ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})}
+		res, err := ts.Manager.findOverlappingSSTables(ctx, len(ts.Manager.levels), sources)
+		assert.NoError(t, err)
+		assert.Nil(t, res)
+	})
+
+	t.Run("Level is nil", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.levels[1] = nil
+		sources := []SStable{*ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})}
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, sources)
+		assert.NoError(t, err)
+		assert.Nil(t, res)
+	})
+
+	t.Run("Level empty", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 2, []SStable{*ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})})
+		assert.NoError(t, err)
+		assert.Len(t, res, 0)
+	})
+
+	t.Run("Return only overlapping SSTables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		// Source SSTable with range [g, k]
+		source := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+
+		// Level 1 SSTables
+		before := ts.createSSTable(1, map[string]string{"a": "1", "d": "2"})
+		overlap := ts.createSSTable(1, map[string]string{"j": "1", "m": "2"})
+		after := ts.createSSTable(1, map[string]string{"x": "1", "z": "2"})
+		ts.AddSSTableToLevel(1, before)
+		ts.AddSSTableToLevel(1, overlap)
+		ts.AddSSTableToLevel(1, after)
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
+		assert.NoError(t, err)
+		assert.Len(t, res, 1)
+		assert.Equal(t, overlap.Path(), res[0].Path())
+	})
+
+	t.Run("No overlapping SSTables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		source := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+		before := ts.createSSTable(1, map[string]string{"a": "1", "d": "2"})
+		after := ts.createSSTable(1, map[string]string{"x": "1", "z": "2"})
+		ts.AddSSTableToLevel(1, before)
+		ts.AddSSTableToLevel(1, after)
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
+		assert.NoError(t, err)
+		assert.Len(t, res, 0)
+	})
+
+	t.Run("Error opening SSTable and resource cleanup", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		source := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+		goodFs := ts.createSSTable(1, map[string]string{"j": "1", "m": "2"})
+		ts.AddSSTableToLevel(1, goodFs)
+
+		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
+		ts.Manager.levels[1].PushBack(badFs)
+
+		initial := ts.Manager.openedFs.Len()
+		_, err := ts.Manager.findOverlappingSSTables(ctx, 1, []SStable{*source})
+		assert.Error(t, err)
+		assert.False(t, goodFs.IsOpened(), "file system for successfully opened sstable should be closed on subsequent error")
+		assert.Equal(t, initial, ts.Manager.openedFs.Len(), "openedFs should be restored after cleanup")
+	})
+
+	t.Run("Empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		overlap := ts.createSSTable(1, map[string]string{"a": "1", "d": "2"})
+		ts.AddSSTableToLevel(1, overlap)
+
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, nil)
+		assert.NoError(t, err)
+		assert.Len(t, res, 0)
+	})
+
+	t.Run("With empty and non-empty source sstables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		emptyFs := ts.newSSTableFS(0)
+		emptySource := SStable{FileSystem: emptyFs}
+		nonEmptySource := ts.createSSTable(0, map[string]string{"g": "1", "k": "2"})
+
+		overlap := ts.createSSTable(1, map[string]string{"j": "1", "m": "2"})
+		ts.AddSSTableToLevel(1, overlap)
+
+		sources := []SStable{emptySource, *nonEmptySource}
+		res, err := ts.Manager.findOverlappingSSTables(ctx, 1, sources)
+		assert.NoError(t, err)
+		assert.Len(t, res, 1)
+		assert.Equal(t, overlap.Path(), res[0].Path())
+	})
+}
+
 func TestSSTableManager_MergeSSTables(t *testing.T) {
 	// Configure the manager to trigger compaction after 3 files in level 0
 	cfg := NewConfig(WithLevel0CompactionThreshold(3))
@@ -1357,5 +1483,150 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("sampler goroutine did not exit")
 		}
+	})
+}
+func Test_mergeSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("merges overlapping tables with tombstones", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(NewRecord(Bytes("b"), nil, 3))
+		mem2.Put(NewRecord(Bytes("c"), Bytes("3"), 4))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTables(ctx, *ts.Config, target, []SStable{sst1, sst2})
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Nil(t, v)
+
+		v, err = merged.GetValue(ctx, Bytes("c"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("3"), v)
+	})
+
+	t.Run("merges non-overlapping tables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTables(ctx, *ts.Config, target, []SStable{sst1, sst2})
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("2"), v)
+	})
+
+	t.Run("panics on empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		target := ts.newSSTableFS(1)
+		assert.Panics(t, func() {
+			_, _ = mergeSSTables(ctx, *ts.Config, target, []SStable{})
+		})
+	})
+}
+
+func TestSSTableManager_mergeSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("creates new level and removes sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.levels = ts.Manager.levels[:1]
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(NewRecord(Bytes("b"), nil, 3))
+		mem2.Put(NewRecord(Bytes("c"), Bytes("3"), 4))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		_, err = os.Stat(sst1.Path())
+		assert.NoError(t, err)
+		_, err = os.Stat(sst2.Path())
+		assert.NoError(t, err)
+
+		ts.Manager.mu.Lock()
+		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})
+		ts.Manager.mu.Unlock()
+		assert.NoError(t, err)
+
+		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2)
+		assert.Equal(t, 1, ts.Manager.levels[1].Len())
+
+		fs, err := ts.Manager.levels[1].Iterator().Next()
+		assert.NoError(t, err)
+		merged, err := ts.Manager.openAndLoadSSTable(ctx, fs)
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Nil(t, v)
+
+		v, err = merged.GetValue(ctx, Bytes("c"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("3"), v)
+
+		_, err = os.Stat(sst1.Path())
+		assert.Error(t, err)
+		_, err = os.Stat(sst2.Path())
+		assert.Error(t, err)
+	})
+
+	t.Run("panics on empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		assert.Panics(t, func() {
+			_ = ts.Manager.mergeSSTables(ctx, 1, []SStable{})
+		})
 	})
 }

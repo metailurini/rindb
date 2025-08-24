@@ -271,9 +271,9 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	element := h.openedFs.Front()
-	for element != nil {
-		fs, ok := element.Value.(*FileSystem)
+	for e := h.openedFs.Front(); e != nil; {
+		next := e.Next()
+		fs, ok := e.Value.(*FileSystem)
 		if !ok {
 			ERROR(ctx, "can not cast element to file system")
 			break
@@ -281,9 +281,11 @@ func (h *SSTableManager) Close(ctx context.Context) {
 
 		if err := fs.Close(); err != nil {
 			ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
+		} else {
+			INFO(ctx, "Closed %s successfully", fs.Path())
 		}
-		INFO(ctx, "Closed %s successfully", fs.Path())
-		element = element.Next()
+		h.openedFs.Remove(e)
+		e = next
 	}
 
 	for _, level := range h.levels {
@@ -307,9 +309,11 @@ func (h *SSTableManager) Close(ctx context.Context) {
 
 			if err := fs.Close(); err != nil {
 				ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
+				h.removeOpenedFS(fs)
 				continue
 			}
 			INFO(ctx, "Closed %s successfully", fs.Path())
+			h.removeOpenedFS(fs)
 		}
 	}
 }
@@ -455,17 +459,13 @@ func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedLi
 		fs, err := iter.PickNext() // Removes from the source level list
 		if err != nil {
 			// Attempt to close any already opened SSTables before returning error
-			for _, sst := range sstablesToMerge {
-				_ = sst.Close()
-			}
+			h.closeSSTables(sstablesToMerge)
 			return fmt.Errorf("error picking next SSTable from level: %w", err)
 		}
 		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
 			// Attempt to close any already opened SSTables before returning error
-			for _, sst := range sstablesToMerge {
-				_ = sst.Close()
-			}
+			h.closeSSTables(sstablesToMerge)
 			return fmt.Errorf("error creating SStable object for %s: %w", fs.Path(), err)
 		}
 		sstablesToMerge = append(sstablesToMerge, *sstable)
@@ -503,16 +503,19 @@ func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb 
 	for iter.HasNext() {
 		fs, err := iter.Next()
 		if err != nil {
+			h.closeSSTables(overlapping)
 			return nil, err
 		}
 		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
+			h.closeSSTables(overlapping)
 			return nil, err
 		}
 		if sstable.Overlaps(minKey, maxKey) {
 			overlapping = append(overlapping, *sstable)
 		} else {
 			_ = fs.Close() // Close if not overlapping
+			h.removeOpenedFS(fs)
 		}
 	}
 	return overlapping, nil
@@ -547,6 +550,24 @@ func (h *SSTableManager) removeOverlappingFromLevel(level *LinkedList[*FileSyste
 	return nil
 }
 
+func (h *SSTableManager) closeSSTables(sstables []SStable) {
+	for i := range sstables {
+		fs := sstables[i].FileSystem
+		_ = sstables[i].Close()
+		h.removeOpenedFS(fs)
+	}
+}
+
+func (h *SSTableManager) removeOpenedFS(target *FileSystem) {
+	for e := h.openedFs.Front(); e != nil; e = e.Next() {
+		fs, ok := e.Value.(*FileSystem)
+		if ok && fs == target {
+			h.openedFs.Remove(e)
+			return
+		}
+	}
+}
+
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
 // Assumes the caller holds the necessary lock (e.g., h.mu.Lock()).
 func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pickedUpSSTable []SStable) error {
@@ -564,7 +585,8 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	}
 	h.levels[newLevelNumb].PushBack(newLevelSSTable)
 
-	// remove merged sstable
+	// close and remove merged sstables
+	h.closeSSTables(pickedUpSSTable)
 	for _, sstable := range pickedUpSSTable {
 		if err := os.Remove(sstable.Path()); err != nil {
 			ERROR(ctx, "Error removing file %s: %v", sstable.Path(), err)
@@ -637,6 +659,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 					relevantSSTables.PushBack(sstable) // Add to back for higher levels
 				} else {
 					_ = fs.Close() // Close if not relevant
+					h.removeOpenedFS(fs)
 				}
 			}
 		}
@@ -676,19 +699,25 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error
 			}
 
 			value, err := sstable.GetValue(ctx, key)
+			closeErr := fs.Close()
+			h.removeOpenedFS(fs)
 			if err == nil {
 				// Found a value or tombstone; this is the latest so far
 				latestValue = value
 				found = true
-				_ = fs.Close()
+				if closeErr != nil {
+					return nil, closeErr
+				}
 				break
 			}
 			if !errors.Is(err, ErrKeyNotFound) {
-				_ = fs.Close()
+				if closeErr != nil {
+					return nil, closeErr
+				}
 				return nil, err
 			}
-			if err := fs.Close(); err != nil {
-				return nil, err
+			if closeErr != nil {
+				return nil, closeErr
 			}
 
 			if !iterator.HasPrev() {
@@ -736,8 +765,10 @@ func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTab
 
 			maxSeqNum = max(maxSeqNum, sstSeqNum)
 
-			if err := fs.Close(); err != nil {
-				return 0, err
+			closeErr := fs.Close()
+			ssTableManager.removeOpenedFS(fs)
+			if closeErr != nil {
+				return 0, closeErr
 			}
 		}
 	}
@@ -745,18 +776,25 @@ func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTab
 }
 
 func getKeyRange(sstables []SStable) (Bytes, Bytes) {
-	var minKey, maxKey Bytes
-	for i, sst := range sstables {
-		sstMin, sstMax := sst.GetKeyRange() // Assume SStable has GetKeyRange
-		if i == 0 {
+	var (
+		minKey, maxKey Bytes
+		initialized    bool
+	)
+	for _, sst := range sstables {
+		sstMin, sstMax := sst.GetKeyRange()
+		if sstMin == nil || sstMax == nil {
+			continue
+		}
+		if !initialized {
 			minKey, maxKey = sstMin, sstMax
-		} else {
-			if minKey.Compare(sstMin) > 0 {
-				minKey = sstMin
-			}
-			if maxKey.Compare(sstMax) < 0 {
-				maxKey = sstMax
-			}
+			initialized = true
+			continue
+		}
+		if minKey.Compare(sstMin) > 0 {
+			minKey = sstMin
+		}
+		if maxKey.Compare(sstMax) < 0 {
+			maxKey = sstMax
 		}
 	}
 	return minKey, maxKey
