@@ -318,13 +318,18 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	// 1. Memtable should be cleared (check estimated size)
 	assert.Zero(t, rin.memtable.ByteSize(), "Memtable estimated size should be zero after flush")
 
-	// 2. An L0 SSTable should have been created. Check if L0 exists and is not empty.
-	//    Don't assert exact count=1, as compaction might run concurrently in a real scenario
-	//    or if the test setup triggers it indirectly.
+	// 2. At least one SSTable should have been created on disk.
+	//    Compaction may move flushed SSTables to higher levels, so we count across all levels
+	//    instead of asserting on a specific level.
 	rin.ssTableManager.mu.RLock() // Lock needed to safely access levels
-	assert.True(t, len(rin.ssTableManager.levels) > 0 && rin.ssTableManager.levels[0] != nil, "Level 0 should exist after flush")
-	assert.GreaterOrEqual(t, rin.ssTableManager.levels[0].Len(), 1, "Level 0 should contain at least one SSTable after flush")
+	total := 0
+	for _, lvl := range rin.ssTableManager.levels {
+		if lvl != nil {
+			total += lvl.Len()
+		}
+	}
 	rin.ssTableManager.mu.RUnlock()
+	assert.GreaterOrEqual(t, total, 1, "There should be at least one SSTable after flush")
 
 	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
 	// We can Get the keys back to ensure they were persisted correctly

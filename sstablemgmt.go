@@ -444,24 +444,7 @@ func (h *SSTableManager) compactLevel0(ctx context.Context, level *LinkedList[*F
 		return err
 	}
 
-	// Remove overlapping SSTables from the next level after successful merge
-	if len(overlappingSSTables) > 0 {
-		iter = h.levels[newLevelNumb].Iterator()
-		for iter.HasNext() {
-			fs, err := iter.Next()
-			if err != nil {
-				return err
-			}
-			for _, sst := range overlappingSSTables {
-				if fs.Path() == sst.Path() {
-					iter.RemoveCurrent()
-					break
-				}
-			}
-		}
-	}
-
-	return nil
+	return h.removeOverlappingFromLevel(h.levels[newLevelNumb], overlappingSSTables)
 }
 
 func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedList[*FileSystem], newLevelNumb int) error {
@@ -505,23 +488,7 @@ func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedLi
 		return err
 	}
 
-	// Remove overlapping SSTables from the level after successful merge
-	if len(overlappingSSTables) > 0 {
-		iter = h.levels[newLevelNumb].Iterator()
-		for iter.HasNext() {
-			fs, err := iter.Next()
-			if err != nil {
-				return err
-			}
-			for _, sst := range overlappingSSTables {
-				if fs.Path() == sst.Path() {
-					iter.RemoveCurrent()
-					break
-				}
-			}
-		}
-	}
-	return nil
+	return h.removeOverlappingFromLevel(h.levels[newLevelNumb], overlappingSSTables)
 }
 
 func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb int, sources []SStable) ([]SStable, error) {
@@ -549,6 +516,35 @@ func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb 
 		}
 	}
 	return overlapping, nil
+}
+
+// removeOverlappingFromLevel deletes the given overlapping SSTables from the level's linked list.
+// It constructs a set of paths for O(1) lookups and iterates the level once, yielding O(N+M)
+// complexity instead of O(N*M) with nested loops.
+func (h *SSTableManager) removeOverlappingFromLevel(level *LinkedList[*FileSystem], overlapping []SStable) error {
+	if len(overlapping) == 0 || level == nil {
+		return nil
+	}
+
+	pathsToRemove := make(map[string]struct{}, len(overlapping))
+	for _, sst := range overlapping {
+		pathsToRemove[sst.Path()] = struct{}{}
+	}
+
+	iter := level.Iterator()
+	for iter.HasNext() {
+		fs, err := iter.Next()
+		if err != nil {
+			return err
+		}
+		if _, ok := pathsToRemove[fs.Path()]; ok {
+			if err := iter.RemoveCurrent(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
