@@ -23,12 +23,16 @@ func TestWALRecovery(t *testing.T) {
 	dir := os.Getenv("WAL_RECOVERY_TEST_DIR")
 	if dir != "" {
 		walRecoveryHelper(t, dir)
-		return
+		os.Exit(0)
 	}
 
 	dir = t.TempDir()
 
-	cmd := exec.Command(os.Args[0], "-test.run", "TestWALRecovery", "-test.v")
+	args := []string{"-test.run", "TestWALRecovery"}
+	if testing.Verbose() {
+		args = append(args, "-test.v")
+	}
+	cmd := exec.Command(os.Args[0], args...)
 	cmd.Env = append(os.Environ(), "WAL_RECOVERY_TEST_DIR="+dir)
 	require.NoError(t, cmd.Run())
 
@@ -45,6 +49,7 @@ func TestWALRecovery(t *testing.T) {
 }
 
 func walRecoveryHelper(t *testing.T, dir string) {
+	t.Helper()
 	ctx := context.Background()
 	db, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dir))
 	require.NoError(t, err)
@@ -52,6 +57,4 @@ func walRecoveryHelper(t *testing.T, dir string) {
 	for _, kv := range walRecoveryKVs {
 		require.NoError(t, db.Put(ctx, rindb.Bytes(kv.key), rindb.Bytes(kv.val)))
 	}
-
-	os.Exit(0)
 }
