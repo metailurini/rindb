@@ -1086,3 +1086,150 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		}
 	})
 }
+func Test_mergeSSTables(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("merges overlapping tables with tombstones", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(NewRecord(Bytes("b"), nil, 3))
+		mem2.Put(NewRecord(Bytes("c"), Bytes("3"), 4))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTables(ctx, *ts.Config, target, []SStable{sst1, sst2})
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Nil(t, v)
+
+		v, err = merged.GetValue(ctx, Bytes("c"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("3"), v)
+	})
+
+	t.Run("merges non-overlapping tables", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTables(ctx, *ts.Config, target, []SStable{sst1, sst2})
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("2"), v)
+	})
+
+	t.Run("panics on empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		target := ts.newSSTableFS(1)
+		assert.Panics(t, func() {
+			_, _ = mergeSSTables(ctx, *ts.Config, target, []SStable{})
+		})
+	})
+}
+
+func TestSSTableManager_mergeSSTablesMethod(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("creates new level and removes sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.levels = ts.Manager.levels[:1]
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(NewRecord(Bytes("b"), nil, 3))
+		mem2.Put(NewRecord(Bytes("c"), Bytes("3"), 4))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		_, err = os.Stat(sst1.Path())
+		assert.NoError(t, err)
+		_, err = os.Stat(sst2.Path())
+		assert.NoError(t, err)
+
+		ts.Manager.mu.Lock()
+		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})
+		ts.Manager.mu.Unlock()
+		assert.NoError(t, err)
+
+		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2)
+		assert.Equal(t, 1, ts.Manager.levels[1].Len())
+
+		fs, err := ts.Manager.levels[1].Iterator().Next()
+		assert.NoError(t, err)
+		merged, err := ts.Manager.openAndLoadSSTable(ctx, fs)
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Nil(t, v)
+
+		v, err = merged.GetValue(ctx, Bytes("c"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("3"), v)
+
+		_, err = os.Stat(sst1.Path())
+		assert.Error(t, err)
+		_, err = os.Stat(sst2.Path())
+		assert.Error(t, err)
+
+		assert.NoError(t, fs.Close())
+	})
+
+	t.Run("panics on empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		assert.Panics(t, func() {
+			_ = ts.Manager.mergeSSTables(ctx, 1, []SStable{})
+		})
+	})
+}
