@@ -576,7 +576,10 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 		return err
 	}
 
-	if _, err := mergeSSTables(ctx, h.config, newLevelSSTable, pickedUpSSTable); err != nil {
+	_, err = mergeSSTables(ctx, h.config, newLevelSSTable, pickedUpSSTable)
+	// close and remove merged sstables
+	h.closeSSTables(pickedUpSSTable)
+	if err != nil {
 		return err
 	}
 
@@ -585,8 +588,6 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	}
 	h.levels[newLevelNumb].PushBack(newLevelSSTable)
 
-	// close and remove merged sstables
-	h.closeSSTables(pickedUpSSTable)
 	for _, sstable := range pickedUpSSTable {
 		if err := os.Remove(sstable.Path()); err != nil {
 			ERROR(ctx, "Error removing file %s: %v", sstable.Path(), err)
