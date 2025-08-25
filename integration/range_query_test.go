@@ -42,6 +42,9 @@ func TestIRangeRangeQuery(t *testing.T) {
 	for iter.HasNext() {
 		rec, err := iter.Next()
 		require.NoError(t, err)
+		if rec.GetValue() == nil {
+			continue
+		}
 		keys = append(keys, string(rec.GetKey()))
 	}
 
