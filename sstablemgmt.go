@@ -588,19 +588,14 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	merged, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost)
 	// close and remove merged sstables even if there is an error
 	h.closeSSTables(pickedUpSSTable)
-	if err != nil {
+	if err != nil || merged == nil {
 		_ = newLevelSSTable.Close()
 		h.removeOpenedFS(newLevelSSTable)
-		_ = os.Remove(newLevelSSTable.Path())
-		return err
-	}
-
-	// if nothing was written, clean up the target and exit
-	if merged == nil {
-		_ = newLevelSSTable.Close()
-		h.removeOpenedFS(newLevelSSTable)
-		if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil {
+		if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil && err == nil {
 			ERROR(ctx, "Error removing empty file %s: %v", newLevelSSTable.Path(), rmErr)
+		}
+		if err != nil {
+			return err
 		}
 		return nil
 	}
