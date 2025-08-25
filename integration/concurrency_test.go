@@ -17,7 +17,7 @@ func TestConcurrentPutGet(t *testing.T) {
 	t.Cleanup(cleanup)
 	ctx := context.Background()
 
-	const goroutines = 50
+	const goroutines = 100
 
 	for i := 0; i < goroutines; i++ {
 		i := i
