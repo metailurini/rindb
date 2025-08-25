@@ -26,11 +26,6 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		_, err = file.Read(valueLenBytes[:])
 		assert.NoError(t, err)
 
-		// Skip sequence number bytes
-		seqNumBytes := [mdByteSize]byte{}
-		_, err = file.Read(seqNumBytes[:])
-		assert.NoError(t, err)
-
 		keyLen := byteOrder.Uint64(keyLenBytes[:])
 		valueLen := byteOrder.Uint64(valueLenBytes[:])
 		_, err = file.Seek(int64(keyLen+valueLen), io.SeekCurrent)
@@ -153,8 +148,8 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	tx := w.tm.Begin()
 	defer tx.Rollback(context.Background())
 
-	// Write only the key length and value length of the third record
-	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetKey()))))
+	// Write only the internal key length and value length of the third record
+	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetKey())+internalKeySuffixLen)))
 	assert.NoError(t, WriteNumber(tx, uint64(len(record3.GetValue()))))
 
 	// Commit the partial transaction to the file

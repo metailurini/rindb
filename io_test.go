@@ -84,64 +84,51 @@ func Test_rw(t *testing.T) {
 }
 
 func TestReadRecord_Errors(t *testing.T) {
-	t.Run("Error reading key length", func(t *testing.T) {
-		reader := &errorReader{err: errors.New("read key length failed")}
+	t.Run("Error reading internal key length", func(t *testing.T) {
+		reader := &errorReader{err: errors.New("read internal key length failed")}
 		_, err := ReadRecord(reader)
-		assert.ErrorContains(t, err, "failed to read key length")
-		assert.ErrorContains(t, err, "read key length failed")
+		assert.ErrorContains(t, err, "failed to read internal key length")
+		assert.ErrorContains(t, err, "read internal key length failed")
 	})
 
 	t.Run("Error reading value length", func(t *testing.T) {
-		// Provide valid key length bytes, then error
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Write a dummy key length
-		reader := io.MultiReader(&buf, &errorReader{err: errors.New("read key length failed")})
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5) // Internal key length
+		reader := io.MultiReader(&buf, &errorReader{err: errors.New("read value length failed")})
 		_, err := ReadRecord(reader)
-		assert.ErrorContains(t, err, "failed to read key length")
-		assert.ErrorContains(t, err, "read key length failed")
-	})
-
-	t.Run("Error reading value length (EOF)", func(t *testing.T) {
-		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Key length = 5
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Value length = 5
-		buf.Write([]byte("key"))                   // Only 3 bytes of key data
-		_, err := ReadRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read value length")
-		assert.ErrorIs(t, err, io.EOF)
+		assert.ErrorContains(t, err, "read value length failed")
 	})
 
-	t.Run("Error reading key length (iotest)", func(t *testing.T) {
+	t.Run("Error reading internal key bytes", func(t *testing.T) {
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Key length = 5
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Value length = 5
-		// Use iotest.ErrReader to simulate read error after header
-		reader := io.MultiReader(&buf, iotest.ErrReader(errors.New("read key length failed")))
-		_, err := ReadRecord(reader)
-		assert.ErrorContains(t, err, "failed to read key length")
-		assert.ErrorContains(t, err, "read key length failed")
-	})
-
-	t.Run("Error reading value length (EOF)", func(t *testing.T) {
-		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf}, 3) // Key length = 3
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Value length = 5
-		buf.Write([]byte("key"))                   // Correct key bytes
-		buf.Write([]byte("val"))                   // Only 3 bytes of value data
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5) // Internal key length
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5) // Value length
+		buf.Write([]byte("key"))                                    // only 3 bytes of internal key
 		_, err := ReadRecord(&buf)
-		assert.ErrorContains(t, err, "failed to read value length")
-		assert.ErrorIs(t, err, io.EOF)
+		assert.ErrorContains(t, err, "failed to read internal key bytes")
+		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	})
+
+	t.Run("Error reading value bytes (EOF)", func(t *testing.T) {
+		var buf bytes.Buffer
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length for "key"
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)                      // Value length
+		buf.Write(encodeInternalKey(Bytes("key"), 0, TypeValue))
+		buf.Write([]byte("val")) // only 3 bytes of value
+		_, err := ReadRecord(&buf)
+		assert.ErrorContains(t, err, "failed to read value bytes")
+		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
 
 	t.Run("Error reading value bytes (iotest)", func(t *testing.T) {
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf}, 3) // Key length = 3
-		WriteNumber(&Transaction{buffer: &buf}, 5) // Value length = 5
-		buf.Write([]byte("key"))                   // Correct key bytes
-		// Use iotest.ErrReader to simulate read error after key
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)                      // Value length
+		buf.Write(encodeInternalKey(Bytes("key"), 0, TypeValue))
 		reader := io.MultiReader(&buf, iotest.ErrReader(errors.New("read value bytes failed")))
 		_, err := ReadRecord(reader)
-		assert.ErrorContains(t, err, "failed to read value length")
+		assert.ErrorContains(t, err, "failed to read value bytes")
 		assert.ErrorContains(t, err, "read value bytes failed")
 	})
 }
