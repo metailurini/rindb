@@ -576,11 +576,33 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 		return err
 	}
 
-	_, err = mergeSSTables(ctx, h.config, newLevelSSTable, pickedUpSSTable)
+	// determine if the target level is the bottommost non-empty level
+	bottommost := true
+	for i := newLevelNumb + 1; i < len(h.levels); i++ {
+		if h.levels[i] != nil && h.levels[i].Len() > 0 {
+			bottommost = false
+			break
+		}
+	}
+
+	merged, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost)
 	// close and remove merged sstables even if there is an error
 	h.closeSSTables(pickedUpSSTable)
 	if err != nil {
+		_ = newLevelSSTable.Close()
+		h.removeOpenedFS(newLevelSSTable)
+		_ = os.Remove(newLevelSSTable.Path())
 		return err
+	}
+
+	// if nothing was written, clean up the target and exit
+	if merged == nil {
+		_ = newLevelSSTable.Close()
+		h.removeOpenedFS(newLevelSSTable)
+		if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil {
+			ERROR(ctx, "Error removing empty file %s: %v", newLevelSSTable.Path(), rmErr)
+		}
+		return nil
 	}
 
 	if len(h.levels) == newLevelNumb {

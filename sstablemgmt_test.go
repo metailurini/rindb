@@ -286,24 +286,24 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		// Create SSTables and add them to Level 0
-		sstable1 := ts.createSSTable(0, map[string]string{
+		// Create SSTables and add them to Level 0 with increasing sequence numbers
+		sstable1 := ts.createSSTableWithSequence(0, map[string]string{
 			"1": "2", // Will be overridden by sstable2
 			"2": "3", // Will be tombstoned by sstable2
 			"3": "4",
-		})
+		}, 1)
 		ts.AddSSTableToLevel(0, sstable1)
 
-		sstable2 := ts.createSSTable(0, map[string]string{
+		sstable2 := ts.createSSTableWithSequence(0, map[string]string{
 			"1": "3", // Overrides sstable1
 			"2": "",  // Tombstone overrides sstable1
 			"4": "5",
-		})
+		}, 10)
 		ts.AddSSTableToLevel(0, sstable2)
 
-		sstable3 := ts.createSSTable(0, map[string]string{
+		sstable3 := ts.createSSTableWithSequence(0, map[string]string{
 			"5": "6",
-		})
+		}, 20)
 		ts.AddSSTableToLevel(0, sstable3)
 
 		// Verify initial state: Level 0 has 3 files
@@ -336,11 +336,11 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 
 		// mem.Put(NewRecord(v.key, v.value, uint64(i)))
 		expectedRecords := []Record{
-			newRecord(Bytes("1"), Bytes("3"), 1), // sstable2 value
-			newRecord(Bytes("2"), nil, 2),        // sstable2 tombstone
-			newRecord(Bytes("3"), Bytes("4"), 2), // sstable1 value
-			newRecord(Bytes("4"), Bytes("5"), 3), // sstable2 value
-			newRecord(Bytes("5"), Bytes("6"), 5), // sstable3 value
+			newRecord(Bytes("1"), Bytes("3"), 10), // sstable2 value
+			newRecord(Bytes("2"), nil, 11),        // sstable2 tombstone
+			newRecord(Bytes("3"), Bytes("4"), 3),  // sstable1 value
+			newRecord(Bytes("4"), Bytes("5"), 12), // sstable2 value
+			newRecord(Bytes("5"), Bytes("6"), 20), // sstable3 value
 		}
 		assertIteratorRecords(t, sstableIterator, expectedRecords)
 	})
@@ -690,10 +690,10 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		ts.Manager.levels = ts.Manager.levels[:1]
 		ts.Levels = ts.Manager.levels
 
-		// Create two level 0 SSTables with overlapping keys
-		sst1 := ts.createSSTable(0, map[string]string{"keyA": "valueA1"})
+		// Create two level 0 SSTables with overlapping keys and increasing sequence numbers
+		sst1 := ts.createSSTableWithSequence(0, map[string]string{"keyA": "valueA1"}, 1)
 		ts.AddSSTableToLevel(0, sst1)
-		sst2 := ts.createSSTable(0, map[string]string{"keyA": "valueA2", "keyB": "valueB2"})
+		sst2 := ts.createSSTableWithSequence(0, map[string]string{"keyA": "valueA2", "keyB": "valueB2"}, 10)
 		ts.AddSSTableToLevel(0, sst2)
 		path1, path2 := sst1.Path(), sst2.Path()
 
@@ -728,17 +728,17 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		// Level 0 SSTables
-		l0a := ts.createSSTable(0, map[string]string{"keyA": "valueA1"})
+		// Level 0 SSTables with increasing sequence numbers
+		l0a := ts.createSSTableWithSequence(0, map[string]string{"keyA": "valueA1"}, 1)
 		ts.AddSSTableToLevel(0, l0a)
-		l0b := ts.createSSTable(0, map[string]string{"keyA": "valueA2", "keyB": "valueB2"})
+		l0b := ts.createSSTableWithSequence(0, map[string]string{"keyA": "valueA2", "keyB": "valueB2"}, 10)
 		ts.AddSSTableToLevel(0, l0b)
 		l0aPath, l0bPath := l0a.Path(), l0b.Path()
 
-		// Level 1 SSTables
-		l1Overlap := ts.createSSTable(1, map[string]string{"keyA": "valueA_L1", "keyB": "valueB_L1", "keyC": "valueC_L1"})
+		// Level 1 SSTables (older)
+		l1Overlap := ts.createSSTableWithSequence(1, map[string]string{"keyA": "valueA_L1", "keyB": "valueB_L1", "keyC": "valueC_L1"}, 0)
 		ts.AddSSTableToLevel(1, l1Overlap)
-		l1Non := ts.createSSTable(1, map[string]string{"keyD": "valueD_L1"})
+		l1Non := ts.createSSTableWithSequence(1, map[string]string{"keyD": "valueD_L1"}, 0)
 		ts.AddSSTableToLevel(1, l1Non)
 		l1OverlapPath, l1NonPath := l1Overlap.Path(), l1Non.Path()
 
@@ -854,26 +854,26 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		// --- Create SSTables using TestRindbSetup ---
-		// Level 1 SSTable (Source)
-		sstable1 := ts.createSSTable(1, map[string]string{
+		// Level 1 SSTable (Source, newer)
+		sstable1 := ts.createSSTableWithSequence(1, map[string]string{
 			"keyC": "valueC_L1", // Overwritten by L2
 			"keyD": "valueD_L1",
-		})
+		}, 10)
 		ts.AddSSTableToLevel(1, sstable1)
 		fs1Path := sstable1.Path() // Store path for later check
 
-		// Level 2 SSTable (Overlapping)
-		sstable2Overlap := ts.createSSTable(2, map[string]string{
+		// Level 2 SSTable (Overlapping, older)
+		sstable2Overlap := ts.createSSTableWithSequence(2, map[string]string{
 			"keyB": "valueB_L2",
 			"keyC": "valueC_L2", // Overwrites L1's keyC
-		})
+		}, 1)
 		ts.AddSSTableToLevel(2, sstable2Overlap)
 		fs2OverlapPath := sstable2Overlap.Path() // Store path for later check
 
-		// Level 2 SSTable (Non-Overlapping)
-		sstable2NoOverlap := ts.createSSTable(2, map[string]string{
+		// Level 2 SSTable (Non-Overlapping, older)
+		sstable2NoOverlap := ts.createSSTableWithSequence(2, map[string]string{
 			"keyA": "valueA_L2",
-		})
+		}, 1)
 		ts.AddSSTableToLevel(2, sstable2NoOverlap)
 		fs2NoOverlapPath := sstable2NoOverlap.Path() // Store path for later check
 
@@ -1563,6 +1563,129 @@ func Test_mergeSSTables(t *testing.T) {
 	})
 }
 
+func Test_mergeSSTablesV2(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("keeps tombstones when not bottommost", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(newRecord(Bytes("b"), Bytes("2"), 2))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		mem2.Put(newRecord(Bytes("c"), Bytes("3"), 4))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false)
+		assert.NoError(t, err)
+		assert.NotNil(t, merged)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Nil(t, v)
+
+		v, err = merged.GetValue(ctx, Bytes("c"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("3"), v)
+	})
+
+	t.Run("gc tombstones at bottommost level", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(newRecord(Bytes("b"), Bytes("2"), 2))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		mem2.Put(newRecord(Bytes("c"), Bytes("3"), 4))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, true)
+		assert.NoError(t, err)
+		assert.NotNil(t, merged)
+
+		v, err := merged.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("1"), v)
+
+		v, err = merged.GetValue(ctx, Bytes("c"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("3"), v)
+
+		iter, err := merged.Iterator()
+		assert.NoError(t, err)
+		for iter.HasNext() {
+			rec, err := iter.Next()
+			assert.NoError(t, err)
+			assert.NotEqual(t, Bytes("b"), rec.GetKey())
+		}
+	})
+
+	t.Run("returns nil on empty sources", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{}, false)
+		assert.NoError(t, err)
+		assert.Nil(t, merged)
+	})
+
+	t.Run("returns nil when only tombstones and bottommost", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem := InitMemtable(*ts.Config)
+		mem.Put(newRecord(Bytes("a"), nil, 1))
+		sst, err := flush(ctx, *ts.Config, mem, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst}, true)
+		assert.NoError(t, err)
+		assert.Nil(t, merged)
+	})
+
+	t.Run("honors context cancellation", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem := InitMemtable(*ts.Config)
+		mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		sst, err := flush(ctx, *ts.Config, mem, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		cancelCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+		merged, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []SStable{sst}, false)
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.Nil(t, merged)
+	})
+}
+
 func TestSSTableManager_mergeSSTables(t *testing.T) {
 	cfg := testConfig()
 
@@ -1608,7 +1731,7 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		assert.Equal(t, Bytes("1"), v)
 
 		v, err = merged.GetValue(ctx, Bytes("b"))
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, v)
 
 		v, err = merged.GetValue(ctx, Bytes("c"))
@@ -1621,13 +1744,12 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("panics on empty sources", func(t *testing.T) {
+	t.Run("no-op on empty sources", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		assert.Panics(t, func() {
-			_ = ts.Manager.mergeSSTables(ctx, 1, []SStable{})
-		})
+		err := ts.Manager.mergeSSTables(ctx, 1, []SStable{})
+		assert.NoError(t, err)
 	})
 }
