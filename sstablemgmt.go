@@ -577,7 +577,7 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	}
 
 	_, err = mergeSSTables(ctx, h.config, newLevelSSTable, pickedUpSSTable)
-	// close and remove merged sstables
+	// close and remove merged sstables even if there is an error
 	h.closeSSTables(pickedUpSSTable)
 	if err != nil {
 		return err
@@ -821,4 +821,61 @@ func mergeSSTables(ctx context.Context, config Config, target *FileSystem, sourc
 		return SStable{}, err
 	}
 	return sstable, nil
+}
+
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool) (*SStable, error) {
+	if len(sources) == 0 {
+		return nil, nil
+	}
+
+	iterators := make([]Iterator[Record], 0, len(sources))
+	for _, sstable := range sources {
+		iter, err := sstable.Iterator()
+		if err != nil {
+			return nil, err
+		}
+		iterators = append(iterators, iter)
+	}
+
+	pq, err := buildRangePQ(iterators)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		wrote int
+
+		memtable = InitMemtable(config)
+		// cleanup from RangeIterator will be empty
+		// because closing sstables is caller's responsibility
+		// because it's managing sources' lifecycle
+		rangeIterator = &RangeIterator{pq: pq}
+	)
+	for rangeIterator.HasNext() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		rec, err := rangeIterator.Next()
+		if err != nil {
+			return nil, err
+		}
+
+		if rec.GetType() == TypeDeletion && bottommost {
+			continue // GC tombstone only at bottommost
+		}
+
+		memtable.Put(rec)
+		wrote++
+	}
+
+	if wrote == 0 {
+		// Nothing to write → no SST produced.
+		return nil, nil
+	}
+
+	sstable, err := flush(ctx, config, memtable, target)
+	if err != nil {
+		return nil, err
+	}
+	return &sstable, nil
 }
