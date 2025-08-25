@@ -591,13 +591,13 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	if err != nil || merged == nil {
 		_ = newLevelSSTable.Close()
 		h.removeOpenedFS(newLevelSSTable)
-if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil {
-	if err == nil {
-		ERROR(ctx, "Error removing empty file %s: %v", newLevelSSTable.Path(), rmErr)
-	} else {
-		WARN(ctx, "Failed to remove target file %s after merge error: %v", newLevelSSTable.Path(), rmErr)
-	}
-}
+		if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil {
+			if err == nil {
+				ERROR(ctx, "Error removing empty file %s: %v", newLevelSSTable.Path(), rmErr)
+			} else {
+				WARN(ctx, "Failed to remove target file %s after merge error: %v", newLevelSSTable.Path(), rmErr)
+			}
+		}
 		if err != nil {
 			return err
 		}
