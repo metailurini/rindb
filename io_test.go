@@ -27,7 +27,7 @@ func Test_rw(t *testing.T) {
 		testKey := Bytes(nil)
 		testValue := Bytes("value")
 
-		err := WriteRecord(tx, NewRecord(testKey, testValue, 0))
+		err := WriteRecord(tx, newRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -42,7 +42,7 @@ func Test_rw(t *testing.T) {
 		testKey := Bytes(nil)
 		testValue := Bytes(nil)
 
-		err := WriteRecord(tx, NewRecord(testKey, testValue, 0))
+		err := WriteRecord(tx, newRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -61,7 +61,7 @@ func Test_rw(t *testing.T) {
 			testValue += fmt.Sprintf("test value %d ", i)
 		}
 
-		err := WriteRecord(tx, NewRecord(Bytes(testKey), Bytes(testValue), 0))
+		err := WriteRecord(tx, newRecord(Bytes(testKey), Bytes(testValue), 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -73,7 +73,7 @@ func Test_rw(t *testing.T) {
 	t.Run("Write key and value with size < 255", func(t *testing.T) {
 		tx := NewTransactionManager().Begin()
 
-		err := WriteRecord(tx, NewRecord(Bytes("key"), Bytes("value"), 0))
+		err := WriteRecord(tx, newRecord(Bytes("key"), Bytes("value"), 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)

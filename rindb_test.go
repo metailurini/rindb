@@ -56,29 +56,29 @@ func TestRindb_IRange(t *testing.T) {
 
 	// Create SSTable with older records
 	mem1 := InitMemtable(cfg)
-	mem1.Put(NewRecord(Bytes("a"), Bytes("sstA"), 1))
-	mem1.Put(NewRecord(Bytes("b"), Bytes("sstB"), 2))
+	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
+	mem1.Put(newRecord(Bytes("b"), Bytes("sstB"), 2))
 	sst1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 
 	// Create SSTable with tombstone and another record
 	mem2 := InitMemtable(cfg)
-	mem2.Put(NewRecord(Bytes("k"), Bytes(""), 3)) // tombstone
-	mem2.Put(NewRecord(Bytes("z"), Bytes("sstZ"), 4))
+	mem2.Put(newRecord(Bytes("k"), Bytes(""), 3)) // tombstone
+	mem2.Put(newRecord(Bytes("z"), Bytes("sstZ"), 4))
 	sst2, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst2)
 
 	// Memtable with latest updates
 	mem := ts.RinDB.memtable
-	mem.Put(NewRecord(Bytes("a"), Bytes("memA"), 5))
-	mem.Put(NewRecord(Bytes("b"), Bytes(""), 6)) // delete b
-	mem.Put(NewRecord(Bytes("k"), Bytes("memK"), 7))
+	mem.Put(newRecord(Bytes("a"), Bytes("memA"), 5))
+	mem.Put(newRecord(Bytes("b"), Bytes(""), 6)) // delete b
+	mem.Put(newRecord(Bytes("k"), Bytes("memK"), 7))
 
-	recA := NewRecord(Bytes("a"), Bytes("memA"), 5)
-	recK := NewRecord(Bytes("k"), Bytes("memK"), 7)
-	recZ := NewRecord(Bytes("z"), Bytes("sstZ"), 4)
+	recA := newRecord(Bytes("a"), Bytes("memA"), 5)
+	recK := newRecord(Bytes("k"), Bytes("memK"), 7)
+	recZ := newRecord(Bytes("z"), Bytes("sstZ"), 4)
 
 	tests := []struct {
 		name     string
@@ -374,9 +374,9 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		defer func() { _ = wal.Close() }()
 
 		// Add records with sequence numbers
-		assert.NoError(t, wal.Append(ctx, NewRecord(Bytes("k1"), Bytes("v1"), 10)))
-		assert.NoError(t, wal.Append(ctx, NewRecord(Bytes("k2"), Bytes("v2"), 20)))
-		assert.NoError(t, wal.Append(ctx, NewRecord(Bytes("k3"), Bytes("v3"), 30)))
+		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("k1"), Bytes("v1"), 10)))
+		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("k2"), Bytes("v2"), 20)))
+		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("k3"), Bytes("v3"), 30)))
 
 		opts := testOptions()
 		opts = append(opts, WithDatabaseDir(databaseDir))
@@ -405,8 +405,8 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Create an SSTable with records, ensuring a high sequence number
 		mem := InitMemtable(rin.config)
-		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 50))
-		mem.Put(NewRecord(Bytes("sk2"), Bytes("sv2"), 60))
+		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 50))
+		mem.Put(newRecord(Bytes("sk2"), Bytes("sv2"), 60))
 		_, err = flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
@@ -417,7 +417,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
-		assert.NoError(t, wal.Append(ctx, NewRecord(Bytes("wk1"), Bytes("wv1"), 5)))
+		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("wk1"), Bytes("wv1"), 5)))
 
 		assert.NoError(t, rin.Close())
 		rin, cleanup = initRinDBWithCleanup(t, opts...)
@@ -444,7 +444,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		defer func() { _ = fs.Close() }()
 
 		mem := InitMemtable(rin.config)
-		mem.Put(NewRecord(Bytes("sk1"), Bytes("sv1"), 70))
+		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 70))
 		_, err = flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
@@ -456,7 +456,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
-		assert.NoError(t, wal.Append(ctx, NewRecord(Bytes("wk1"), Bytes("wv1"), 70)))
+		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("wk1"), Bytes("wv1"), 70)))
 
 		assert.NoError(t, rin.Close())
 		rin, cleanup = initRinDBWithCleanup(t, opts...)

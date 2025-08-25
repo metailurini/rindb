@@ -30,7 +30,7 @@ func (e *errIterator) Next() (Record, error) {
 
 func TestRangeIterator(t *testing.T) {
 	rec := func(k, v string, seq uint64) Record {
-		return NewRecord(Bytes(k), Bytes(v), seq)
+		return newRecord(Bytes(k), Bytes(v), seq)
 	}
 
 	type iterSpec struct {
@@ -113,7 +113,7 @@ func TestRangeIterator(t *testing.T) {
 }
 
 func TestBuildRangePQInitialError(t *testing.T) {
-	r := NewRecord(Bytes("a"), Bytes("1"), 1)
+	r := newRecord(Bytes("a"), Bytes("1"), 1)
 	it := &errIterator{records: []Record{r}, failIdx: 0}
 	pq, err := buildRangePQ([]Iterator[Record]{it})
 	assert.Nil(t, pq)
@@ -127,7 +127,7 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	defer ts.Cleanup()
 
 	mem1 := InitMemtable(cfg)
-	mem1.Put(NewRecord(Bytes("a"), Bytes("sstA"), 1))
+	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
 	sst1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)

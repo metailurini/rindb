@@ -40,7 +40,7 @@ func TestWAL_Clean(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 	w := NewWAL(cfg, fs)
-	err := w.Append(context.Background(), NewRecord(Bytes("key"), Bytes("value"), 0)) // SequenceNumber can be 0 if not relevant for the test
+	err := w.Append(context.Background(), newRecord(Bytes("key"), Bytes("value"), 0)) // SequenceNumber can be 0 if not relevant for the test
 	assert.NoError(t, err)
 	err = w.Clean()
 	assert.NoError(t, err)
@@ -62,7 +62,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 	fs := fss[0]
 	t.Run("SingleRecord", func(t *testing.T) {
 		w := NewWAL(cfg, fs)
-		err := w.Append(context.Background(), NewRecord(Bytes("single_key"), Bytes("single_value"), 1))
+		err := w.Append(context.Background(), newRecord(Bytes("single_key"), Bytes("single_value"), 1))
 		assert.NoError(t, err)
 		mem, err := w.Load(context.Background())
 		assert.NoError(t, err)
@@ -81,7 +81,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		recordsSize := 1_000
 		records := make([]Record, 0, recordsSize)
 		for i := 0; i < recordsSize; i++ {
-			records = append(records, NewRecord(Bytes(fmt.Sprintf("key.%d", i)), Bytes(fmt.Sprintf("value.%d", i)), uint64(i)))
+			records = append(records, newRecord(Bytes(fmt.Sprintf("key.%d", i)), Bytes(fmt.Sprintf("value.%d", i)), uint64(i)))
 		}
 		err = w.AppendMany(context.Background(), records)
 		assert.NoError(t, err)
@@ -108,8 +108,8 @@ func TestWALCrashRecovery(t *testing.T) {
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	records := []Record{
-		NewRecord(k1, Bytes("v1"), 1),
-		NewRecord(k2, Bytes("v2"), 2),
+		newRecord(k1, Bytes("v1"), 1),
+		newRecord(k2, Bytes("v2"), 2),
 	}
 	for _, r := range records {
 		assert.NoError(t, w.Append(context.Background(), r))
@@ -137,14 +137,14 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	w := NewWAL(cfg, fs)
 
 	// Write a few complete records
-	record1 := NewRecord(Bytes("key1"), Bytes("value1"), 1)
-	record2 := NewRecord(Bytes("key2"), Bytes("value2"), 2)
+	record1 := newRecord(Bytes("key1"), Bytes("value1"), 1)
+	record2 := newRecord(Bytes("key2"), Bytes("value2"), 2)
 
 	assert.NoError(t, w.Append(context.Background(), record1))
 	assert.NoError(t, w.Append(context.Background(), record2))
 
 	// Simulate a crash during the write of a third record
-	record3 := NewRecord(Bytes("key3"), Bytes("value3"), 3)
+	record3 := newRecord(Bytes("key3"), Bytes("value3"), 3)
 	tx := w.tm.Begin()
 	defer tx.Rollback(context.Background())
 

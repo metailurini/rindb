@@ -145,8 +145,8 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	}
 }
 
-// AddCleanup adds a cleanup function to be called at the end of the test.
-func (ts *testRindbSetup) AddCleanup(f func()) {
+// addCleanup adds a cleanup function to be called at the end of the test.
+func (ts *testRindbSetup) addCleanup(f func()) {
 	ts.CleanupFuncs = append(ts.CleanupFuncs, f)
 }
 
@@ -161,7 +161,7 @@ func (ts *testRindbSetup) Cleanup() {
 func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
 	fs, err := ts.Manager.NewSSTableFS(context.Background(), level)
 	assert.NoError(ts.T, err)
-	ts.AddCleanup(func() { fs.Close() })
+	ts.addCleanup(func() { fs.Close() })
 	return fs
 }
 
@@ -172,7 +172,7 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 	var seqNum uint64 = 0
 	for k, v := range kvs {
 		seqNum++
-		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
+		mem.Put(newRecord(Bytes(k), Bytes(v), seqNum))
 	}
 	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
@@ -185,7 +185,7 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 	mem := InitMemtable(*ts.Config)
 	seqNum := startSeqNum
 	for k, v := range kvs {
-		mem.Put(NewRecord(Bytes(k), Bytes(v), seqNum))
+		mem.Put(newRecord(Bytes(k), Bytes(v), seqNum))
 		seqNum++
 	}
 	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
@@ -271,7 +271,7 @@ func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 	var seqNum uint64 = 0
 	for _, pair := range pairs {
 		seqNum++
-		mem.Put(NewRecord(pair[0], pair[1], seqNum))
+		mem.Put(newRecord(pair[0], pair[1], seqNum))
 	}
 	return mem
 }
@@ -416,8 +416,8 @@ func assertLinkedListContents[T comparable](t *testing.T, l *LinkedList[T], expe
 	assertIteratorValues(t, l.Iterator(), expected)
 }
 
-// NewRecord is a helper function to create a RecordImpl instance for tests.
-func NewRecord(key, value Bytes, seq uint64) RecordImpl {
+// newRecord is a helper function to create a RecordImpl instance for tests.
+func newRecord(key, value Bytes, seq uint64) RecordImpl {
 	typ := TypeValue
 	if value == nil {
 		typ = TypeDeletion

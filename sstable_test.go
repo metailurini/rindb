@@ -43,12 +43,7 @@ func TestSStable(t *testing.T) {
 		}
 		mem := InitMemtable(cfg)
 		for i, v := range data {
-			mem.Put(RecordImpl{
-				Key:            v.key,
-				Value:          v.value,
-				SequenceNumber: uint64(i),
-				Type:           TypeValue,
-			})
+			mem.Put(newRecord(v.key, v.value, uint64(i)))
 		}
 		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
@@ -92,9 +87,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(NewRecord(Bytes("2"), Bytes("3"), 1))
-		mem.Put(NewRecord(Bytes("1"), Bytes("2"), 2))
-		mem.Put(NewRecord(Bytes("3"), Bytes("4"), 3))
+		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
+		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
+		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 		sstable1, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		sstable2, err := NewSSTable(ctx, cfg, fs)
@@ -107,9 +102,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(NewRecord(Bytes("2"), Bytes("3"), 1))
-		mem.Put(NewRecord(Bytes("1"), Bytes("2"), 2))
-		mem.Put(NewRecord(Bytes("3"), Bytes("4"), 3))
+		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
+		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
+		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 		_, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		sstable, err := NewSSTable(ctx, cfg, fs)
@@ -130,9 +125,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(NewRecord(Bytes("2"), Bytes("3"), 1))
-		mem.Put(NewRecord(Bytes("1"), Bytes("2"), 2))
-		mem.Put(NewRecord(Bytes("3"), Bytes("4"), 3))
+		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
+		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
+		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 		assert.Equal(t, uint(3), mem.data.Len())
 		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
@@ -155,9 +150,9 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		mem.Put(NewRecord(Bytes("2"), Bytes("3"), 1))
-		mem.Put(NewRecord(Bytes("1"), Bytes("2"), 2))
-		mem.Put(NewRecord(Bytes("3"), Bytes("4"), 3))
+		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
+		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
+		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 		sstable, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
 		iterator, err := sstable.Iterator()
@@ -202,12 +197,7 @@ func TestSStable(t *testing.T) {
 		}
 		mem := InitMemtable(cfg)
 		for i, v := range data {
-			mem.Put(RecordImpl{
-				Key:            v.key,
-				Value:          v.value,
-				SequenceNumber: uint64(i),
-				Type:           TypeValue,
-			})
+			mem.Put(newRecord(v.key, v.value, uint64(i)))
 		}
 		sstable, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
@@ -341,9 +331,9 @@ func TestSStable(t *testing.T) {
 func Test_genSparseIndex(t *testing.T) {
 	cfg := testConfig()
 	mem := InitMemtable(cfg)
-	mem.Put(NewRecord(Bytes("1"), Bytes("2"), 1))
-	mem.Put(NewRecord(Bytes("2"), Bytes("3"), 2))
-	mem.Put(NewRecord(Bytes("3"), Bytes("4"), 3))
+	mem.Put(newRecord(Bytes("1"), Bytes("2"), 1))
+	mem.Put(newRecord(Bytes("2"), Bytes("3"), 2))
+	mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 	index := genSparseIndex(mem)
 	assert.Equal(t, Bytes("1"), index[0].key)
 	assert.Equal(t, int64(0), index[0].offset)
@@ -485,8 +475,8 @@ func TestFlushWithTombstones(t *testing.T) {
 	k1 := randStringBytes(10)
 	k2 := randStringBytes(10)
 	mem := InitMemtable(cfg)
-	mem.Put(NewRecord(k1, Bytes("v1"), 1))
-	mem.Put(NewRecord(k2, nil, 2))
+	mem.Put(newRecord(k1, Bytes("v1"), 1))
+	mem.Put(newRecord(k2, nil, 2))
 	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
 	v1, err := sstable.GetValue(ctx, k1)
@@ -505,7 +495,7 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 	mem := InitMemtable(cfg)
-	mem.Put(NewRecord(Bytes("k1"), Bytes("v1"), 2))
+	mem.Put(newRecord(Bytes("k1"), Bytes("v1"), 2))
 	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
 	_, err = sstable.GetValue(ctx, Bytes("k2"))

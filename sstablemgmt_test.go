@@ -334,12 +334,13 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		sstableIterator, err := mergedSSTable.Iterator()
 		assert.NoError(t, err, "Failed to get iterator for merged SSTable")
 
+		// mem.Put(NewRecord(v.key, v.value, uint64(i)))
 		expectedRecords := []Record{
-			RecordImpl{Key: Bytes("1"), Value: Bytes("3"), Type: TypeValue}, // sstable2 value
-			RecordImpl{Key: Bytes("2"), Value: nil, Type: TypeDeletion},     // sstable2 tombstone
-			RecordImpl{Key: Bytes("3"), Value: Bytes("4"), Type: TypeValue}, // sstable1 value
-			RecordImpl{Key: Bytes("4"), Value: Bytes("5"), Type: TypeValue}, // sstable2 value
-			RecordImpl{Key: Bytes("5"), Value: Bytes("6"), Type: TypeValue}, // sstable3 value
+			newRecord(Bytes("1"), Bytes("3"), 1), // sstable2 value
+			newRecord(Bytes("2"), nil, 2),        // sstable2 tombstone
+			newRecord(Bytes("3"), Bytes("4"), 2), // sstable1 value
+			newRecord(Bytes("4"), Bytes("5"), 3), // sstable2 value
+			newRecord(Bytes("5"), Bytes("6"), 5), // sstable3 value
 		}
 		assertIteratorRecords(t, sstableIterator, expectedRecords)
 	})
@@ -1494,14 +1495,14 @@ func Test_mergeSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		mem1 := InitMemtable(*ts.Config)
-		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
-		mem1.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(newRecord(Bytes("b"), Bytes("2"), 2))
 		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
 		mem2 := InitMemtable(*ts.Config)
-		mem2.Put(NewRecord(Bytes("b"), nil, 3))
-		mem2.Put(NewRecord(Bytes("c"), Bytes("3"), 4))
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		mem2.Put(newRecord(Bytes("c"), Bytes("3"), 4))
 		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
@@ -1528,12 +1529,12 @@ func Test_mergeSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		mem1 := InitMemtable(*ts.Config)
-		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
 		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
 		mem2 := InitMemtable(*ts.Config)
-		mem2.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		mem2.Put(newRecord(Bytes("b"), Bytes("2"), 2))
 		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
@@ -1573,14 +1574,14 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		ts.Manager.levels = ts.Manager.levels[:1]
 
 		mem1 := InitMemtable(*ts.Config)
-		mem1.Put(NewRecord(Bytes("a"), Bytes("1"), 1))
-		mem1.Put(NewRecord(Bytes("b"), Bytes("2"), 2))
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		mem1.Put(newRecord(Bytes("b"), Bytes("2"), 2))
 		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
 		mem2 := InitMemtable(*ts.Config)
-		mem2.Put(NewRecord(Bytes("b"), nil, 3))
-		mem2.Put(NewRecord(Bytes("c"), Bytes("3"), 4))
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		mem2.Put(newRecord(Bytes("c"), Bytes("3"), 4))
 		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
