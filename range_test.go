@@ -145,3 +145,56 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	assert.NoError(t, iter.Close())
 	assert.False(t, sst1.IsOpened())
 }
+
+func TestRangeIteratorPrepare(t *testing.T) {
+	rec := func(k, v string, seq uint64) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return newRecord(Bytes(k), nv, seq)
+	}
+
+	t.Run("skips duplicates in same iterator", func(t *testing.T) {
+		it := &errIterator{
+			records: []Record{
+				rec("a", "v2", 2),
+				rec("a", "v1", 1),
+				rec("b", "vb", 1),
+			},
+			failIdx: -1,
+		}
+		pq, err := buildRangePQ([]Iterator[Record]{it})
+		assert.NoError(t, err)
+
+		iter := &RangeIterator{pq: pq}
+		iter.prepare()
+		_, err = iter.Next()
+		assert.NoError(t, err)
+
+		iter.prepare()
+		assert.True(t, iter.prepared)
+		assert.Equal(t, "b", string(iter.next.GetKey()))
+		assert.Equal(t, "vb", string(iter.next.GetValue()))
+	})
+
+	t.Run("propagates iterator error", func(t *testing.T) {
+		it := &errIterator{
+			records: []Record{
+				rec("a", "v2", 2),
+				rec("a", "v1", 1),
+			},
+			failIdx: 1,
+		}
+		pq, err := buildRangePQ([]Iterator[Record]{it})
+		assert.NoError(t, err)
+
+		iter := &RangeIterator{pq: pq}
+		iter.prepare()
+		assert.EqualError(t, iter.err, "boom")
+
+		iter.prepared = false
+		iter.prepare()
+		assert.False(t, iter.prepared)
+	})
+}
