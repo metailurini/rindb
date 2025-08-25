@@ -51,11 +51,11 @@ func (m *RangeIterator) prepare() {
 		key := item.rec.GetKey()
 
 		if !m.lastKeySet || key.Compare(m.lastKey) != CmpEqual {
-			if len(item.rec.GetValue()) > 0 {
-				m.next = item.rec
-				m.prepared = true
-			}
-			m.lastKey = key
+			// Emit the newest record for this user_key (PUT or DELETE).
+			m.next = item.rec
+			m.prepared = true
+
+			m.lastKey = key.Clone()
 			m.lastKeySet = true
 		}
 
@@ -69,9 +69,6 @@ func (m *RangeIterator) prepare() {
 				m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
 			}
 		}
-	}
-	if m.err != nil || (!m.prepared && m.pq.Len() == 0) {
-		_ = m.Close()
 	}
 }
 

@@ -30,7 +30,11 @@ func (e *errIterator) Next() (Record, error) {
 
 func TestRangeIterator(t *testing.T) {
 	rec := func(k, v string, seq uint64) Record {
-		return newRecord(Bytes(k), Bytes(v), seq)
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return newRecord(Bytes(k), nv, seq)
 	}
 
 	type iterSpec struct {
@@ -65,12 +69,12 @@ func TestRangeIterator(t *testing.T) {
 			want: []exp{{"a", "v2"}, {"b", "vb"}},
 		},
 		{
-			name: "skip tombstones",
+			name: "has tombstones",
 			iters: []iterSpec{
 				{records: []Record{rec("a", "", 2), rec("b", "2", 1)}, failIdx: -1},
 				{records: []Record{rec("a", "1", 1)}, failIdx: -1},
 			},
-			want: []exp{{"b", "2"}},
+			want: []exp{{"a", ""}, {"b", "2"}},
 		},
 		{
 			name: "iterator error",
@@ -90,8 +94,7 @@ func TestRangeIterator(t *testing.T) {
 			}
 			pq, err := buildRangePQ(iterators)
 			assert.NoError(t, err)
-			cleaned := false
-			iter := &RangeIterator{pq: pq, cleanup: func() { cleaned = true }}
+			iter := &RangeIterator{pq: pq}
 
 			var got []exp
 			for iter.HasNext() {
@@ -104,7 +107,6 @@ func TestRangeIterator(t *testing.T) {
 			_, err = iter.Next()
 			if tt.wantErr != "" {
 				assert.EqualError(t, err, tt.wantErr)
-				assert.True(t, cleaned)
 			} else {
 				assert.ErrorIs(t, err, EOI)
 			}
