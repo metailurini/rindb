@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -56,49 +55,30 @@ func ReadRecord(storage io.Reader) (Record, error) {
 		return nil, fmt.Errorf("failed to read value length: %w", err)
 	}
 
-	keyBytes := bytes.NewBuffer(nil)
-
-	const defaultReadStep = uint64(255)
-
-	for internalKeyLen > 0 {
-		step := min(internalKeyLen, defaultReadStep)
-		internalKeyLen -= step
-
-		tempBytes := make(Bytes, step)
-
-		if _, err := io.ReadFull(storage, tempBytes); err != nil {
+	var internalKeyBytes Bytes
+	if internalKeyLen > 0 {
+		internalKeyBytes = make(Bytes, internalKeyLen)
+		if _, err := io.ReadFull(storage, internalKeyBytes); err != nil {
 			return nil, fmt.Errorf("failed to read internal key bytes: %w", err)
-		}
-
-		if _, err := keyBytes.Write(tempBytes); err != nil {
-			return nil, fmt.Errorf("failed to write internal key to buffer: %w", err)
 		}
 	}
 
-	userKey, seq, typ, err := decodeInternalKey(keyBytes.Bytes())
+	userKey, seq, typ, err := decodeInternalKey(internalKeyBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	valueBytes := bytes.NewBuffer(nil)
-	for valueLen > 0 {
-		step := min(valueLen, defaultReadStep)
-		valueLen -= step
-
-		tempBytes := make(Bytes, step)
-
-		if _, err := io.ReadFull(storage, tempBytes); err != nil {
+	var valueBytes Bytes
+	if valueLen > 0 {
+		valueBytes = make(Bytes, valueLen)
+		if _, err := io.ReadFull(storage, valueBytes); err != nil {
 			return nil, fmt.Errorf("failed to read value bytes: %w", err)
-		}
-
-		if _, err := valueBytes.Write(tempBytes); err != nil {
-			return nil, fmt.Errorf("failed to write value to buffer: %w", err)
 		}
 	}
 
 	return RecordImpl{
 		Key:            userKey,
-		Value:          valueBytes.Bytes(),
+		Value:          valueBytes,
 		SequenceNumber: seq,
 		Type:           typ,
 	}, nil
