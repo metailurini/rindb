@@ -51,7 +51,7 @@ func (m *RangeIterator) prepare() {
 		key := item.rec.GetKey()
 
 		if !m.lastKeySet || key.Compare(m.lastKey) != CmpEqual {
-			// Emit the newest record for this user_key (PUT or DELETE).
+			// Emit the newest record for this user_key, regardless deleted or not.
 			m.next = item.rec
 			m.prepared = true
 
