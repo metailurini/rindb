@@ -56,6 +56,11 @@ func (k KeyOffset) GetSequenceNumber() uint64 {
 	return 0
 }
 
+// GetType implements Record.
+func (k KeyOffset) GetType() RecordType {
+	return TypeValue
+}
+
 func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
 	idx := sort.Search(len(s), func(i int) bool {
 		return Compare(s[i].key, key) >= 0

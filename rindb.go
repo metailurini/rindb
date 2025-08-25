@@ -295,7 +295,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	}
 
 	r.sequenceNumber++
-	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber}
+	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber, Type: TypeValue}
 	if err := r.wal.Append(ctx, record); err != nil {
 		return err
 	}
@@ -384,7 +384,7 @@ func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 	}
 
 	r.sequenceNumber++
-	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.sequenceNumber}
+	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.sequenceNumber, Type: TypeDeletion}
 	if err := r.wal.Append(ctx, record); err != nil {
 		return err
 	}

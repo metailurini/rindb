@@ -117,7 +117,7 @@ func TestMemtable_ByteSize(t *testing.T) {
 		value := Bytes("value1")
 		expectedSize := len(key) + len(value) + entryOverhead
 
-		mem.Put(RecordImpl{Key: key, Value: value, SequenceNumber: 1})
+		mem.Put(NewRecord(key, value, 1))
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after single entry")
 	})
 

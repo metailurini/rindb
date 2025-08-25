@@ -335,11 +335,11 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		assert.NoError(t, err, "Failed to get iterator for merged SSTable")
 
 		expectedRecords := []Record{
-			RecordImpl{Key: Bytes("1"), Value: Bytes("3")}, // sstable2 value
-			RecordImpl{Key: Bytes("2"), Value: nil},        // sstable2 tombstone
-			RecordImpl{Key: Bytes("3"), Value: Bytes("4")}, // sstable1 value
-			RecordImpl{Key: Bytes("4"), Value: Bytes("5")}, // sstable2 value
-			RecordImpl{Key: Bytes("5"), Value: Bytes("6")}, // sstable3 value
+			RecordImpl{Key: Bytes("1"), Value: Bytes("3"), Type: TypeValue}, // sstable2 value
+			RecordImpl{Key: Bytes("2"), Value: nil, Type: TypeDeletion},     // sstable2 tombstone
+			RecordImpl{Key: Bytes("3"), Value: Bytes("4"), Type: TypeValue}, // sstable1 value
+			RecordImpl{Key: Bytes("4"), Value: Bytes("5"), Type: TypeValue}, // sstable2 value
+			RecordImpl{Key: Bytes("5"), Value: Bytes("6"), Type: TypeValue}, // sstable3 value
 		}
 		assertIteratorRecords(t, sstableIterator, expectedRecords)
 	})
