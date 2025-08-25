@@ -215,3 +215,37 @@ func TestMemtable_Tombstone(t *testing.T) {
 		}
 	}
 }
+
+func TestBytes_Clone(t *testing.T) {
+	t.Run("NonEmptyBytes", func(t *testing.T) {
+		original := Bytes("hello world")
+		cloned := original.Clone()
+
+		assert.Equal(t, original, cloned, "Cloned bytes should be equal to original")
+		assert.False(t, &original[0] == &cloned[0], "Cloned bytes should be a different underlying array")
+
+		// Modify original and ensure cloned remains unchanged
+		original[0] = 'H'
+		assert.Equal(t, Bytes("Hello world"), original, "Original should be modified")
+		assert.Equal(t, Bytes("hello world"), cloned, "Cloned should remain unchanged")
+	})
+
+	t.Run("EmptyBytes", func(t *testing.T) {
+		original := Bytes("")
+		cloned := original.Clone()
+
+		assert.Equal(t, original, cloned, "Cloned empty bytes should be equal to original")
+		assert.False(t, &original == &cloned, "Cloned empty bytes should be a different underlying array")
+		assert.Len(t, cloned, 0, "Cloned empty bytes should have length 0")
+	})
+
+	t.Run("NilBytes", func(t *testing.T) {
+		var original Bytes // This will be nil
+		cloned := original.Clone()
+
+		assert.Nil(t, original, "Original should be nil")
+		assert.NotNil(t, cloned, "Cloned should not be nil, but an empty slice")
+		assert.Len(t, cloned, 0, "Cloned nil bytes should have length 0")
+		assert.Equal(t, Bytes{}, cloned, "Cloned nil bytes should be an empty slice")
+	})
+}

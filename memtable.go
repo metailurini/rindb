@@ -21,6 +21,13 @@ func (b Bytes) Compare(other any) int {
 	return bytes.Compare(b, o)
 }
 
+// Clone returns a deep copy of the Bytes slice.
+func (b Bytes) Clone() Bytes {
+	c := make(Bytes, len(b))
+	copy(c, b)
+	return c
+}
+
 type Memtable struct {
 	data *SkipList[Bytes, Record]
 	size int // Estimated size in bytes
