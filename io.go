@@ -13,10 +13,9 @@ const mdByteSize = 8
 
 func ReadNumber(storage io.Reader) (uint64, error) {
 	numBytes := [mdByteSize]byte{}
-	if _, err := storage.Read(numBytes[:]); err != nil {
+	if _, err := io.ReadFull(storage, numBytes[:]); err != nil {
 		return 0, err
 	}
-
 	return byteOrder.Uint64(numBytes[:]), nil
 }
 
