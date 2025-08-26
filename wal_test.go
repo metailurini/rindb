@@ -42,7 +42,7 @@ func TestWAL_Clean(t *testing.T) {
 	w := NewWAL(cfg, fs)
 	err := w.Append(context.Background(), newRecord(Bytes("key"), Bytes("value"), 0)) // SequenceNumber can be 0 if not relevant for the test
 	assert.NoError(t, err)
-	err = w.Clean()
+	err = w.Clean(context.Background(), 1)
 	assert.NoError(t, err)
 	b2 := make(Bytes, 5)
 	_, err = fs.Read(b2)
