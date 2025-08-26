@@ -243,6 +243,60 @@ func TestMemtable_GetAtAndCleanup(t *testing.T) {
 	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
+func TestMemtable_Cleanup(t *testing.T) {
+	cfg := testConfig()
+	entryOverhead := slNodeOverhead + internalKeySuffixLen
+
+	t.Run("RemovesObsoleteRecordsAndUpdatesSize", func(t *testing.T) {
+		mem := InitMemtable(cfg)
+
+		key1 := Bytes("key1")
+		key2 := Bytes("key2")
+
+		mem.Put(newRecord(key1, Bytes("v1"), 1))
+		mem.Put(newRecord(key1, Bytes("v2"), 6))
+		mem.Put(newRecord(key2, nil, 3))
+		mem.Put(newRecord(key2, Bytes("v3"), 7))
+
+		sizeKey1v1 := len(key1) + len("v1") + entryOverhead
+		sizeKey1v2 := len(key1) + len("v2") + entryOverhead
+		sizeKey2Tomb := len(key2) + 0 + entryOverhead
+		sizeKey2v3 := len(key2) + len("v3") + entryOverhead
+
+		expectedTotal := sizeKey1v1 + sizeKey1v2 + sizeKey2Tomb + sizeKey2v3
+		assert.Equal(t, expectedTotal, mem.ByteSize())
+
+		mem.Cleanup(5)
+
+		expectedAfterCleanup := sizeKey1v2 + sizeKey2v3
+		assert.Equal(t, expectedAfterCleanup, mem.ByteSize())
+
+		v, err := mem.Get(key1)
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v2"), v)
+
+		_, err = mem.GetAt(key1, 1)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+
+		v, err = mem.Get(key2)
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v3"), v)
+	})
+
+	t.Run("RemovesAllRecords", func(t *testing.T) {
+		mem := InitMemtable(cfg)
+		key := Bytes("k")
+		mem.Put(newRecord(key, Bytes("v1"), 1))
+		mem.Put(newRecord(key, Bytes("v2"), 2))
+
+		mem.Cleanup(3)
+
+		assert.Equal(t, 0, mem.ByteSize())
+		_, err := mem.Get(key)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+	})
+}
+
 func TestBytes_Clone(t *testing.T) {
 	t.Run("NonEmptyBytes", func(t *testing.T) {
 		original := Bytes("hello world")
