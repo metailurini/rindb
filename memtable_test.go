@@ -276,3 +276,66 @@ func TestBytes_Clone(t *testing.T) {
 		assert.Equal(t, Bytes{}, cloned, "Cloned nil bytes should be an empty slice")
 	})
 }
+
+func TestMemtableIRange_Prepare(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("k"), Bytes("v7"), 7))
+	mem.Put(newRecord(Bytes("k"), Bytes("v5"), 5))
+
+	t.Run("skip higher seq", func(t *testing.T) {
+		it := mem.IRange(Bytes("k"), Bytes("k"), 6)
+		mi, ok := it.(*memtableIRange)
+		assert.True(t, ok)
+
+		mi.prepare()
+		assert.True(t, mi.prepared)
+		assert.Equal(t, uint64(5), mi.next.GetSequenceNumber())
+		assert.NoError(t, mi.err)
+	})
+
+	t.Run("no matching seq", func(t *testing.T) {
+		it := mem.IRange(Bytes("k"), Bytes("k"), 4)
+		mi, ok := it.(*memtableIRange)
+		assert.True(t, ok)
+
+		mi.prepare()
+		assert.False(t, mi.prepared)
+		assert.ErrorIs(t, mi.err, EOI)
+	})
+}
+
+func TestMemtableIRange_HasNextNext(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va3"), 3))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb5"), 5))
+	mem.Put(newRecord(Bytes("b"), nil, 4))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb1"), 1))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc2"), 2))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 4)
+	mi, ok := it.(*memtableIRange)
+	assert.True(t, ok)
+
+	var got []Record
+	for mi.HasNext() {
+		rec, err := mi.Next()
+		assert.NoError(t, err)
+		got = append(got, rec)
+	}
+	assert.Equal(t, 4, len(got))
+	assert.Equal(t, Bytes("a"), got[0].GetKey())
+	assert.Equal(t, uint64(3), got[0].GetSequenceNumber())
+	assert.Equal(t, Bytes("b"), got[1].GetKey())
+	assert.Nil(t, got[1].GetValue())
+	assert.Equal(t, uint64(4), got[1].GetSequenceNumber())
+	assert.Equal(t, Bytes("b"), got[2].GetKey())
+	assert.Equal(t, uint64(1), got[2].GetSequenceNumber())
+	assert.Equal(t, Bytes("c"), got[3].GetKey())
+	assert.Equal(t, uint64(2), got[3].GetSequenceNumber())
+
+	_, err := mi.Next()
+	assert.ErrorIs(t, err, EOI)
+	assert.False(t, mi.HasNext())
+}
