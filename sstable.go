@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -79,7 +80,7 @@ type SStable struct {
 	Bloom       *BloomFilter
 }
 
-func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
+func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	ctx, span := sstableTracer.Start(ctx, "SStable.GetValue")
 	start := time.Now()
 	var bytesRead int
@@ -95,6 +96,11 @@ func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
 		return nil, ErrKeyNotFound
 	}
 
+	var maxSeq = uint64(math.MaxUint64)
+	if len(seq) > 0 {
+		maxSeq = seq[0]
+	}
+
 	offset, err := s.SparseIndex.GetOffset(key)
 	if err != nil {
 		return nil, err
@@ -105,18 +111,31 @@ func (s SStable) GetValue(ctx context.Context, key Bytes) (Bytes, error) {
 		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
-	record, err := ReadRecord(s)
-	if err != nil {
-		// Check for EOF specifically, might indicate corruption if seeking led here
-		if errors.Is(err, io.EOF) {
-			ERROR(ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
-			return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
+	for {
+		record, err := ReadRecord(s)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			ERROR(ctx, "Failed to read record in %s: %v", s.Path(), err)
+			return nil, fmt.Errorf("failed to read record: %w", err)
 		}
-		ERROR(ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
-		return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
+		bytesRead += CalOnDiskSize(record)
+
+		cmp := record.GetKey().Compare(key)
+		if cmp != CmpEqual {
+			break
+		}
+		if record.GetSequenceNumber() > maxSeq {
+			continue
+		}
+		if record.GetType() == TypeDeletion {
+			return nil, nil
+		}
+		return record.GetValue(), nil
 	}
-	bytesRead = CalOnDiskSize(record)
-	return record.GetValue(), nil
+
+	return nil, ErrKeyNotFound
 }
 
 // GetKeyRange returns the minimum and maximum keys in the SStable.
@@ -363,6 +382,7 @@ type sstableIRange struct {
 	s       *SStable
 	current int
 	endKey  Bytes
+	maxSeq  uint64
 }
 
 // HasNext implements Iterator.
@@ -372,27 +392,38 @@ func (sri *sstableIRange) HasNext() bool {
 
 // Next implements Iterator.
 func (sri *sstableIRange) Next() (Record, error) {
-	if !sri.HasNext() {
-		return nil, EOI
+	for sri.current < len(sri.s.SparseIndex) && sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) <= 0 {
+		rec, err := ReadRecord(sri.s)
+		if err != nil {
+			return nil, err
+		}
+		sri.current++
+		if rec.GetSequenceNumber() > sri.maxSeq {
+			continue
+		}
+		return rec, nil
 	}
-	rec, err := ReadRecord(sri.s)
-	if err != nil {
-		return nil, err
-	}
-	sri.current++
-	return rec, nil
+	return nil, EOI
 }
 
 // IRange returns an iterator over records with keys in [start, end].
-func (s SStable) IRange(start, end Bytes) (Iterator[Record], error) {
+func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})
 	if startIdx >= len(s.SparseIndex) {
-		return &sstableIRange{s: &s, current: startIdx, endKey: end}, nil
+		var maxSeq = uint64(math.MaxUint64)
+		if len(seq) > 0 {
+			maxSeq = seq[0]
+		}
+		return &sstableIRange{s: &s, current: startIdx, endKey: end, maxSeq: maxSeq}, nil
 	}
 	if _, err := s.file.Seek(s.SparseIndex[startIdx].offset, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return &sstableIRange{s: &s, current: startIdx, endKey: end}, nil
+	var maxSeq = uint64(math.MaxUint64)
+	if len(seq) > 0 {
+		maxSeq = seq[0]
+	}
+	return &sstableIRange{s: &s, current: startIdx, endKey: end, maxSeq: maxSeq}, nil
 }

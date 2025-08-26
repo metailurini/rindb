@@ -43,7 +43,14 @@ func TestRindb_Get(t *testing.T) {
 	key := Bytes("key")
 	err := rin.Put(ctx, key, Bytes("value"))
 	assert.NoError(t, err)
+	err = rin.Put(ctx, key, Bytes("value2"))
+	assert.NoError(t, err)
+
 	value, err := rin.Get(ctx, key)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("value2"), value)
+
+	value, err = rin.Get(ctx, key, 1)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value"), value)
 }

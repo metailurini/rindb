@@ -694,7 +694,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	return relevantSSTables, nil
 }
 
-func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error) {
+func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -723,7 +723,7 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error
 				return nil, err
 			}
 
-			value, err := sstable.GetValue(ctx, key)
+			value, err := sstable.GetValue(ctx, key, seq...)
 			closeErr := fs.Close()
 			h.removeOpenedFS(fs)
 			if err == nil {

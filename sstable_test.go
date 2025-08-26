@@ -504,3 +504,26 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), pos, "File should not be read due to Bloom filter")
 }
+
+func TestSStable_GetValueSequence(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("k"), Bytes("v1"), 1))
+	mem.Put(newRecord(Bytes("k"), Bytes("v2"), 2))
+
+	sstable, err := flush(ctx, cfg, mem, fs)
+	assert.NoError(t, err)
+
+	v, err := sstable.GetValue(ctx, Bytes("k"), 1)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), v)
+
+	v, err = sstable.GetValue(ctx, Bytes("k"), 2)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), v)
+}

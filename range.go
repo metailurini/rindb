@@ -1,6 +1,9 @@
 package rindb
 
-import "errors"
+import (
+	"errors"
+	"math"
+)
 
 // RangeIterator is a user-facing iterator that hides tombstones and
 // duplicates. It wraps a MergingIterator which provides all records in key and
@@ -12,11 +15,16 @@ type RangeIterator struct {
 	next       Record
 	prepared   bool
 	err        error
+	maxSeq     uint64
 }
 
 // NewRangeIterator creates a new RangeIterator from a MergingIterator.
-func NewRangeIterator(mi *MergingIterator) *RangeIterator {
-	return &RangeIterator{mi: mi}
+func NewRangeIterator(mi *MergingIterator, seq ...uint64) *RangeIterator {
+	maxSeq := uint64(math.MaxUint64)
+	if len(seq) > 0 {
+		maxSeq = seq[0]
+	}
+	return &RangeIterator{mi: mi, maxSeq: maxSeq}
 }
 
 func (r *RangeIterator) prepare() {
@@ -28,6 +36,9 @@ func (r *RangeIterator) prepare() {
 			}
 			r.err = err
 			return
+		}
+		if rec.GetSequenceNumber() > r.maxSeq {
+			continue
 		}
 		if r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual {
 			continue

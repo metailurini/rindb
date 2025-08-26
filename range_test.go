@@ -158,3 +158,26 @@ func TestRangeIteratorPrepare(t *testing.T) {
 		assert.False(t, iter.prepared)
 	})
 }
+
+func TestRangeIteratorSequence(t *testing.T) {
+	rec := func(k, v string, seq uint64) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return newRecord(Bytes(k), nv, seq)
+	}
+
+	it1 := &errIterator{records: []Record{rec("a", "v3", 3), rec("a", "v2", 2)}, failIdx: -1}
+	it2 := &errIterator{records: []Record{rec("a", "v1", 1)}, failIdx: -1}
+
+	mi, err := NewMergingIterator([]Iterator[Record]{it1, it2}, nil)
+	assert.NoError(t, err)
+
+	iter := NewRangeIterator(mi, 2)
+	assert.True(t, iter.HasNext())
+	r, err := iter.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, "v2", string(r.GetValue()))
+	assert.False(t, iter.HasNext())
+}
