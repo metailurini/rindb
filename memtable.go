@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"bytes"
+	"math"
 )
 
 // Estimated overhead for a skip list node structure (slice headers + average pointers)
@@ -47,7 +48,7 @@ func InitMemtable(config Config) Memtable {
 
 // Get returns the latest value for the given key.
 func (m *Memtable) Get(key Bytes) (Bytes, error) {
-	return m.GetAt(key, ^uint64(0))
+	return m.GetAt(key, math.MaxUint64)
 }
 
 // GetAt returns the value for the highest sequence <= seq.
@@ -61,7 +62,7 @@ func (m *Memtable) GetAt(key Bytes, seq uint64) (Bytes, error) {
 		return nil, ErrKeyNotFound
 	}
 	rec := node.Value
-	if rec.GetType() == TypeDeletion || rec.GetSequenceNumber() > seq {
+	if rec.GetType() == TypeDeletion {
 		return nil, ErrKeyNotFound
 	}
 	return rec.GetValue(), nil
@@ -89,8 +90,8 @@ func (m *Memtable) Iterator() Iterator[Record] {
 
 // IRange returns an iterator over records whose keys fall within [start, end].
 func (m *Memtable) IRange(start, end Bytes) Iterator[Record] {
-	startKey := InternalKey{UserKey: start, Seq: ^uint64(0), Type: TypeDeletion}
-	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeValue}
+	startKey := InternalKey{UserKey: start, Seq: math.MaxUint64, Type: TypeValue}
+	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeMerge}
 	return m.data.IRange(startKey, endKey)
 }
 
