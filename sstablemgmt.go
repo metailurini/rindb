@@ -844,7 +844,7 @@ func mergeSSTables(ctx context.Context, config Config, target *FileSystem, sourc
 	return sstable, nil
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool) (*SStable, error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool) (_ *SStable, err error) {
 	if len(sources) == 0 {
 		return nil, nil
 	}
@@ -862,6 +862,11 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if cerr := mergeIter.Close(); err == nil && cerr != nil {
+			err = cerr
+		}
+	}()
 
 	var (
 		wrote      int
@@ -889,10 +894,6 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 
 		memtable.Put(rec)
 		wrote++
-	}
-
-	if err := mergeIter.Close(); err != nil {
-		return nil, err
 	}
 
 	if wrote == 0 {
