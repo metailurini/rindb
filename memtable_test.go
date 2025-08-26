@@ -253,22 +253,29 @@ func TestMemtable_Cleanup(t *testing.T) {
 		key1 := Bytes("key1")
 		key2 := Bytes("key2")
 
-		mem.Put(newRecord(key1, Bytes("v1"), 1))
-		mem.Put(newRecord(key1, Bytes("v2"), 6))
-		mem.Put(newRecord(key2, nil, 3))
-		mem.Put(newRecord(key2, Bytes("v3"), 7))
+		testData := []struct {
+			rec      Record
+			obsolete bool
+		}{
+			{rec: newRecord(key1, Bytes("v1"), 1), obsolete: true},
+			{rec: newRecord(key1, Bytes("v2"), 6), obsolete: false},
+			{rec: newRecord(key2, nil, 3), obsolete: true},
+			{rec: newRecord(key2, Bytes("v3"), 7), obsolete: false},
+		}
 
-		sizeKey1v1 := len(key1) + len("v1") + entryOverhead
-		sizeKey1v2 := len(key1) + len("v2") + entryOverhead
-		sizeKey2Tomb := len(key2) + 0 + entryOverhead
-		sizeKey2v3 := len(key2) + len("v3") + entryOverhead
-
-		expectedTotal := sizeKey1v1 + sizeKey1v2 + sizeKey2Tomb + sizeKey2v3
+		var expectedTotal, expectedAfterCleanup int
+		for _, td := range testData {
+			mem.Put(td.rec)
+			entrySize := len(td.rec.GetKey()) + len(td.rec.GetValue()) + entryOverhead
+			expectedTotal += entrySize
+			if !td.obsolete {
+				expectedAfterCleanup += entrySize
+			}
+		}
 		assert.Equal(t, expectedTotal, mem.ByteSize())
 
 		mem.Cleanup(5)
 
-		expectedAfterCleanup := sizeKey1v2 + sizeKey2v3
 		assert.Equal(t, expectedAfterCleanup, mem.ByteSize())
 
 		v, err := mem.Get(key1)
