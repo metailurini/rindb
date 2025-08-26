@@ -29,7 +29,7 @@ func (b Bytes) Clone() Bytes {
 }
 
 type Memtable struct {
-	data *SkipList[Bytes, Record]
+	data *SkipList[InternalKey, Record]
 	size int // Estimated size in bytes
 }
 
@@ -41,35 +41,41 @@ func (m *Memtable) ByteSize() int {
 
 // InitMemtable initializes a new Memtable with the given configuration.
 func InitMemtable(config Config) Memtable {
-	list, _ := InitSkipList[Bytes, Record](config)
-	// Initialize size to a baseline overhead estimate if desired, or 0
+	list, _ := InitSkipList[InternalKey, Record](config)
 	return Memtable{data: list, size: 0}
 }
 
+// Get returns the latest value for the given key.
 func (m *Memtable) Get(key Bytes) (Bytes, error) {
-	record, err := m.data.Get(key)
+	return m.GetAt(key, ^uint64(0))
+}
+
+// GetAt returns the value for the highest sequence <= seq.
+func (m *Memtable) GetAt(key Bytes, seq uint64) (Bytes, error) {
+	searchKey := InternalKey{UserKey: key, Seq: seq, Type: TypeValue}
+	node, err := m.data.FindGreaterOrEqual(searchKey)
 	if err != nil {
 		return nil, err
 	}
-	return record.GetValue(), nil
+	if !bytes.Equal(node.Key.UserKey, key) {
+		return nil, ErrKeyNotFound
+	}
+	rec := node.Value
+	if rec.GetType() == TypeDeletion || rec.GetSequenceNumber() > seq {
+		return nil, ErrKeyNotFound
+	}
+	return rec.GetValue(), nil
 }
 
 func (m *Memtable) Put(record Record) {
 	key := record.GetKey()
 	value := record.GetValue()
+	ik := InternalKey{UserKey: key, Seq: record.GetSequenceNumber(), Type: record.GetType()}
 
-	// Estimate size increase: key length + value length + node overhead
-	entrySize := len(key) + len(value) + slNodeOverhead
+	entrySize := len(key) + internalKeySuffixLen + len(value) + slNodeOverhead
 
-	// Check if the key already exists to adjust size calculation
-	oldRecord, err := m.data.Get(key)
-	if err == nil {
-		// Key exists, subtract the old entry's estimated size contribution
-		m.size -= (len(key) + len(oldRecord.GetValue()) + slNodeOverhead)
-	}
-
-	m.data.Put(key, record)
-	m.size += entrySize // Add the new entry's size
+	m.data.Put(ik, record)
+	m.size += entrySize
 }
 
 func (m *Memtable) Clear() {
@@ -83,7 +89,33 @@ func (m *Memtable) Iterator() Iterator[Record] {
 
 // IRange returns an iterator over records whose keys fall within [start, end].
 func (m *Memtable) IRange(start, end Bytes) Iterator[Record] {
-	return m.data.IRange(start, end)
+	startKey := InternalKey{UserKey: start, Seq: ^uint64(0), Type: TypeDeletion}
+	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeValue}
+	return m.data.IRange(startKey, endKey)
+}
+
+// Cleanup removes records with sequence numbers less than minSeq.
+func (m *Memtable) Cleanup(minSeq uint64) {
+	type obsolete struct {
+		key  InternalKey
+		vlen int
+	}
+	var obs []obsolete
+	it := m.data.Iterator()
+	for it.HasNext() {
+		rec, err := it.Next()
+		if err != nil {
+			break
+		}
+		if rec.GetSequenceNumber() < minSeq {
+			ik := InternalKey{UserKey: rec.GetKey(), Seq: rec.GetSequenceNumber(), Type: rec.GetType()}
+			obs = append(obs, obsolete{key: ik, vlen: len(rec.GetValue())})
+		}
+	}
+	for _, o := range obs {
+		_ = m.data.Remove(o.key)
+		m.size -= len(o.key.UserKey) + internalKeySuffixLen + o.vlen + slNodeOverhead
+	}
 }
 
 // getMaxSequenceNumberFromMemtable iterates through the memtable to find the maximum sequence number.

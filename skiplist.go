@@ -105,6 +105,23 @@ func (list *SkipList[K, V]) Get(searchKey K) (V, error) {
 	}
 }
 
+// FindGreaterOrEqual returns the first node with key >= searchKey.
+func (list *SkipList[K, V]) FindGreaterOrEqual(searchKey K) (*SLNode[K, V], error) {
+	rn := list.Head()
+	rl := list.level
+	for rl > 0 {
+		rl--
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
+			rn = rn.forwards[rl]
+		}
+	}
+	rn = rn.forwards[0]
+	if rn == nil {
+		return nil, ErrKeyNotFound
+	}
+	return rn, nil
+}
+
 func (list *SkipList[K, V]) Head() *SLNode[K, V] {
 	if list == nil || list.headNote == nil {
 		panic(ErrMalformedList)

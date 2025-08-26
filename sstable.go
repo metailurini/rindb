@@ -312,7 +312,7 @@ func genSparseIndex(mem Memtable) SparseIndex {
 	cursor := int64(0)
 	runNode := mem.data.Head().Next()
 	for runNode != nil {
-		sparseIndex = append(sparseIndex, KeyOffset{runNode.Key, cursor})
+		sparseIndex = append(sparseIndex, KeyOffset{runNode.Key.UserKey, cursor})
 		cursor += int64(CalOnDiskSize(runNode.Value))
 		runNode = runNode.Next()
 	}
