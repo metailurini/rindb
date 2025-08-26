@@ -229,7 +229,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
 	value, err := newSStable.GetValue(ctx, Bytes("rm-key"))
-	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.ErrorIs(t, err, ErrTombstoneFound)
 	assert.Nil(t, value)
 	value, err = newSStable.GetValue(ctx, Bytes("key"))
 	assert.NoError(t, err)

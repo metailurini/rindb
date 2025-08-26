@@ -1515,7 +1515,7 @@ func Test_mergeSSTables(t *testing.T) {
 		assert.Equal(t, Bytes("1"), v)
 
 		v, err = merged.GetValue(ctx, Bytes("b"))
-		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.ErrorIs(t, err, ErrTombstoneFound)
 		assert.Nil(t, v)
 
 		v, err = merged.GetValue(ctx, Bytes("c"))
@@ -1593,7 +1593,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.Equal(t, Bytes("1"), v)
 
 		v, err = merged.GetValue(ctx, Bytes("b"))
-		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.ErrorIs(t, err, ErrTombstoneFound)
 		assert.Nil(t, v)
 
 		v, err = merged.GetValue(ctx, Bytes("c"))
@@ -1666,7 +1666,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NotNil(t, merged)
 
 		v, err := merged.GetValue(ctx, Bytes("b"))
-		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.ErrorIs(t, err, ErrTombstoneFound)
 		assert.Nil(t, v)
 
 		target2 := ts.newSSTableFS(1)

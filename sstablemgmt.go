@@ -698,10 +698,7 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	maxSeq := uint64(math.MaxUint64)
-	if len(seq) > 0 {
-		maxSeq = seq[0]
-	}
+	maxSeq := getMaxSeq(seq...)
 
 	var latestValue Bytes
 	var found bool
@@ -742,15 +739,19 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 				if closeErr != nil {
 					return nil, closeErr
 				}
-				if errors.Is(err, ErrKeyNotFound) {
+				if errors.Is(err, ErrTombstoneFound) {
 					return nil, ErrKeyNotFound
 				}
-				return nil, err
-			}
-			closeErr := fs.Close()
-			h.removeOpenedFS(fs)
-			if closeErr != nil {
-				return nil, closeErr
+				if !errors.Is(err, ErrKeyNotFound) {
+					return nil, err
+				}
+				// key might exist in older sstables; continue
+			} else {
+				closeErr := fs.Close()
+				h.removeOpenedFS(fs)
+				if closeErr != nil {
+					return nil, closeErr
+				}
 			}
 
 			if !iterator.HasPrev() {
