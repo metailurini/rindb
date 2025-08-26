@@ -4,6 +4,7 @@ package rindb_test
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestTransactionManagerIntegration(t *testing.T) {
 	tm := rindb.NewTransactionManager()
 
 	t.Run("commit", func(t *testing.T) {
-		require.NoError(t, w.Clean(ctx, ^uint64(0)))
+		require.NoError(t, w.Clean(ctx, math.MaxUint64))
 		txn := tm.Begin()
 		rec := rindb.RecordImpl{Key: rindb.Bytes("key"), Value: rindb.Bytes("value"), SequenceNumber: 1}
 		require.NoError(t, rindb.WriteRecord(txn, rec))
@@ -36,7 +37,7 @@ func TestTransactionManagerIntegration(t *testing.T) {
 	})
 
 	t.Run("rollback", func(t *testing.T) {
-		require.NoError(t, w.Clean(ctx, ^uint64(0)))
+		require.NoError(t, w.Clean(ctx, math.MaxUint64))
 		txn := tm.Begin()
 		rec := rindb.RecordImpl{Key: rindb.Bytes("key2"), Value: rindb.Bytes("value2"), SequenceNumber: 1}
 		require.NoError(t, rindb.WriteRecord(txn, rec))
