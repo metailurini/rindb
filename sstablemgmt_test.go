@@ -1393,11 +1393,12 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			ioVal := uint64(0)
 
 			sm := &SSTableManager{
-				openedFs:    list.New(),
-				levels:      []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
-				config:      cfg,
-				now:         func() time.Time { return current },
-				diskSampler: func() (uint64, error) { return ioVal, nil },
+				openedFs:       list.New(),
+				levels:         []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
+				config:         cfg,
+				now:            func() time.Time { return current },
+				diskSampler:    func() (uint64, error) { return ioVal, nil },
+				minSnapshotSeq: math.MaxUint64,
 			}
 			sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
 
@@ -1584,7 +1585,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1619,7 +1620,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, true)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1638,6 +1639,50 @@ func Test_mergeSSTablesV2(t *testing.T) {
 			assert.NoError(t, err)
 			assert.NotEqual(t, Bytes("b"), rec.GetKey())
 		}
+	})
+
+	t.Run("preserves records for active snapshot", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("b"), Bytes("v1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), Bytes("v2"), 2))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem3 := InitMemtable(*ts.Config)
+		mem3.Put(newRecord(Bytes("b"), nil, 3))
+		sst3, err := flush(ctx, *ts.Config, mem3, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, true, 2)
+		assert.NoError(t, err)
+		assert.NotNil(t, merged)
+
+		v, err := merged.GetValue(ctx, Bytes("b"))
+		assert.ErrorIs(t, err, ErrTombstoneFound)
+		assert.Nil(t, v)
+
+		iter, err := merged.Iterator()
+		assert.NoError(t, err)
+		var recs []Record
+		for iter.HasNext() {
+			rec, err := iter.Next()
+			assert.NoError(t, err)
+			recs = append(recs, rec)
+		}
+		assert.Equal(t, 2, len(recs))
+		assert.Equal(t, uint64(3), recs[0].GetSequenceNumber())
+		assert.Equal(t, TypeDeletion, recs[0].GetType())
+		assert.Equal(t, uint64(2), recs[1].GetSequenceNumber())
+		assert.Equal(t, TypeValue, recs[1].GetType())
 	})
 
 	t.Run("handles multiple versions of a key", func(t *testing.T) {
@@ -1661,7 +1706,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, false)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1670,7 +1715,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.Nil(t, v)
 
 		target2 := ts.newSSTableFS(1)
-		merged2, err := mergeSSTablesV2(ctx, *ts.Config, target2, []SStable{sst1, sst2, sst3}, true)
+		merged2, err := mergeSSTablesV2(ctx, *ts.Config, target2, []SStable{sst1, sst2, sst3}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged2)
 	})
@@ -1681,7 +1726,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		defer ts.Cleanup()
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{}, false)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged)
 	})
@@ -1697,7 +1742,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst}, true)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged)
 	})
@@ -1715,7 +1760,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		target := ts.newSSTableFS(1)
 		cancelCtx, cancel := context.WithCancel(context.Background())
 		cancel()
-		merged, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []SStable{sst}, false)
+		merged, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []SStable{sst}, false, math.MaxUint64)
 		assert.ErrorIs(t, err, context.Canceled)
 		assert.Nil(t, merged)
 	})
@@ -1777,6 +1822,52 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		assert.Error(t, err)
 		_, err = os.Stat(sst2.Path())
 		assert.Error(t, err)
+	})
+
+	t.Run("keeps tombstone with active snapshot", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.minSnapshotSeq = 2
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("b"), Bytes("1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		ts.Manager.mu.Lock()
+		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})
+		ts.Manager.mu.Unlock()
+		assert.NoError(t, err)
+
+		fs, err := ts.Manager.levels[1].Iterator().Next()
+		assert.NoError(t, err)
+		merged, err := ts.Manager.openAndLoadSSTable(ctx, fs)
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("b"))
+		assert.ErrorIs(t, err, ErrTombstoneFound)
+		assert.Nil(t, v)
+
+		iter, err := merged.Iterator()
+		assert.NoError(t, err)
+		var recs []Record
+		for iter.HasNext() {
+			rec, err := iter.Next()
+			assert.NoError(t, err)
+			recs = append(recs, rec)
+		}
+		assert.Equal(t, 2, len(recs))
+		assert.Equal(t, uint64(3), recs[0].GetSequenceNumber())
+		assert.Equal(t, TypeDeletion, recs[0].GetType())
+		assert.Equal(t, uint64(1), recs[1].GetSequenceNumber())
+		assert.Equal(t, TypeValue, recs[1].GetType())
 	})
 
 	t.Run("no-op on empty sources", func(t *testing.T) {
