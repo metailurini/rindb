@@ -85,6 +85,58 @@ func TestRindb_Snapshot(t *testing.T) {
 	rin.mu.RUnlock()
 }
 
+func TestMemtableCleanupAfterSnapshotRelease(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(1<<20))
+	defer cleanup()
+
+	key := Bytes("k")
+	assert.NoError(t, rin.Put(ctx, key, Bytes("v1")))
+	snap, err := rin.NewSnapshot(ctx)
+	assert.NoError(t, err)
+
+	assert.NoError(t, rin.Put(ctx, key, Bytes("v2")))
+
+	v, err := rin.memtable.GetAt(key, snap.Sequence())
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), v)
+
+	assert.NoError(t, rin.Release(ctx, snap))
+
+	_, err = rin.memtable.GetAt(key, snap.Sequence())
+	assert.Error(t, err)
+
+	val, err := rin.Get(ctx, key)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), val)
+}
+
+func TestWALSegmentsRespectSnapshots(t *testing.T) {
+	ctx := context.Background()
+	const maxSize = uint(128)
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(maxSize))
+	defer cleanup()
+
+	assert.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v1")))
+	snap, err := rin.NewSnapshot(ctx)
+	assert.NoError(t, err)
+
+	assert.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v2")))
+
+	big := make(Bytes, maxSize)
+	assert.NoError(t, rin.Put(ctx, Bytes("big"), big))
+
+	mem, err := rin.wal.Load(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, uint(3), mem.data.Len())
+
+	assert.NoError(t, rin.Release(ctx, snap))
+
+	mem, err = rin.wal.Load(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, uint(1), mem.data.Len())
+}
+
 func TestRindb_IRange(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
@@ -248,7 +300,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
 	newSStable, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
-	err = rin.wal.Clean()
+	err = rin.wal.Clean(ctx, ^uint64(0))
 	assert.NoError(t, err)
 	value, err := newSStable.GetValue(ctx, Bytes("rm-key"))
 	assert.ErrorIs(t, err, ErrTombstoneFound)

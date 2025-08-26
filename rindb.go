@@ -68,6 +68,35 @@ type Rindb struct {
 	flushCount  atomic.Uint64
 }
 
+// minSnapshotSeq returns the minimum sequence number among active snapshots.
+//
+// r.mu must be held before calling this method.
+func (r *Rindb) minSnapshotSeq() uint64 {
+	if len(r.activeSnapshots) == 0 {
+		return r.sequenceNumber
+	}
+	minSeq := r.activeSnapshots[0]
+	for _, s := range r.activeSnapshots[1:] {
+		if s < minSeq {
+			minSeq = s
+		}
+	}
+	return minSeq
+}
+
+// cleanupObsoleteLocked removes memtable entries and WAL segments older than
+// the minimum active snapshot sequence. r.mu must be held when calling.
+func (r *Rindb) cleanupObsoleteLocked(ctx context.Context) error {
+	minSeq := r.minSnapshotSeq()
+	r.memtable.Cleanup(minSeq)
+
+	r.ssTableManager.mu.Lock()
+	r.ssTableManager.minSnapshotSeq = minSeq
+	r.ssTableManager.mu.Unlock()
+
+	return r.wal.Clean(ctx, minSeq)
+}
+
 // Stats returns current statistics of the database.
 func (r *Rindb) Stats() Stats {
 	// Read atomic stats without locking first.
@@ -198,6 +227,13 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 
 	snap := &Snapshot{sequence: r.sequenceNumber}
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
+
+	r.ssTableManager.mu.Lock()
+	if snap.sequence < r.ssTableManager.minSnapshotSeq {
+		r.ssTableManager.minSnapshotSeq = snap.sequence
+	}
+	r.ssTableManager.mu.Unlock()
+
 	return snap, nil
 }
 
@@ -219,7 +255,7 @@ func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
 			break
 		}
 	}
-	return nil
+	return r.cleanupObsoleteLocked(ctx)
 }
 
 // Get retrieves the value associated with the given key from the database.
@@ -393,10 +429,17 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 
 		// Clear the memtable and clean the WAL *after* successful flush and registration
 		r.memtable.Clear()
-		if err := r.wal.Clean(); err != nil {
+		minSeq := r.minSnapshotSeq()
+		if len(r.activeSnapshots) == 0 {
+			minSeq = r.sequenceNumber + 1
+		}
+		if err := r.wal.Clean(ctx, minSeq); err != nil {
 			ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
 			return fmt.Errorf("failed to clean WAL: %w", err)
 		}
+		r.ssTableManager.mu.Lock()
+		r.ssTableManager.minSnapshotSeq = r.minSnapshotSeq()
+		r.ssTableManager.mu.Unlock()
 
 		// Trigger compaction in a goroutine *after* flushing
 		INFO(ctx, "Triggering background compaction check.")
@@ -410,6 +453,11 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			} else {
 				INFO(ctx, "Background compaction goroutine finished.")
 			}
+			r.mu.Lock()
+			if err := r.cleanupObsoleteLocked(ctx); err != nil {
+				ERROR(ctx, "Post-compaction cleanup failed: %v", err)
+			}
+			r.mu.Unlock()
 		}(compactionCtx)
 	}
 

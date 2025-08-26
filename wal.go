@@ -140,11 +140,70 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 	return nil
 }
 
-func (w *WAL) Clean() error {
+// Clean removes WAL records with sequence numbers lower than minSeq.
+//
+// It rewrites the WAL preserving only the records with sequence numbers >= minSeq.
+// The method resets internal counters based on the remaining records.
+func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
+	ctx, span := walTracer.Start(ctx, "WAL.Clean")
+	defer span.End()
+
+	// Read all records and keep those with sequence >= minSeq.
+	if _, err := w.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek WAL start: %w", err)
+	}
+
+	var records []Record
+	for {
+		rec, err := ReadRecord(w)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("failed to read WAL record: %w", err)
+		}
+		if rec.GetSequenceNumber() >= minSeq {
+			records = append(records, rec)
+		}
+	}
+
 	if err := w.FileSystem.Clean(); err != nil {
 		return err
 	}
 	w.records.Store(0)
 	w.bytes.Store(0)
+
+	if len(records) == 0 {
+		return nil
+	}
+
+	tx := w.tm.Begin()
+	defer tx.Rollback(ctx)
+
+	if _, err := w.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("failed to seek WAL end: %w", err)
+	}
+
+	var totalBytes int
+	for i, rec := range records {
+		if err := WriteRecord(tx, rec); err != nil {
+			return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
+		}
+		totalBytes += CalOnDiskSize(rec)
+	}
+
+	if err := tx.Commit(ctx, w.FileSystem); err != nil {
+		return fmt.Errorf("failed to commit WAL transaction: %w", err)
+	}
+
+	if err := w.Sync(); err != nil {
+		return fmt.Errorf("failed to sync WAL: %w", err)
+	}
+
+	walRecordsCounter.Add(ctx, int64(len(records)))
+	walBytesCounter.Add(ctx, int64(totalBytes))
+	w.records.Add(uint64(len(records)))
+	w.bytes.Add(uint64(totalBytes))
+
 	return nil
 }
