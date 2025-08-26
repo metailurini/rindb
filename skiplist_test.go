@@ -494,3 +494,74 @@ func TestSkipList_IRange(t *testing.T) {
 		assert.False(t, it.HasNext()) // Should still be false
 	})
 }
+
+func TestSkipList_FindGreaterOrEqual(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("Empty list", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		node, err := list.FindGreaterOrEqual(5)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, node)
+	})
+
+	t.Run("Existing elements", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for _, k := range []int{10, 20, 30, 40, 50} {
+			list.Put(k, k*10)
+		}
+
+		tests := []struct {
+			name    string
+			search  int
+			wantKey int
+			wantVal int
+			wantErr error
+		}{
+			{
+				name:    "exact match",
+				search:  30,
+				wantKey: 30,
+				wantVal: 300,
+			},
+			{
+				name:    "between keys",
+				search:  25,
+				wantKey: 30,
+				wantVal: 300,
+			},
+			{
+				name:    "before first",
+				search:  5,
+				wantKey: 10,
+				wantVal: 100,
+			},
+			{
+				name:    "after last",
+				search:  60,
+				wantErr: ErrKeyNotFound,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				node, err := list.FindGreaterOrEqual(tt.search)
+				if tt.wantErr != nil {
+					assert.ErrorIs(t, err, tt.wantErr)
+					assert.Nil(t, node)
+					return
+				}
+
+				assert.NoError(t, err)
+				if assert.NotNil(t, node) {
+					assert.Equal(t, tt.wantKey, node.Key)
+					assert.Equal(t, tt.wantVal, node.Value)
+				}
+			})
+		}
+	})
+}
