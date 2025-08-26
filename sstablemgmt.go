@@ -34,6 +34,11 @@ type SSTableManager struct {
 	config   Config
 	mu       sync.RWMutex
 
+	// minSnapshotSeq is the smallest sequence number of any active
+	// snapshot. When no snapshots are active it is set to
+	// math.MaxUint64, allowing tombstone GC at the bottommost level.
+	minSnapshotSeq uint64
+
 	// writeRate is the moving average of writes per second.
 	writeRate float64
 
@@ -78,6 +83,7 @@ func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, er
 		config:            config,
 		stopIOLoadSampler: make(chan struct{}),
 		now:               time.Now,
+		minSnapshotSeq:    math.MaxUint64,
 		// diskSampler aggregates the IoTime from all available disk
 		// counters. IoTime is the number of milliseconds the disk has
 		// been busy since boot.
@@ -588,7 +594,7 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 		}
 	}
 
-	merged, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost)
+	merged, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost, h.minSnapshotSeq)
 	// close and remove merged sstables even if there is an error
 	h.closeSSTables(pickedUpSSTable)
 	if err != nil || merged == nil {
@@ -856,7 +862,7 @@ func mergeSSTables(ctx context.Context, config Config, target *FileSystem, sourc
 	return sstable, nil
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool) (_ *SStable, err error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, err error) {
 	if len(sources) == 0 {
 		return nil, nil
 	}
@@ -884,6 +890,7 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		wrote      int
 		lastKey    Bytes
 		lastKeySet bool
+		lastSeq    uint64
 		memtable   = InitMemtable(config)
 	)
 	for mergeIter.HasNext() {
@@ -894,14 +901,17 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		if err != nil {
 			return nil, err
 		}
-		if lastKeySet && rec.GetKey().Compare(lastKey) == CmpEqual {
+		if lastKeySet && rec.GetKey().Compare(lastKey) == CmpEqual && lastSeq <= minSeq {
 			continue
 		}
-		lastKey = rec.GetKey().Clone()
-		lastKeySet = true
+		if !lastKeySet || rec.GetKey().Compare(lastKey) != CmpEqual {
+			lastKey = rec.GetKey().Clone()
+			lastKeySet = true
+		}
+		lastSeq = rec.GetSequenceNumber()
 
-		if rec.GetType() == TypeDeletion && bottommost {
-			continue // GC tombstone only at bottommost
+		if rec.GetType() == TypeDeletion && bottommost && rec.GetSequenceNumber() < minSeq {
+			continue // GC tombstone only at bottommost when older than snapshots
 		}
 
 		memtable.Put(rec)
