@@ -523,10 +523,22 @@ func TestSkipList_FindGreaterOrEqual(t *testing.T) {
 			wantErr error
 		}{
 			{
+				name:    "exact match on first element",
+				search:  10,
+				wantKey: 10,
+				wantVal: 100,
+			},
+			{
 				name:    "exact match",
 				search:  30,
 				wantKey: 30,
 				wantVal: 300,
+			},
+			{
+				name:    "exact match on last element",
+				search:  50,
+				wantKey: 50,
+				wantVal: 500,
 			},
 			{
 				name:    "between keys",
