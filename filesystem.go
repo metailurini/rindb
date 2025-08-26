@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const fileSystemPermission = 0o600
@@ -18,6 +19,7 @@ var (
 )
 
 type FileSystem struct {
+	mu       sync.RWMutex
 	filePath string
 	file     *os.File
 }
@@ -35,11 +37,16 @@ func NewFS(file *os.File) *FileSystem {
 }
 
 func (fs *FileSystem) IsOpened() bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
 	return fs.file != nil
 }
 
 func (fs *FileSystem) Open(ctx context.Context) error {
-	if fs.IsOpened() {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file != nil {
 		WARN(ctx, "File %s is already opened. Consider close and re-open again", fs.Path())
 		return nil
 	}
@@ -57,19 +64,24 @@ func (fs *FileSystem) Path() string {
 }
 
 func (fs *FileSystem) Sync() error {
-	if !fs.IsOpened() {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	if fs.file == nil {
 		return ErrFileNotOpened
 	}
 	return fs.file.Sync()
 }
 
 func (fs *FileSystem) Close() error {
-	if !fs.IsOpened() {
-		return ErrFileNotOpened
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
+		return nil
 	}
 
-	err := fs.file.Close()
-	if err != nil {
+	if err := fs.file.Close(); err != nil {
 		return err
 	}
 	fs.file = nil
@@ -77,20 +89,26 @@ func (fs *FileSystem) Close() error {
 }
 
 func (fs *FileSystem) Clean() error {
-	if err := fs.Close(); err != nil {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
+		return ErrFileNotOpened
+	}
+
+	if err := fs.file.Close(); err != nil {
 		return fmt.Errorf("failed to close file %s before cleaning: %w", fs.Path(), err)
 	}
 
-	// Open with truncation
 	cleanFile, err := os.OpenFile(fs.Path(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileSystemPermission)
 	if err != nil {
 		return fmt.Errorf("failed to open/truncate file %s for cleaning: %w", fs.Path(), err)
 	}
-	fs.file = cleanFile // Assign the new file handle
+	fs.file = cleanFile
 
-	if err := fs.Sync(); err != nil {
-		// Close the newly opened file before returning error
-		_ = fs.Close() // Ignore close error here as we're returning the sync error
+	if err := fs.file.Sync(); err != nil {
+		_ = fs.file.Close()
+		fs.file = nil
 		return fmt.Errorf("failed to sync file %s after cleaning: %w", fs.Path(), err)
 	}
 
@@ -99,7 +117,10 @@ func (fs *FileSystem) Clean() error {
 
 // CursorPos get current cursor position in file system
 func (fs *FileSystem) CursorPos() (int64, error) {
-	if !fs.IsOpened() {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	if fs.file == nil {
 		return 0, ErrFileNotOpened
 	}
 
@@ -107,19 +128,34 @@ func (fs *FileSystem) CursorPos() (int64, error) {
 }
 
 func (fs *FileSystem) Write(p []byte) (int, error) {
-	if !fs.IsOpened() {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
 		return 0, ErrFileNotOpened
 	}
 
-	// TODO: add lock
 	return fs.file.Write(p)
 }
 
 func (fs *FileSystem) Read(p []byte) (int, error) {
-	if !fs.IsOpened() {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
 		return 0, ErrFileNotOpened
 	}
 
-	// TODO: add lock
 	return fs.file.Read(p)
+}
+
+func (fs *FileSystem) Seek(offset int64, whence int) (int64, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
+		return 0, ErrFileNotOpened
+	}
+
+	return fs.file.Seek(offset, whence)
 }

@@ -52,7 +52,7 @@ func TestSStable(t *testing.T) {
 		sparseIndexOffset, err := ReadNumber(sstable)
 		assert.NoError(t, err)
 		assert.NotZero(t, sparseIndexOffset)
-		ret, err := sstable.file.Seek(0, io.SeekStart)
+		ret, err := sstable.Seek(0, io.SeekStart)
 		assert.NoError(t, err)
 		expectedSparseIndex := make(SparseIndex, 0)
 		idx := 0
@@ -112,7 +112,7 @@ func TestSStable(t *testing.T) {
 		sparseIndex := sstable.SparseIndex
 		for idx := len(sparseIndex) - 1; idx > -1; idx-- {
 			keyOffset := sparseIndex[idx]
-			_, err := sstable.file.Seek(keyOffset.offset, io.SeekStart)
+			_, err := sstable.Seek(keyOffset.offset, io.SeekStart)
 			assert.NoError(t, err)
 			record, err := ReadRecord(sstable)
 			assert.NoError(t, err)
@@ -315,7 +315,7 @@ func TestSStable(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				// Re-seek the file to the beginning for each test case
-				_, err := sstable.file.Seek(0, io.SeekStart)
+				_, err := sstable.Seek(0, io.SeekStart)
 				assert.NoError(t, err)
 
 				iterator, err := sstable.IRange(tt.startKey, tt.endKey)

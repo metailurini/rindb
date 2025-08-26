@@ -40,7 +40,7 @@ func TestFileSystem(t *testing.T) {
 		assert.ErrorIs(t, err, ErrFileNotOpened)
 
 		assert.NoError(t, fs.Close())
-		assert.ErrorIs(t, emptyFs.Close(), ErrFileNotOpened)
+		assert.NoError(t, emptyFs.Close())
 	})
 }
 
@@ -114,7 +114,7 @@ func TestFileSystem_CursorPos(t *testing.T) {
 		err = fs.Sync()
 		assert.NoError(t, err)
 
-		_, err = fs.file.Seek(-3, io.SeekEnd)
+		_, err = fs.Seek(-3, io.SeekEnd)
 		assert.NoError(t, err)
 
 		position, err := fs.CursorPos()
