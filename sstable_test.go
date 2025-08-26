@@ -145,6 +145,23 @@ func TestSStable(t *testing.T) {
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Equal(t, Bytes(nil), value)
 	})
+	t.Run("GetValueSequence", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		mem := InitMemtable(cfg)
+		mem.Put(newRecord(Bytes("a"), Bytes("old"), 1))
+		mem.Put(newRecord(Bytes("a"), Bytes("new"), 2))
+		sstable, err := flush(ctx, cfg, mem, fs)
+		assert.NoError(t, err)
+		value, err := sstable.GetValue(ctx, Bytes("a"), 1)
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("old"), value)
+		value, err = sstable.GetValue(ctx, Bytes("a"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("new"), value)
+	})
 	t.Run("Iterator", func(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
@@ -483,7 +500,7 @@ func TestFlushWithTombstones(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
 	v2, err := sstable.GetValue(ctx, k2)
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 	assert.Nil(t, v2)
 }
 

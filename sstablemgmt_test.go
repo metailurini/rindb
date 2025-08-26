@@ -501,8 +501,8 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.Manager.levels[1].PushBack(fs1)
 
 		result, err := ts.Manager.searchKey(ctx, key)
-		assert.NoError(t, err)
-		assert.Nil(t, result) // Tombstone returns nil value
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
 	})
 
 	t.Run("Bloom filter skips irrelevant SSTables", func(t *testing.T) {
@@ -1515,7 +1515,7 @@ func Test_mergeSSTables(t *testing.T) {
 		assert.Equal(t, Bytes("1"), v)
 
 		v, err = merged.GetValue(ctx, Bytes("b"))
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, v)
 
 		v, err = merged.GetValue(ctx, Bytes("c"))
@@ -1593,7 +1593,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.Equal(t, Bytes("1"), v)
 
 		v, err = merged.GetValue(ctx, Bytes("b"))
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, v)
 
 		v, err = merged.GetValue(ctx, Bytes("c"))
@@ -1666,7 +1666,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NotNil(t, merged)
 
 		v, err := merged.GetValue(ctx, Bytes("b"))
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, v)
 
 		target2 := ts.newSSTableFS(1)

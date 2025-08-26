@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -178,13 +179,18 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 //
 //	Bytes - The value associated with the key, or nil if the key is not found.
 //	error - An error if the database is closed, or if an error occurs during lookup in memtable or SSTables.
-func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
+func (r *Rindb) Get(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.Get")
 	defer span.End()
 	getCalls.Add(ctx, 1)
 	r.getCalls.Add(1)
 	if span.IsRecording() {
 		span.SetAttributes(attribute.Int("key_size", len(key)))
+	}
+
+	maxSeq := uint64(math.MaxUint64)
+	if len(seq) > 0 {
+		maxSeq = seq[0]
 	}
 
 	r.mu.RLock()
@@ -194,14 +200,14 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 		return nil, ErrDatabaseClosed
 	}
 
-	value, err := r.memtable.Get(key)
+	value, err := r.memtable.GetAt(key, maxSeq)
 	if err == nil {
 		return value, nil
 	}
 	if !errors.Is(err, ErrKeyNotFound) {
 		return nil, err
 	}
-	return r.ssTableManager.searchKey(ctx, key)
+	return r.ssTableManager.searchKey(ctx, key, maxSeq)
 }
 
 // IRange returns an iterator over records with keys in [start, end],
@@ -209,7 +215,7 @@ func (r *Rindb) Get(ctx context.Context, key Bytes) (Bytes, error) {
 //
 // The returned iterator must be closed when no longer needed to release
 // any associated resources.
-func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
+func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*RangeIterator, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.IRange")
 	defer span.End()
 	iRangeCalls.Add(ctx, 1)
@@ -228,7 +234,12 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 		return nil, ErrDatabaseClosed
 	}
 
-	iterators := []Iterator[Record]{r.memtable.IRange(start, end)}
+	maxSeq := uint64(math.MaxUint64)
+	if len(seq) > 0 {
+		maxSeq = seq[0]
+	}
+
+	iterators := []Iterator[Record]{r.memtable.IRange(start, end, maxSeq)}
 
 	sstables, err := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
@@ -246,7 +257,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 	it := sstables.Iterator()
 	for it.HasNext() {
 		sst, _ := it.Next()
-		rangeIter, err := sst.IRange(start, end)
+		rangeIter, err := sst.IRange(start, end, maxSeq)
 		if err != nil {
 			cleanup()
 			return nil, err

@@ -694,9 +694,14 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	return relevantSSTables, nil
 }
 
-func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error) {
+func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+	maxSeq := uint64(math.MaxUint64)
+	if len(seq) > 0 {
+		maxSeq = seq[0]
+	}
 
 	var latestValue Bytes
 	var found bool
@@ -722,25 +727,28 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes) (Bytes, error
 			if err != nil {
 				return nil, err
 			}
-
-			value, err := sstable.GetValue(ctx, key)
-			closeErr := fs.Close()
-			h.removeOpenedFS(fs)
-			if err == nil {
-				// Found a value or tombstone; this is the latest so far
-				latestValue = value
-				found = true
+			if _, err := sstable.SparseIndex.GetOffset(key); err == nil {
+				value, err := sstable.GetValue(ctx, key, maxSeq)
+				closeErr := fs.Close()
+				h.removeOpenedFS(fs)
+				if err == nil {
+					latestValue = value
+					found = true
+					if closeErr != nil {
+						return nil, closeErr
+					}
+					break
+				}
 				if closeErr != nil {
 					return nil, closeErr
 				}
-				break
-			}
-			if !errors.Is(err, ErrKeyNotFound) {
-				if closeErr != nil {
-					return nil, closeErr
+				if errors.Is(err, ErrKeyNotFound) {
+					return nil, ErrKeyNotFound
 				}
 				return nil, err
 			}
+			closeErr := fs.Close()
+			h.removeOpenedFS(fs)
 			if closeErr != nil {
 				return nil, closeErr
 			}
