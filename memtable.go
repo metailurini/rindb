@@ -88,11 +88,57 @@ func (m *Memtable) Iterator() Iterator[Record] {
 	return m.data.Iterator()
 }
 
-// IRange returns an iterator over records whose keys fall within [start, end].
-func (m *Memtable) IRange(start, end Bytes) Iterator[Record] {
+// IRange returns an iterator over records whose keys fall within [start, end]
+// and sequence numbers less than or equal to seq.
+func (m *Memtable) IRange(start, end Bytes, seq uint64) Iterator[Record] {
 	startKey := InternalKey{UserKey: start, Seq: math.MaxUint64, Type: TypeValue}
 	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeMerge}
-	return m.data.IRange(startKey, endKey)
+	it := m.data.IRange(startKey, endKey)
+	return &memtableIRange{it: it, seq: seq}
+}
+
+type memtableIRange struct {
+	it       Iterator[Record]
+	seq      uint64
+	next     Record
+	prepared bool
+	err      error
+}
+
+func (mi *memtableIRange) prepare() {
+	for !mi.prepared && mi.err == nil {
+		if !mi.it.HasNext() {
+			mi.err = EOI
+			return
+		}
+		rec, err := mi.it.Next()
+		if err != nil {
+			mi.err = err
+			return
+		}
+		if rec.GetSequenceNumber() > mi.seq {
+			continue
+		}
+		mi.next = rec
+		mi.prepared = true
+	}
+}
+
+func (mi *memtableIRange) HasNext() bool {
+	mi.prepare()
+	return mi.prepared
+}
+
+func (mi *memtableIRange) Next() (Record, error) {
+	if !mi.HasNext() {
+		var empty Record
+		if mi.err != nil {
+			return empty, mi.err
+		}
+		return empty, EOI
+	}
+	mi.prepared = false
+	return mi.next, nil
 }
 
 // Cleanup removes records with sequence numbers less than minSeq.

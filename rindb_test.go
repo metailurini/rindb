@@ -48,6 +48,21 @@ func TestRindb_Get(t *testing.T) {
 	assert.Equal(t, Bytes("value"), value)
 }
 
+func TestRindb_GetSequence(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
+	defer cleanup()
+	key := Bytes("key")
+	assert.NoError(t, rin.Put(ctx, key, Bytes("v1")))
+	assert.NoError(t, rin.Put(ctx, key, Bytes("v2")))
+	value, err := rin.Get(ctx, key, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), value)
+	value, err = rin.Get(ctx, key)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), value)
+}
+
 func TestRindb_IRange(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
@@ -64,7 +79,7 @@ func TestRindb_IRange(t *testing.T) {
 
 	// Create SSTable with tombstone and another record
 	mem2 := InitMemtable(cfg)
-	mem2.Put(newRecord(Bytes("k"), Bytes(""), 3)) // tombstone
+	mem2.Put(newRecord(Bytes("k"), nil, 3)) // tombstone
 	mem2.Put(newRecord(Bytes("z"), Bytes("sstZ"), 4))
 	sst2, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
@@ -77,6 +92,8 @@ func TestRindb_IRange(t *testing.T) {
 	mem.Put(newRecord(Bytes("k"), Bytes("memK"), 7))
 
 	recA := newRecord(Bytes("a"), Bytes("memA"), 5)
+	recAOld := newRecord(Bytes("a"), Bytes("sstA"), 1)
+	recB := newRecord(Bytes("b"), Bytes("sstB"), 2)
 	recK := newRecord(Bytes("k"), Bytes("memK"), 7)
 	recZ := newRecord(Bytes("z"), Bytes("sstZ"), 4)
 
@@ -84,67 +101,92 @@ func TestRindb_IRange(t *testing.T) {
 		name     string
 		start    Bytes
 		end      Bytes
+		seq      uint64
 		expected []Record
 	}{
 		{
 			name:     "full range",
 			start:    Bytes("a"),
 			end:      Bytes("z"),
+			seq:      0,
 			expected: []Record{recA, recK, recZ},
 		},
 		{
 			name:     "range excludes deleted key",
 			start:    Bytes("a"),
 			end:      Bytes("b"),
+			seq:      0,
 			expected: []Record{recA},
 		},
 		{
 			name:     "range after deletion",
 			start:    Bytes("b"),
 			end:      Bytes("z"),
+			seq:      0,
 			expected: []Record{recK, recZ},
 		},
 		{
 			name:     "middle range",
 			start:    Bytes("c"),
 			end:      Bytes("y"),
+			seq:      0,
 			expected: []Record{recK},
 		},
 		{
 			name:     "single key",
 			start:    Bytes("a"),
 			end:      Bytes("a"),
+			seq:      0,
 			expected: []Record{recA},
 		},
 		{
 			name:     "tombstoned key only",
 			start:    Bytes("b"),
 			end:      Bytes("b"),
+			seq:      0,
 			expected: nil,
 		},
 		{
 			name:     "range before first key",
 			start:    Bytes("0"),
 			end:      Bytes("a0"),
+			seq:      0,
 			expected: []Record{recA},
 		},
 		{
 			name:     "range with no records",
 			start:    Bytes("m"),
 			end:      Bytes("n"),
+			seq:      0,
 			expected: nil,
 		},
 		{
 			name:     "start greater than end",
 			start:    Bytes("z"),
 			end:      Bytes("a"),
+			seq:      0,
 			expected: nil,
+		},
+		{
+			name:     "snapshot before memtable",
+			start:    Bytes("a"),
+			end:      Bytes("z"),
+			seq:      4,
+			expected: []Record{recAOld, recB, recZ},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			iter, err := ts.RinDB.IRange(ctx, tt.start, tt.end)
+			var (
+				iter *RangeIterator
+				err  error
+			)
+			if tt.seq == 0 {
+				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end)
+			} else {
+				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end, tt.seq)
+			}
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
 		})
@@ -187,8 +229,8 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	err = rin.wal.Clean()
 	assert.NoError(t, err)
 	value, err := newSStable.GetValue(ctx, Bytes("rm-key"))
-	assert.NoError(t, err)
-	assert.Equal(t, Bytes(nil), value)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.Nil(t, value)
 	value, err = newSStable.GetValue(ctx, Bytes("key"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("value"), value)
