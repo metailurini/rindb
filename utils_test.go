@@ -229,7 +229,7 @@ func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*File
 		if initialContents != nil && initialContents[i] != nil {
 			_, writeErr := fs.Write(initialContents[i])
 			assert.NoError(t, writeErr, "Failed to write initial content to temp file %d", i)
-			_, seekErr := fs.file.Seek(0, io.SeekStart) // Reset cursor to beginning
+			_, seekErr := fs.Seek(0, io.SeekStart) // Reset cursor to beginning
 			assert.NoError(t, seekErr, "Failed to seek to start after writing initial content to temp file %d", i)
 		}
 

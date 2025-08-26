@@ -45,13 +45,13 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 		span.End()
 	}()
 
-	_, err := w.file.Seek(0, io.SeekStart)
-	if err != nil {
+	if _, err := w.Seek(0, io.SeekStart); err != nil {
 		return Memtable{}, fmt.Errorf("failed to seek to start of WAL file %s: %w", w.Path(), err)
 	}
+
 	mem := InitMemtable(w.config)
 	for {
-		record, err := ReadRecord(w.file)
+		record, err := ReadRecord(w)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break // Normal end of file
@@ -77,20 +77,19 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 	tx := w.tm.Begin()
 	defer tx.Rollback(ctx)
 
-	_, err := w.file.Seek(0, io.SeekEnd)
-	if err != nil {
+	if _, err := w.Seek(0, io.SeekEnd); err != nil {
 		return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
 	}
 
-	if err = WriteRecord(tx, record); err != nil {
+	if err := WriteRecord(tx, record); err != nil {
 		return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 	}
 
-	if err = tx.Commit(ctx, w.file); err != nil {
+	if err := tx.Commit(ctx, w.FileSystem); err != nil {
 		return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
 	}
 
-	if err = w.Sync(); err != nil {
+	if err := w.Sync(); err != nil {
 		return fmt.Errorf("failed to sync WAL file %s: %w", w.Path(), err)
 	}
 
@@ -113,8 +112,7 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 	tx := w.tm.Begin()
 	defer tx.Rollback(ctx)
 
-	_, err := w.file.Seek(0, io.SeekEnd)
-	if err != nil {
+	if _, err := w.Seek(0, io.SeekEnd); err != nil {
 		return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
 	}
 
@@ -126,11 +124,11 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 		totalBytes += CalOnDiskSize(record)
 	}
 
-	if err = tx.Commit(ctx, w.file); err != nil {
+	if err := tx.Commit(ctx, w.FileSystem); err != nil {
 		return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
 	}
 
-	if err = w.Sync(); err != nil {
+	if err := w.Sync(); err != nil {
 		return fmt.Errorf("failed to sync WAL file %s after multi-record append: %w", w.Path(), err)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 )
@@ -94,6 +95,18 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	maxSeq := getMaxSeq(seq...)
 
+	fs := s.FileSystem
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
+		file, err := os.OpenFile(filepath.Clean(fs.filePath), os.O_RDWR|os.O_CREATE, fileSystemPermission)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open sstable %s: %w", fs.Path(), err)
+		}
+		fs.file = file
+	}
+
 	if !s.Bloom.Lookup(key) {
 		return nil, ErrKeyNotFound
 	}
@@ -103,13 +116,13 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		return nil, err
 	}
 
-	if _, err := s.file.Seek(offset, io.SeekStart); err != nil {
+	if _, err := fs.file.Seek(offset, io.SeekStart); err != nil {
 		ERROR(ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
 		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
 	for {
-		record, err := ReadRecord(s)
+		record, err := ReadRecord(fs.file)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				ERROR(ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
@@ -189,26 +202,32 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 
 	// Seek to the beginning of the file
 	// Support testing assertions
-	fs.file.Seek(0, io.SeekStart)
+	fs.Seek(0, io.SeekStart)
 	INFO(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
 	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
-	tailSSTableOffset, err := fs.file.Seek(-1*mdByteSize, io.SeekEnd)
-	if err != nil {
-		return 0, err
+	if fs.file == nil {
+		return 0, ErrFileNotOpened
 	}
-	return tailSSTableOffset, nil
+	return fs.file.Seek(-1*mdByteSize, io.SeekEnd)
 }
 
 func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
-	tailSSTableOffset, err := readTailSSTable(fs)
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
+		return SparseIndex{}, ErrFileNotOpened
+	}
+
+	tailSSTableOffset, err := fs.file.Seek(-1*mdByteSize, io.SeekEnd)
 	if err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to seek to tail of sstable %s: %w", fs.Path(), err)
 	}
 
-	sparseIndexOffset, err := ReadNumber(fs)
+	sparseIndexOffset, err := ReadNumber(fs.file)
 	if err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to read sparse index offset from %s: %w", fs.Path(), err)
 	}
@@ -221,7 +240,7 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	sparseIndex := SparseIndex{}
 	// Read records until the calculated end of the sparse index data
 	for ret < tailSSTableOffset {
-		record, err := ReadRecord(fs)
+		record, err := ReadRecord(fs.file)
 		if err != nil {
 			// Check for EOF specifically, might indicate corruption
 			if errors.Is(err, io.EOF) {
@@ -231,7 +250,7 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 		}
 		sparseIndex = append(sparseIndex, NewKeyOffset(record.GetKey(), record.GetValue()))
 
-		ret, err = fs.CursorPos()
+		ret, err = fs.file.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return SparseIndex{}, fmt.Errorf("failed to get cursor position in %s: %w", fs.Path(), err)
 		}
@@ -358,8 +377,13 @@ func (s *sstableIterator) Next() (Record, error) {
 }
 
 func (s SStable) Iterator() (Iterator[Record], error) {
-	_, err := s.file.Seek(0, io.SeekStart)
-	if err != nil {
+	if !s.IsOpened() {
+		if err := s.Open(context.Background()); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := s.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
 
@@ -403,13 +427,18 @@ func (sri *sstableIRange) Next() (Record, error) {
 // numbers less than or equal to seq.
 func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
 	maxSeq := getMaxSeq(seq...)
+	if !s.IsOpened() {
+		if err := s.Open(context.Background()); err != nil {
+			return nil, err
+		}
+	}
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})
 	if startIdx >= len(s.SparseIndex) {
 		return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq}, nil
 	}
-	if _, err := s.file.Seek(s.SparseIndex[startIdx].offset, io.SeekStart); err != nil {
+	if _, err := s.Seek(s.SparseIndex[startIdx].offset, io.SeekStart); err != nil {
 		return nil, err
 	}
 	return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq}, nil
