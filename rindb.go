@@ -186,7 +186,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 // NewSnapshot captures the current sequence number and tracks it in the list
 // of active snapshots.
 func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
-	ctx, span := tracer.Start(ctx, "Rindb.NewSnapshot")
+	_, span := tracer.Start(ctx, "Rindb.NewSnapshot")
 	defer span.End()
 
 	r.mu.Lock()
@@ -203,7 +203,7 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 
 // Release removes the snapshot from the list of active snapshots.
 func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
-	ctx, span := tracer.Start(ctx, "Rindb.Release")
+	_, span := tracer.Start(ctx, "Rindb.Release")
 	defer span.End()
 
 	r.mu.Lock()
