@@ -77,7 +77,6 @@ func TestRindb_IRange(t *testing.T) {
 	mem.Put(newRecord(Bytes("k"), Bytes("memK"), 7))
 
 	recA := newRecord(Bytes("a"), Bytes("memA"), 5)
-	recB_tombstone := newRecord(Bytes("b"), nil, 6) // Tombstone for 'b'
 	recK := newRecord(Bytes("k"), Bytes("memK"), 7)
 	recZ := newRecord(Bytes("z"), Bytes("sstZ"), 4)
 
@@ -91,19 +90,19 @@ func TestRindb_IRange(t *testing.T) {
 			name:     "full range",
 			start:    Bytes("a"),
 			end:      Bytes("z"),
-			expected: []Record{recA, recB_tombstone, recK, recZ},
+			expected: []Record{recA, recK, recZ},
 		},
 		{
 			name:     "range excludes deleted key",
 			start:    Bytes("a"),
 			end:      Bytes("b"),
-			expected: []Record{recA, recB_tombstone},
+			expected: []Record{recA},
 		},
 		{
 			name:     "range after deletion",
 			start:    Bytes("b"),
 			end:      Bytes("z"),
-			expected: []Record{recB_tombstone, recK, recZ},
+			expected: []Record{recK, recZ},
 		},
 		{
 			name:     "middle range",
@@ -121,7 +120,7 @@ func TestRindb_IRange(t *testing.T) {
 			name:     "tombstoned key only",
 			start:    Bytes("b"),
 			end:      Bytes("b"),
-			expected: []Record{recB_tombstone},
+			expected: nil,
 		},
 		{
 			name:     "range before first key",

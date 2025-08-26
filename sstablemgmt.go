@@ -858,28 +858,30 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		iterators = append(iterators, iter)
 	}
 
-	pq, err := buildRangePQ(iterators)
+	mergeIter, err := NewMergingIterator(iterators, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	var (
-		wrote int
-
-		memtable = InitMemtable(config)
-		// cleanup from RangeIterator will be empty
-		// because closing sstables is caller's responsibility
-		// because it's managing sources' lifecycle
-		rangeIterator = &RangeIterator{pq: pq}
+		wrote      int
+		lastKey    Bytes
+		lastKeySet bool
+		memtable   = InitMemtable(config)
 	)
-	for rangeIterator.HasNext() {
+	for mergeIter.HasNext() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		rec, err := rangeIterator.Next()
+		rec, err := mergeIter.Next()
 		if err != nil {
 			return nil, err
 		}
+		if lastKeySet && rec.GetKey().Compare(lastKey) == CmpEqual {
+			continue
+		}
+		lastKey = rec.GetKey().Clone()
+		lastKeySet = true
 
 		if rec.GetType() == TypeDeletion && bottommost {
 			continue // GC tombstone only at bottommost
@@ -887,6 +889,10 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 
 		memtable.Put(rec)
 		wrote++
+	}
+
+	if err := mergeIter.Close(); err != nil {
+		return nil, err
 	}
 
 	if wrote == 0 {

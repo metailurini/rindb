@@ -2,100 +2,66 @@ package rindb
 
 import "errors"
 
-type pqItem struct {
-	rec  Record
-	iter Iterator[Record]
-}
-
-func buildRangePQ(iterators []Iterator[Record]) (*PriorityQueue[pqItem], error) {
-	less := func(a, b pqItem) bool {
-		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
-		if cmp == CmpEqual {
-			return a.rec.GetSequenceNumber() > b.rec.GetSequenceNumber()
-		}
-		return cmp == CmpLess
-	}
-
-	pq := NewPriorityQueue(less)
-	for _, it := range iterators {
-		if it.HasNext() {
-			rec, err := it.Next()
-			if err != nil {
-				if !errors.Is(err, EOI) {
-					return nil, err
-				}
-				continue
-			}
-			pq.PushItem(pqItem{rec: rec, iter: it})
-		}
-	}
-	return pq, nil
-}
-
-// RangeIterator merges multiple iterators and iterates over them in order.
-// It implements Iterator[Record] and provides a Close method for resource
-// cleanup.
+// RangeIterator is a user-facing iterator that hides tombstones and
+// duplicates. It wraps a MergingIterator which provides all records in key and
+// sequence order.
 type RangeIterator struct {
-	pq         *PriorityQueue[pqItem]
+	mi         *MergingIterator
 	lastKey    Bytes
 	lastKeySet bool
 	next       Record
 	prepared   bool
-	cleanup    func()
 	err        error
 }
 
-func (m *RangeIterator) prepare() {
-	for !m.prepared && m.err == nil && m.pq.Len() > 0 {
-		item := m.pq.PopItem()
-		key := item.rec.GetKey()
+// NewRangeIterator creates a new RangeIterator from a MergingIterator.
+func NewRangeIterator(mi *MergingIterator) *RangeIterator {
+	return &RangeIterator{mi: mi}
+}
 
-		if !m.lastKeySet || key.Compare(m.lastKey) != CmpEqual {
-			// Emit the newest record for this user_key, regardless deleted or not.
-			m.next = item.rec
-			m.prepared = true
-
-			m.lastKey = key.Clone()
-			m.lastKeySet = true
-		}
-
-		if item.iter.HasNext() {
-			rec, err := item.iter.Next()
-			if err != nil {
-				if !errors.Is(err, EOI) {
-					m.err = err
-				}
-			} else {
-				m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
+func (r *RangeIterator) prepare() {
+	for !r.prepared && r.err == nil {
+		rec, err := r.mi.Next()
+		if err != nil {
+			if errors.Is(err, EOI) {
+				return
 			}
+			r.err = err
+			return
 		}
+		if r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual {
+			continue
+		}
+		r.lastKey = rec.GetKey().Clone()
+		r.lastKeySet = true
+		if rec.GetType() == TypeDeletion {
+			continue
+		}
+		r.next = rec
+		r.prepared = true
 	}
 }
 
 // HasNext implements Iterator[Record].
-func (m *RangeIterator) HasNext() bool {
-	m.prepare()
-	return m.prepared
+func (r *RangeIterator) HasNext() bool {
+	r.prepare()
+	return r.prepared
 }
 
 // Next implements Iterator[Record].
-func (m *RangeIterator) Next() (Record, error) {
-	if !m.HasNext() {
+func (r *RangeIterator) Next() (Record, error) {
+	if !r.HasNext() {
 		var empty Record
-		if m.err != nil {
-			return empty, m.err
+		if r.err != nil {
+			return empty, r.err
 		}
 		return empty, EOI
 	}
-	m.prepared = false
-	return m.next, nil
+	r.prepared = false
+	return r.next, nil
 }
 
-// Close releases any resources held by the iterator. It is safe to call multiple times.
-func (m *RangeIterator) Close() error {
-	if m.cleanup != nil {
-		m.cleanup()
-		m.cleanup = nil
-	}
-	return m.err
+// Close releases any resources held by the iterator.
+func (r *RangeIterator) Close() error {
+	return r.mi.Close()
 }

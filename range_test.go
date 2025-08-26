@@ -2,39 +2,18 @@ package rindb
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// errIterator injects an error at a specified index.
-type errIterator struct {
-	records []Record
-	idx     int
-	failIdx int
-}
-
-func (e *errIterator) HasNext() bool { return e.idx < len(e.records) }
-
-func (e *errIterator) Next() (Record, error) {
-	if e.idx == e.failIdx {
-		e.idx++
-		var empty Record
-		return empty, errors.New("boom")
-	}
-	rec := e.records[e.idx]
-	e.idx++
-	return rec, nil
-}
-
 func TestRangeIterator(t *testing.T) {
-	rec := func(k, v string, seq uint64) Record {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
 		var nv Bytes = nil
 		if v != "" {
 			nv = Bytes(v)
 		}
-		return newRecord(Bytes(k), nv, seq)
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
 	}
 
 	type iterSpec struct {
@@ -53,33 +32,18 @@ func TestRangeIterator(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "basic order",
+			name: "filters tombstones and duplicates",
 			iters: []iterSpec{
-				{records: []Record{rec("a", "1", 1)}, failIdx: -1},
-				{records: []Record{rec("b", "2", 1)}, failIdx: -1},
+				{records: []Record{rec("a", "v2", 2, TypeValue), rec("c", "c2", 2, TypeValue)}, failIdx: -1},
+				{records: []Record{rec("a", "v1", 1, TypeValue)}, failIdx: -1},
+				{records: []Record{rec("b", "", 3, TypeDeletion), rec("b", "vb", 1, TypeValue)}, failIdx: -1},
 			},
-			want: []exp{{"a", "1"}, {"b", "2"}},
-		},
-		{
-			name: "skip duplicates",
-			iters: []iterSpec{
-				{records: []Record{rec("a", "v2", 2), rec("b", "vb", 1)}, failIdx: -1},
-				{records: []Record{rec("a", "v1", 1)}, failIdx: -1},
-			},
-			want: []exp{{"a", "v2"}, {"b", "vb"}},
-		},
-		{
-			name: "has tombstones",
-			iters: []iterSpec{
-				{records: []Record{rec("a", "", 2), rec("b", "2", 1)}, failIdx: -1},
-				{records: []Record{rec("a", "1", 1)}, failIdx: -1},
-			},
-			want: []exp{{"a", ""}, {"b", "2"}},
+			want: []exp{{"a", "v2"}, {"c", "c2"}},
 		},
 		{
 			name: "iterator error",
 			iters: []iterSpec{
-				{records: []Record{rec("a", "1", 1), rec("b", "2", 2), rec("c", "3", 3)}, failIdx: 2},
+				{records: []Record{rec("a", "1", 1, TypeValue), rec("b", "2", 2, TypeValue), rec("c", "3", 3, TypeValue)}, failIdx: 2},
 			},
 			want:    []exp{{"a", "1"}, {"b", "2"}},
 			wantErr: "boom",
@@ -92,9 +56,9 @@ func TestRangeIterator(t *testing.T) {
 			for _, spec := range tt.iters {
 				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 			}
-			pq, err := buildRangePQ(iterators)
+			mi, err := NewMergingIterator(iterators, nil)
 			assert.NoError(t, err)
-			iter := &RangeIterator{pq: pq}
+			iter := NewRangeIterator(mi)
 
 			var got []exp
 			for iter.HasNext() {
@@ -112,14 +76,6 @@ func TestRangeIterator(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestBuildRangePQInitialError(t *testing.T) {
-	r := newRecord(Bytes("a"), Bytes("1"), 1)
-	it := &errIterator{records: []Record{r}, failIdx: 0}
-	pq, err := buildRangePQ([]Iterator[Record]{it})
-	assert.Nil(t, pq)
-	assert.EqualError(t, err, "boom")
 }
 
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
@@ -164,10 +120,10 @@ func TestRangeIteratorPrepare(t *testing.T) {
 			},
 			failIdx: -1,
 		}
-		pq, err := buildRangePQ([]Iterator[Record]{it})
+		mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
 		assert.NoError(t, err)
 
-		iter := &RangeIterator{pq: pq}
+		iter := NewRangeIterator(mi)
 		iter.prepare()
 		_, err = iter.Next()
 		assert.NoError(t, err)
@@ -186,10 +142,14 @@ func TestRangeIteratorPrepare(t *testing.T) {
 			},
 			failIdx: 1,
 		}
-		pq, err := buildRangePQ([]Iterator[Record]{it})
+		mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
 		assert.NoError(t, err)
 
-		iter := &RangeIterator{pq: pq}
+		iter := NewRangeIterator(mi)
+		iter.prepare()
+		_, err = iter.Next()
+		assert.NoError(t, err)
+
 		iter.prepare()
 		assert.EqualError(t, iter.err, "boom")
 
