@@ -1640,6 +1640,41 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		}
 	})
 
+	t.Run("handles multiple versions of a key", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("b"), Bytes("v1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), Bytes("v2"), 2))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem3 := InitMemtable(*ts.Config)
+		mem3.Put(newRecord(Bytes("b"), nil, 3))
+		sst3, err := flush(ctx, *ts.Config, mem3, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		target := ts.newSSTableFS(1)
+		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, false)
+		assert.NoError(t, err)
+		assert.NotNil(t, merged)
+
+		v, err := merged.GetValue(ctx, Bytes("b"))
+		assert.NoError(t, err)
+		assert.Nil(t, v)
+
+		target2 := ts.newSSTableFS(1)
+		merged2, err := mergeSSTablesV2(ctx, *ts.Config, target2, []SStable{sst1, sst2, sst3}, true)
+		assert.NoError(t, err)
+		assert.Nil(t, merged2)
+	})
+
 	t.Run("returns nil on empty sources", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)

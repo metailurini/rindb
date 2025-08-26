@@ -254,13 +254,13 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, e
 		iterators = append(iterators, rangeIter)
 	}
 
-	pq, err := buildRangePQ(iterators)
+	mergeIter, err := NewMergingIterator(iterators, cleanup)
 	if err != nil {
 		cleanup()
 		return nil, err
 	}
 
-	return &RangeIterator{pq: pq, cleanup: cleanup}, nil
+	return NewRangeIterator(mergeIter), nil
 }
 
 // Put inserts or updates a key-value pair in the database.
