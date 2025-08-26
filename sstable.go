@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"os"
 	"sort"
 	"time"
@@ -14,6 +13,7 @@ import (
 
 var (
 	ErrKeyNotFound      = errors.New("key not found")
+	ErrTombstoneFound   = errors.New("tombstone found")
 	ErrMalFormedSSTable = errors.New("malformed sstable")
 )
 
@@ -92,10 +92,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		}
 	}()
 
-	maxSeq := uint64(math.MaxUint64)
-	if len(seq) > 0 {
-		maxSeq = seq[0]
-	}
+	maxSeq := getMaxSeq(seq...)
 
 	if !s.Bloom.Lookup(key) {
 		return nil, ErrKeyNotFound
@@ -127,7 +124,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		}
 		if record.GetSequenceNumber() <= maxSeq {
 			if record.GetType() == TypeDeletion {
-				return nil, ErrKeyNotFound
+				return nil, ErrTombstoneFound
 			}
 			return record.GetValue(), nil
 		}
@@ -388,7 +385,7 @@ func (sri *sstableIRange) HasNext() bool {
 
 // Next implements Iterator.
 func (sri *sstableIRange) Next() (Record, error) {
-	for sri.current < len(sri.s.SparseIndex) && sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) <= 0 {
+	for sri.HasNext() {
 		rec, err := ReadRecord(sri.s)
 		if err != nil {
 			return nil, err
@@ -405,10 +402,7 @@ func (sri *sstableIRange) Next() (Record, error) {
 // IRange returns an iterator over records with keys in [start, end] and sequence
 // numbers less than or equal to seq.
 func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
-	maxSeq := uint64(math.MaxUint64)
-	if len(seq) > 0 {
-		maxSeq = seq[0]
-	}
+	maxSeq := getMaxSeq(seq...)
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})

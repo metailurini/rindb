@@ -500,7 +500,7 @@ func TestFlushWithTombstones(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
 	v2, err := sstable.GetValue(ctx, k2)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.ErrorIs(t, err, ErrTombstoneFound)
 	assert.Nil(t, v2)
 }
 

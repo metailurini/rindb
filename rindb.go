@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -188,10 +187,7 @@ func (r *Rindb) Get(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error
 		span.SetAttributes(attribute.Int("key_size", len(key)))
 	}
 
-	maxSeq := uint64(math.MaxUint64)
-	if len(seq) > 0 {
-		maxSeq = seq[0]
-	}
+	maxSeq := getMaxSeq(seq...)
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -234,10 +230,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 		return nil, ErrDatabaseClosed
 	}
 
-	maxSeq := uint64(math.MaxUint64)
-	if len(seq) > 0 {
-		maxSeq = seq[0]
-	}
+	maxSeq := getMaxSeq(seq...)
 
 	iterators := []Iterator[Record]{r.memtable.IRange(start, end, maxSeq)}
 
