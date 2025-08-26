@@ -7,7 +7,7 @@ check:
 
 check-spanname:
 	@go build -o ./bin/spanname ./tool/spanname
-	@go vet -vettool=$$(pwd)/bin/spanname ./...
+	@GOTOOLCHAIN=go1.23.4 go vet -vettool=$$(pwd)/bin/spanname ./...
 
 .PHONY: clean-testdata
 clean-testdata:
