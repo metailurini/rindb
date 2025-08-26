@@ -34,6 +34,20 @@ type Stats struct {
 	Flushes          uint64
 }
 
+// Snapshot represents a point-in-time view of the database.
+//
+// It captures the sequence number at the time of creation, allowing callers
+// to perform read operations (e.g., Get, IRange) against a consistent view of
+// the data as it existed when the snapshot was taken.
+type Snapshot struct {
+	sequence uint64
+}
+
+// Sequence returns the captured sequence number for this snapshot.
+func (s Snapshot) Sequence() uint64 {
+	return s.sequence
+}
+
 // Rindb is the main database structure
 type Rindb struct {
 	wal               *WAL
@@ -45,6 +59,7 @@ type Rindb struct {
 	wg                sync.WaitGroup // WaitGroup to track background goroutines
 	closed            bool           // Flag to indicate if the database is closed
 	sequenceNumber    uint64
+	activeSnapshots   []uint64
 
 	getCalls    atomic.Uint64
 	putCalls    atomic.Uint64
@@ -166,6 +181,45 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,
 	}, nil
+}
+
+// NewSnapshot captures the current sequence number and tracks it in the list
+// of active snapshots.
+func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
+	ctx, span := tracer.Start(ctx, "Rindb.NewSnapshot")
+	defer span.End()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil, ErrDatabaseClosed
+	}
+
+	snap := &Snapshot{sequence: r.sequenceNumber}
+	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
+	return snap, nil
+}
+
+// Release removes the snapshot from the list of active snapshots.
+func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
+	ctx, span := tracer.Start(ctx, "Rindb.Release")
+	defer span.End()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return ErrDatabaseClosed
+	}
+
+	for i, seq := range r.activeSnapshots {
+		if seq == snap.sequence {
+			r.activeSnapshots = append(r.activeSnapshots[:i], r.activeSnapshots[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 // Get retrieves the value associated with the given key from the database.
