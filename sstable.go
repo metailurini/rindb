@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"sort"
 	"time"
 )
@@ -95,16 +94,10 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	maxSeq := getMaxSeq(seq...)
 
-	fs := s.FileSystem
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	if fs.file == nil {
-		file, err := os.OpenFile(filepath.Clean(fs.filePath), os.O_RDWR|os.O_CREATE, fileSystemPermission)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open sstable %s: %w", fs.Path(), err)
+	if !s.IsOpened() {
+		if err := s.Open(ctx); err != nil {
+			return nil, fmt.Errorf("failed to open sstable %s: %w", s.Path(), err)
 		}
-		fs.file = file
 	}
 
 	if !s.Bloom.Lookup(key) {
@@ -116,17 +109,36 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		return nil, err
 	}
 
-	if _, err := fs.file.Seek(offset, io.SeekStart); err != nil {
-		ERROR(ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
-		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	if _, err := s.Seek(offset, io.SeekStart); err != nil {
+		if errors.Is(err, ErrFileNotOpened) {
+			if err := s.Open(ctx); err != nil {
+				return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
+			}
+			if _, err := s.Seek(offset, io.SeekStart); err != nil {
+				ERROR(ctx, "Failed to seek to offset %d in %s after reopen: %v", offset, s.Path(), err)
+				return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+			}
+		} else {
+			ERROR(ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
+			return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+		}
 	}
 
 	for {
-		record, err := ReadRecord(fs.file)
+		record, err := ReadRecord(s)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				ERROR(ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
 				return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
+			}
+			if errors.Is(err, ErrFileNotOpened) {
+				if err := s.Open(ctx); err != nil {
+					return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
+				}
+				if _, err := s.Seek(offset, io.SeekStart); err != nil {
+					return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+				}
+				continue
 			}
 			ERROR(ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
@@ -208,41 +220,34 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
-	if fs.file == nil {
-		return 0, ErrFileNotOpened
-	}
-	return fs.file.Seek(-1*mdByteSize, io.SeekEnd)
+	return fs.Seek(-1*mdByteSize, io.SeekEnd)
 }
 
 func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-
-	if fs.file == nil {
+	if !fs.IsOpened() {
 		return SparseIndex{}, ErrFileNotOpened
 	}
 
-	tailSSTableOffset, err := fs.file.Seek(-1*mdByteSize, io.SeekEnd)
+	tailOffset, err := fs.Seek(-1*mdByteSize, io.SeekEnd)
 	if err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to seek to tail of sstable %s: %w", fs.Path(), err)
 	}
 
-	sparseIndexOffset, err := ReadNumber(fs.file)
+	sparseIndexOffset, err := ReadNumber(fs)
 	if err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to read sparse index offset from %s: %w", fs.Path(), err)
 	}
 
-	ret, err := fs.file.Seek(int64(sparseIndexOffset), io.SeekStart)
+	ret, err := fs.Seek(int64(sparseIndexOffset), io.SeekStart)
 	if err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to seek to sparse index offset %d in %s: %w", sparseIndexOffset, fs.Path(), err)
 	}
 
 	sparseIndex := SparseIndex{}
 	// Read records until the calculated end of the sparse index data
-	for ret < tailSSTableOffset {
-		record, err := ReadRecord(fs.file)
+	for ret < tailOffset {
+		record, err := ReadRecord(fs)
 		if err != nil {
-			// Check for EOF specifically, might indicate corruption
 			if errors.Is(err, io.EOF) {
 				return SparseIndex{}, fmt.Errorf("unexpected EOF while reading sparse index in %s: %w", fs.Path(), ErrMalFormedSSTable)
 			}
@@ -250,16 +255,17 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 		}
 		sparseIndex = append(sparseIndex, NewKeyOffset(record.GetKey(), record.GetValue()))
 
-		ret, err = fs.file.Seek(0, io.SeekCurrent)
+		ret, err = fs.CursorPos()
 		if err != nil {
 			return SparseIndex{}, fmt.Errorf("failed to get cursor position in %s: %w", fs.Path(), err)
 		}
 	}
-	// Verify that the final cursor position matches the expected end of the sparse index data.
-	if ret != tailSSTableOffset {
+
+	if ret != tailOffset {
 		return SparseIndex{}, fmt.Errorf("mismatched sparse index size in %s: expected end at %d, but read until %d: %w",
-			fs.Path(), tailSSTableOffset, ret, ErrMalFormedSSTable)
+			fs.Path(), tailOffset, ret, ErrMalFormedSSTable)
 	}
+
 	return sparseIndex, nil
 }
 
