@@ -901,12 +901,13 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		if err != nil {
 			return nil, err
 		}
-		if lastKeySet && rec.GetKey().Compare(lastKey) == CmpEqual && lastSeq <= minSeq {
-			continue
-		}
-		if !lastKeySet || rec.GetKey().Compare(lastKey) != CmpEqual {
-			lastKey = rec.GetKey().Clone()
+
+		key := rec.GetKey()
+		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
+			lastKey = key.Clone()
 			lastKeySet = true
+		} else if lastSeq <= minSeq {
+			continue
 		}
 		lastSeq = rec.GetSequenceNumber()
 
