@@ -63,6 +63,28 @@ func TestRindb_GetSequence(t *testing.T) {
 	assert.Equal(t, Bytes("v2"), value)
 }
 
+func TestRindb_Snapshot(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
+	defer cleanup()
+
+	key := Bytes("key")
+	assert.NoError(t, rin.Put(ctx, key, Bytes("v1")))
+	snap, err := rin.NewSnapshot(ctx)
+	assert.NoError(t, err)
+
+	assert.NoError(t, rin.Put(ctx, key, Bytes("v2")))
+
+	val, err := rin.Get(ctx, key, snap.Sequence())
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), val)
+
+	assert.NoError(t, rin.Release(ctx, snap))
+	rin.mu.RLock()
+	assert.Len(t, rin.activeSnapshots, 0)
+	rin.mu.RUnlock()
+}
+
 func TestRindb_IRange(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
