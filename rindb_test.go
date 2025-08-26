@@ -162,8 +162,8 @@ func TestRindb_Remove(t *testing.T) {
 	err = rin.Remove(ctx, key)
 	assert.NoError(t, err)
 	value, err := rin.Get(ctx, key)
-	assert.NoError(t, err)
-	assert.Equal(t, Bytes(nil), value)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.Nil(t, value)
 }
 
 // TestRindb_FlushMemtable tests flushing the memtable to an SSTable.
@@ -226,7 +226,8 @@ func TestRindb_GetPrecedence(t *testing.T) {
 // TestRindb_ConcurrentCRUD tests concurrent CRUD operations on Rindb.
 func TestRindb_ConcurrentCRUD(t *testing.T) {
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	opts := append(testOptions(), WithMaxMemtableSize(10000))
+	rin, cleanup := initRinDBWithCleanup(t, opts...)
 	defer cleanup()
 	var wg sync.WaitGroup
 	const numGoroutines = 10
@@ -296,7 +297,7 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	// Total estimated size after key3 = 80 + 40 = 120 bytes.
 	// Set maxMemtableSize to 80. The memtable will reach its limit after key2 is added.
 	// The Put operation for key3 should then trigger the flush.
-	smallMemtableOpts := append(testOptions(), WithMaxMemtableSize(80))
+	smallMemtableOpts := []Option{WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(80)}
 	rin, cleanup := initRinDBWithCleanup(t, smallMemtableOpts...)
 	defer cleanup()
 

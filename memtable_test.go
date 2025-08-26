@@ -104,7 +104,7 @@ func TestGetMaxSequenceNumberFromMemtable(t *testing.T) {
 
 func TestMemtable_ByteSize(t *testing.T) {
 	cfg := testConfig()
-	entryOverhead := 83 // As defined in memtable.go Put method
+	entryOverhead := slNodeOverhead + internalKeySuffixLen
 
 	t.Run("Empty", func(t *testing.T) {
 		mem := InitMemtable(cfg)
@@ -149,7 +149,7 @@ func TestMemtable_ByteSize(t *testing.T) {
 
 		// Update
 		mem.Put(newRecord(key, value2, 2))
-		expectedSize := len(key) + len(value2) + entryOverhead // Only the latest entry size counts
+		expectedSize := initialSize + len(key) + len(value2) + entryOverhead
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after updating entry")
 	})
 
@@ -165,7 +165,7 @@ func TestMemtable_ByteSize(t *testing.T) {
 
 		// Put tombstone
 		mem.Put(newRecord(key, nil, 2))
-		expectedSize := len(key) + 0 + entryOverhead // Value length is 0 for tombstone
+		expectedSize := initialSize + len(key) + 0 + entryOverhead
 		assert.Equal(t, expectedSize, mem.ByteSize(), "Size mismatch after putting tombstone")
 	})
 
@@ -206,14 +206,41 @@ func TestMemtable_Tombstone(t *testing.T) {
 		expectedValue := pair[1]
 
 		got, err := mem.Get(key)
-		assert.NoError(t, err)
-
 		if _, isTombstone := tombstoneKeys[string(key)]; isTombstone {
-			assert.Nil(t, got, "Expected nil (tombstone) for key %s", string(key))
+			assert.ErrorIs(t, err, ErrKeyNotFound)
 		} else {
+			assert.NoError(t, err)
 			assert.Equal(t, expectedValue, got, "Value mismatch for key %s", string(key))
 		}
 	}
+}
+
+func TestMemtable_GetAtAndCleanup(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	key := Bytes("k")
+	mem.Put(newRecord(key, Bytes("v1"), 1))
+	mem.Put(newRecord(key, Bytes("v2"), 2))
+	mem.Put(newRecord(key, nil, 3))
+
+	v, err := mem.GetAt(key, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), v)
+
+	v, err = mem.GetAt(key, 2)
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), v)
+
+	_, err = mem.GetAt(key, 3)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+
+	mem.Cleanup(3)
+	_, err = mem.GetAt(key, 2)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+
+	mem.Cleanup(4)
+	_, err = mem.GetAt(key, 4)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 }
 
 func TestBytes_Clone(t *testing.T) {

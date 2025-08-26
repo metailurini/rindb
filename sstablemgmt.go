@@ -198,7 +198,10 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, levelNumb int, fs *File
 
 	// Ensure the level exists
 	for len(h.levels) <= levelNumb {
-		h.levels = append(h.levels, InitLinkedList[*FileSystem]())
+		h.levels = append(h.levels, nil)
+	}
+	if h.levels[levelNumb] == nil {
+		h.levels[levelNumb] = InitLinkedList[*FileSystem]()
 	}
 
 	// Add the new SSTable to the end of the level list
