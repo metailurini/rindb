@@ -14,10 +14,7 @@ type InternalKey struct {
 func (k InternalKey) Compare(other any) int {
 	o := other.(InternalKey)
 	if cmp := bytes.Compare(k.UserKey, o.UserKey); cmp != 0 {
-		if cmp < 0 {
-			return CmpLess
-		}
-		return CmpGreater
+		return cmp
 	}
 	if k.Seq > o.Seq {
 		return CmpLess
