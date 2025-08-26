@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -198,6 +199,15 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 
 	snap := &Snapshot{sequence: r.sequenceNumber}
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
+
+	minSeq := r.activeSnapshots[0]
+	for _, seq := range r.activeSnapshots[1:] {
+		if seq < minSeq {
+			minSeq = seq
+		}
+	}
+	r.ssTableManager.UpdateMinSnapshotSeq(minSeq)
+
 	return snap, nil
 }
 
@@ -219,6 +229,15 @@ func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
 			break
 		}
 	}
+
+	minSeq := uint64(math.MaxUint64)
+	for _, seq := range r.activeSnapshots {
+		if seq < minSeq {
+			minSeq = seq
+		}
+	}
+	r.ssTableManager.UpdateMinSnapshotSeq(minSeq)
+
 	return nil
 }
 

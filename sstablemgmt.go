@@ -61,6 +61,17 @@ type SSTableManager struct {
 	diskSampler func() (uint64, error)
 }
 
+// UpdateMinSnapshotSeq updates the minimum active snapshot sequence number
+// tracked by the manager.
+//
+// It is expected that the caller provides the smallest sequence number of all
+// currently active snapshots or math.MaxUint64 when no snapshots are active.
+func (h *SSTableManager) UpdateMinSnapshotSeq(seq uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.minSnapshotSeq = seq
+}
+
 // openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
 // and adds the FileSystem to the manager's list of opened file systems.
 // It returns the created *SSTable or an error.

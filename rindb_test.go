@@ -530,3 +530,76 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.Equal(t, uint64(70), rin.sequenceNumber, "Expected sequence number to be the common max")
 	})
 }
+
+func TestCompactionRespectsSnapshots(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	t.Run("retains tombstone with active snapshot", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.RinDB.mu.Lock()
+		ts.RinDB.sequenceNumber = 2
+		ts.RinDB.mu.Unlock()
+
+		snap, err := ts.RinDB.NewSnapshot(ctx)
+		assert.NoError(t, err)
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("b"), Bytes("1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		ts.Manager.mu.Lock()
+		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})
+		ts.Manager.mu.Unlock()
+		assert.NoError(t, err)
+
+		fs, err := ts.Manager.levels[1].Iterator().Next()
+		assert.NoError(t, err)
+		merged, err := ts.Manager.openAndLoadSSTable(ctx, fs)
+		assert.NoError(t, err)
+
+		v, err := merged.GetValue(ctx, Bytes("b"))
+		assert.ErrorIs(t, err, ErrTombstoneFound)
+		assert.Nil(t, v)
+
+		_ = ts.RinDB.Release(ctx, snap)
+	})
+
+	t.Run("prunes after snapshot release", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.RinDB.mu.Lock()
+		ts.RinDB.sequenceNumber = 2
+		ts.RinDB.mu.Unlock()
+
+		snap, err := ts.RinDB.NewSnapshot(ctx)
+		assert.NoError(t, err)
+		assert.NoError(t, ts.RinDB.Release(ctx, snap))
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("b"), Bytes("1"), 1))
+		sst1, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), nil, 3))
+		sst2, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		ts.Manager.mu.Lock()
+		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})
+		ts.Manager.mu.Unlock()
+		assert.NoError(t, err)
+
+		assert.Equal(t, 0, ts.Manager.levels[1].Len())
+	})
+}
