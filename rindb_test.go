@@ -3,6 +3,7 @@ package rindb
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path"
@@ -300,7 +301,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
 	newSStable, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
-	err = rin.wal.Clean(ctx, ^uint64(0))
+	err = rin.wal.Clean(ctx, math.MaxUint64)
 	assert.NoError(t, err)
 	value, err := newSStable.GetValue(ctx, Bytes("rm-key"))
 	assert.ErrorIs(t, err, ErrTombstoneFound)
