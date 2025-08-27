@@ -45,7 +45,7 @@ type Rindb struct {
 	wg                sync.WaitGroup // WaitGroup to track background goroutines
 	closed            bool           // Flag to indicate if the database is closed
 	sequenceNumber    uint64
-	activeSnapshots   []uint64
+	activeSnapshots   []uint64 // Sorted list of active snapshot sequences
 
 	getCalls    atomic.Uint64
 	putCalls    atomic.Uint64

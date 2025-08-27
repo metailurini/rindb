@@ -41,13 +41,9 @@ func (r *Rindb) minSnapshotSeq() uint64 {
 	if len(r.activeSnapshots) == 0 {
 		return r.sequenceNumber
 	}
-	minSeq := r.activeSnapshots[0]
-	for _, s := range r.activeSnapshots[1:] {
-		if s < minSeq {
-			minSeq = s
-		}
-	}
-	return minSeq
+	// activeSnapshots is maintained in ascending order, so the first element
+	// is always the smallest sequence number.
+	return r.activeSnapshots[0]
 }
 
 // cleanupObsoleteLocked removes memtable entries and WAL segments older than
@@ -57,7 +53,8 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 	ctx, span := tracer.Start(ctx, "Rindb.cleanupObsoleteLocked")
 	defer span.End()
 
-	cutoff := r.minSnapshotSeq()
+	minSnapSeq := r.minSnapshotSeq()
+	cutoff := minSnapSeq
 	if maxSeq < cutoff {
 		cutoff = maxSeq
 	}
@@ -74,10 +71,7 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 		return nil
 	}
 
-	// When no snapshots, r.minSnapshotSeq() is r.sequenceNumber.
-	// When snapshots exist, it is the minimum sequence.
-	// This correctly cleans the WAL in both cases.
-	return r.wal.Clean(ctx, r.minSnapshotSeq())
+	return r.wal.Clean(ctx, cutoff)
 }
 
 // NewSnapshot captures the current sequence number and tracks it in the list
