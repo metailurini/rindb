@@ -10,7 +10,7 @@
 - `make check`: Formats (`go fmt`), builds `tool/spanname`, runs `go vet` with it, then `staticcheck`.
 - `make test`: Cleans `testdata/` and runs all tests verbosely.
 - `make test-coverage`: Runs tests with coverage and opens the HTML report.
-- `make test-integration-smoke`: Runs quick integration tests with `integration` and `smoke` build tags; run this along with unit tests before committing.
+- `make test-integration-smoke`: Runs quick integration tests with `integration` and `smoke` build tags; run this along with `make test` before committing.
 - `make test-integration-full`: Runs full integration tests (requires the `integration` build tag).
 - `make test-integration`: Alias for `make test-integration-full`.
 - `go build -o rindb cmd/main.go`: Builds the sample CLI. Example: `./rindb` then `put key val`.
