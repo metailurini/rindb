@@ -159,3 +159,25 @@ func (fs *FileSystem) Seek(offset int64, whence int) (int64, error) {
 
 	return fs.file.Seek(offset, whence)
 }
+
+func (fs *FileSystem) ReadAt(p []byte, off int64) (int, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	if fs.file == nil {
+		return 0, ErrFileNotOpened
+	}
+
+	return fs.file.ReadAt(p, off)
+}
+
+func (fs *FileSystem) WriteAt(p []byte, off int64) (int, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file == nil {
+		return 0, ErrFileNotOpened
+	}
+
+	return fs.file.WriteAt(p, off)
+}
