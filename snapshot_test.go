@@ -127,3 +127,29 @@ func TestSnapshot_IRange(t *testing.T) {
 
 	assert.NoError(t, rin.Release(ctx, snap))
 }
+
+func BenchmarkRindbRelease(b *testing.B) {
+	ctx := context.Background()
+	rin, err := InitRinDB(ctx, WithDatabaseDir(b.TempDir()))
+	require.NoError(b, err)
+	defer func() { _ = rin.Close() }()
+
+	const snapshots = 10000
+	snaps := make([]*Snapshot, snapshots)
+	for i := 0; i < snapshots; i++ {
+		rin.sequenceNumber++
+		snap, err := rin.NewSnapshot(ctx)
+		require.NoError(b, err)
+		snaps[i] = snap
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx := i % snapshots
+		require.NoError(b, rin.Release(ctx, snaps[idx]))
+		rin.sequenceNumber++
+		newSnap, err := rin.NewSnapshot(ctx)
+		require.NoError(b, err)
+		snaps[idx] = newSnap
+	}
+}

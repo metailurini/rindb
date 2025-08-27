@@ -1,6 +1,9 @@
 package rindb
 
-import "context"
+import (
+	"context"
+	"sort"
+)
 
 // Snapshot represents a point-in-time view of the database.
 //
@@ -105,11 +108,11 @@ func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
 		return ErrDatabaseClosed
 	}
 
-	for i, seq := range r.activeSnapshots {
-		if seq == snap.sequence {
-			r.activeSnapshots = append(r.activeSnapshots[:i], r.activeSnapshots[i+1:]...)
-			break
-		}
+	idx := sort.Search(len(r.activeSnapshots), func(i int) bool {
+		return r.activeSnapshots[i] >= snap.sequence
+	})
+	if idx < len(r.activeSnapshots) && r.activeSnapshots[idx] == snap.sequence {
+		r.activeSnapshots = append(r.activeSnapshots[:idx], r.activeSnapshots[idx+1:]...)
 	}
 	return r.cleanupObsoleteLocked(ctx, r.sequenceNumber)
 }
