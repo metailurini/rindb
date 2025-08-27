@@ -24,7 +24,7 @@ func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v)
 
-	assert.NoError(t, rin.Release(ctx, snap))
+	assert.NoError(t, snap.Release(ctx))
 
 	_, err = rin.memtable.GetAt(key, snap.Sequence())
 	assert.Error(t, err)
@@ -53,7 +53,7 @@ func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, uint(3), mem.data.Len())
 
-	assert.NoError(t, rin.Release(ctx, snap))
+	assert.NoError(t, snap.Release(ctx))
 
 	mem, err = rin.wal.Load(ctx)
 	assert.NoError(t, err)
@@ -75,10 +75,10 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
 
-	assert.NoError(t, rin.Release(ctx, snap1))
+	assert.NoError(t, snap1.Release(ctx))
 	assert.Equal(t, snap2.Sequence(), rin.ssTableManager.minSnapshotSeq)
 
-	assert.NoError(t, rin.Release(ctx, snap2))
+	assert.NoError(t, snap2.Release(ctx))
 	assert.Equal(t, rin.sequenceNumber, rin.ssTableManager.minSnapshotSeq)
 }
 
@@ -98,7 +98,7 @@ func TestRindb_Snapshot(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), val)
 
-	assert.NoError(t, rin.Release(ctx, snap))
+	assert.NoError(t, snap.Release(ctx))
 	rin.mu.RLock()
 	assert.Len(t, rin.activeSnapshots, 0)
 	rin.mu.RUnlock()
@@ -125,5 +125,5 @@ func TestSnapshot_IRange(t *testing.T) {
 	}
 	assertIteratorRecords(t, iter, expected)
 
-	assert.NoError(t, rin.Release(ctx, snap))
+	assert.NoError(t, snap.Release(ctx))
 }

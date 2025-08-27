@@ -101,7 +101,7 @@ _ = db.Put(ctx, []byte("k1"), []byte("v1"))
 _ = db.Put(ctx, []byte("k2"), []byte("v2"))
 
 snap, _ := db.NewSnapshot(ctx)
-defer db.Release(ctx, snap)
+defer snap.Release(ctx)
 
 // Mutations after snapshot do not affect reads through it
 _ = db.Put(ctx, []byte("k1"), []byte("v3"))
