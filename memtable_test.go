@@ -290,7 +290,7 @@ func TestMemtable_Cleanup(t *testing.T) {
 		assert.Equal(t, Bytes("v3"), v)
 	})
 
-	t.Run("RemovesAllRecords", func(t *testing.T) {
+	t.Run("KeepsLatestRecord", func(t *testing.T) {
 		mem := InitMemtable(cfg)
 		key := Bytes("k")
 		mem.Put(newRecord(key, Bytes("v1"), 1))
@@ -298,9 +298,9 @@ func TestMemtable_Cleanup(t *testing.T) {
 
 		mem.Cleanup(3)
 
-		assert.Equal(t, 0, mem.ByteSize())
-		_, err := mem.Get(key)
-		assert.ErrorIs(t, err, ErrKeyNotFound)
+		v, err := mem.Get(key)
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v2"), v)
 	})
 }
 

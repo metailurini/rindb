@@ -36,16 +36,34 @@ type Stats struct {
 
 // Snapshot represents a point-in-time view of the database.
 //
-// It captures the sequence number at the time of creation, allowing callers
-// to perform read operations (e.g., Get, IRange) against a consistent view of
-// the data as it existed when the snapshot was taken.
+// It captures the sequence number at the time of creation and a reference to
+// the parent database, allowing callers to perform read operations (e.g., Get,
+// IRange) against a consistent view of the data as it existed when the
+// snapshot was taken.
 type Snapshot struct {
+	db       *Rindb
 	sequence uint64
 }
 
 // Sequence returns the captured sequence number for this snapshot.
 func (s Snapshot) Sequence() uint64 {
 	return s.sequence
+}
+
+// Get returns the value associated with the key as of the snapshot's
+// sequence.
+func (s *Snapshot) Get(ctx context.Context, key Bytes) (Bytes, error) {
+	_, span := tracer.Start(ctx, "Snapshot.Get")
+	defer span.End()
+	return s.db.Get(ctx, key, s.sequence)
+}
+
+// IRange returns an iterator over records with keys in [start, end] as of the
+// snapshot's sequence.
+func (s *Snapshot) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
+	_, span := tracer.Start(ctx, "Snapshot.IRange")
+	defer span.End()
+	return s.db.IRange(ctx, start, end, s.sequence)
 }
 
 // Rindb is the main database structure
@@ -87,14 +105,24 @@ func (r *Rindb) minSnapshotSeq() uint64 {
 // cleanupObsoleteLocked removes memtable entries and WAL segments older than
 // the minimum active snapshot sequence. r.mu must be held when calling.
 func (r *Rindb) cleanupObsoleteLocked(ctx context.Context) error {
-	minSeq := r.minSnapshotSeq()
-	r.memtable.Cleanup(minSeq)
+	snapMin := r.minSnapshotSeq()
+
+	r.memtable.Cleanup(snapMin)
 
 	r.ssTableManager.mu.Lock()
-	r.ssTableManager.minSnapshotSeq = minSeq
+	r.ssTableManager.minSnapshotSeq = snapMin
 	r.ssTableManager.mu.Unlock()
 
-	return r.wal.Clean(ctx, minSeq)
+	walSeq := snapMin
+	if len(r.activeSnapshots) == 0 {
+		if r.memtable.ByteSize() == 0 {
+			walSeq = r.sequenceNumber
+		} else {
+			return nil
+		}
+	}
+
+	return r.wal.Clean(ctx, walSeq)
 }
 
 // Stats returns current statistics of the database.
@@ -225,7 +253,7 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 		return nil, ErrDatabaseClosed
 	}
 
-	snap := &Snapshot{sequence: r.sequenceNumber}
+	snap := &Snapshot{db: r, sequence: r.sequenceNumber}
 	prev := len(r.activeSnapshots)
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
 

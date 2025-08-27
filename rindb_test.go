@@ -76,7 +76,7 @@ func TestRindb_Snapshot(t *testing.T) {
 
 	assert.NoError(t, rin.Put(ctx, key, Bytes("v2")))
 
-	val, err := rin.Get(ctx, key, snap.Sequence())
+	val, err := snap.Get(ctx, key)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), val)
 
@@ -84,6 +84,30 @@ func TestRindb_Snapshot(t *testing.T) {
 	rin.mu.RLock()
 	assert.Len(t, rin.activeSnapshots, 0)
 	rin.mu.RUnlock()
+}
+
+func TestSnapshot_IRange(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
+	defer cleanup()
+
+	assert.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("v1")))
+	assert.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("v2")))
+	snap, err := rin.NewSnapshot(ctx)
+	assert.NoError(t, err)
+
+	assert.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("v3")))
+	assert.NoError(t, rin.Remove(ctx, Bytes("b")))
+
+	iter, err := snap.IRange(ctx, Bytes("a"), Bytes("z"))
+	assert.NoError(t, err)
+	expected := []Record{
+		newRecord(Bytes("a"), Bytes("v1"), 1),
+		newRecord(Bytes("b"), Bytes("v2"), 2),
+	}
+	assertIteratorRecords(t, iter, expected)
+
+	assert.NoError(t, rin.Release(ctx, snap))
 }
 
 func TestMemtableCleanupAfterSnapshotRelease(t *testing.T) {
