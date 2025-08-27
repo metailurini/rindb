@@ -20,10 +20,11 @@ var ErrDatabaseClosed = errors.New("database is closed")
 // Stats represents runtime statistics of the database.
 //
 // It includes information about memtable size, sequence number,
-// per-level SSTable counts, WAL usage and operation counters.
+// active snapshot count, per-level SSTable counts, WAL usage and operation counters.
 type Stats struct {
 	MemtableBytes    int
 	SequenceNumber   uint64
+	ActiveSnapshots  int
 	SSTablesPerLevel []int
 	WALBytes         uint64
 	WALRecords       uint64
@@ -67,10 +68,11 @@ func (r *Rindb) Stats() Stats {
 		Flushes:     r.flushCount.Load(),
 	}
 
-	// Lock to get memtable stats and sequence number.
+	// Lock to get memtable stats, sequence number and snapshot count.
 	r.mu.RLock()
 	stats.MemtableBytes = r.memtable.ByteSize()
 	stats.SequenceNumber = r.sequenceNumber
+	stats.ActiveSnapshots = len(r.activeSnapshots)
 	r.mu.RUnlock()
 
 	// Lock separately for SSTable manager stats.
