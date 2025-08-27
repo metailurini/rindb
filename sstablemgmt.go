@@ -110,6 +110,14 @@ func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, er
 	return h, nil
 }
 
+// setMinSnapshotSeq updates the minimum snapshot sequence number
+// in a thread-safe manner.
+func (h *SSTableManager) setMinSnapshotSeq(seq uint64) {
+	h.mu.Lock()
+	h.minSnapshotSeq = seq
+	h.mu.Unlock()
+}
+
 // recordWrite increments the write counter and, once a second has elapsed,
 // updates the moving average of writes per second using an exponential moving
 // average. It is called for every `Put`.

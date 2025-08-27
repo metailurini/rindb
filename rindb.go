@@ -113,9 +113,7 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 
 	r.memtable.Cleanup(cutoff)
 
-	r.ssTableManager.mu.Lock()
-	r.ssTableManager.minSnapshotSeq = cutoff
-	r.ssTableManager.mu.Unlock()
+	r.ssTableManager.setMinSnapshotSeq(cutoff)
 
 	if len(r.activeSnapshots) == 0 && r.memtable.ByteSize() > 0 {
 		// Memtable has unflushed data that is only in the WAL.
@@ -262,9 +260,7 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
 
 	if prev == 0 {
-		r.ssTableManager.mu.Lock()
-		r.ssTableManager.minSnapshotSeq = snap.sequence
-		r.ssTableManager.mu.Unlock()
+		r.ssTableManager.setMinSnapshotSeq(snap.sequence)
 	}
 
 	return snap, nil
@@ -471,9 +467,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
 			return fmt.Errorf("failed to clean WAL: %w", err)
 		}
-		r.ssTableManager.mu.Lock()
-		r.ssTableManager.minSnapshotSeq = snapMin
-		r.ssTableManager.mu.Unlock()
+		r.ssTableManager.setMinSnapshotSeq(snapMin)
 
 		// Capture the sequence number at flush time for later cleanup.
 		flushSeq := r.sequenceNumber
