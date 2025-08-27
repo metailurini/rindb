@@ -1,5 +1,5 @@
-GO_TOOLCHAIN ?= go1.23.4
-GO = GOTOOLCHAIN=$(GO_TOOLCHAIN) go
+export GOTOOLCHAIN ?= go1.23.4
+GO = go
 
 check:
 	@$(MAKE) check-spanname
@@ -35,4 +35,4 @@ test-coverage: clean-testdata
 	@$(GO) test -v -coverprofile=coverage.txt ./...
 
 test-pprof:
-	@GOTOOLCHAIN=$(GO_TOOLCHAIN) ./scripts/run-pprof-tests.sh
+	@./scripts/run-pprof-tests.sh
