@@ -173,7 +173,7 @@ func BenchmarkRindbRelease(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		idx := i % snapshots
-		require.NoError(b, rin.Release(ctx, snaps[idx]))
+		require.NoError(b, snaps[idx].Release(ctx))
 		require.NoError(b, rin.Put(ctx, Bytes(fmt.Sprintf("k-%d", next)), Bytes("v")))
 		next++
 		newSnap, err := rin.NewSnapshot(ctx)

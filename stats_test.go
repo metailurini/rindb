@@ -93,7 +93,7 @@ func TestRindb_Stats(t *testing.T) {
 		st = ts.RinDB.Stats()
 		assert.Equal(t, 1, st.ActiveSnapshots)
 
-		require.NoError(t, ts.RinDB.Release(ctx, snap))
+		require.NoError(t, snap.Release(ctx))
 
 		st = ts.RinDB.Stats()
 		assert.Zero(t, st.ActiveSnapshots)

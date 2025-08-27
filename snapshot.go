@@ -20,7 +20,7 @@ type Snapshot struct {
 }
 
 // Sequence returns the captured sequence number for this snapshot.
-func (s Snapshot) Sequence() uint64 {
+func (s *Snapshot) Sequence() uint64 {
 	return s.sequence
 }
 
