@@ -3,6 +3,7 @@ package rindb
 import (
 	"context"
 	"sort"
+	"sync"
 )
 
 // Snapshot represents a point-in-time view of the database.
@@ -14,6 +15,7 @@ import (
 type Snapshot struct {
 	db       *Rindb
 	sequence uint64
+	mu       sync.Mutex
 	released bool
 }
 
@@ -42,6 +44,8 @@ func (s *Snapshot) IRange(ctx context.Context, start, end Bytes) (*RangeIterator
 func (s *Snapshot) Release(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Snapshot.Release")
 	defer span.End()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.released {
 		return nil
