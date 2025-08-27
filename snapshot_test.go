@@ -40,14 +40,14 @@ func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(maxSize))
 	defer cleanup()
 
-	assert.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v1")))
+ 	require.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v1")))
 	snap, err := rin.NewSnapshot(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	assert.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v2")))
+	require.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v2")))
 
 	big := make(Bytes, maxSize)
-	assert.NoError(t, rin.Put(ctx, Bytes("big"), big))
+	require.NoError(t, rin.Put(ctx, Bytes("big"), big))
 
 	mem, err := rin.wal.Load(ctx)
 	assert.NoError(t, err)
