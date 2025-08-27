@@ -106,10 +106,7 @@ func (r *Rindb) minSnapshotSeq() uint64 {
 // the minimum active snapshot sequence up to maxSeq. r.mu must be held when
 // calling.
 func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error {
-	cutoff := r.minSnapshotSeq()
-	if maxSeq < cutoff {
-		cutoff = maxSeq
-	}
+	cutoff := min(maxSeq, r.minSnapshotSeq())
 
 	r.memtable.Cleanup(cutoff)
 

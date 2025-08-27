@@ -730,33 +730,46 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 			if err != nil {
 				return nil, err
 			}
-			if _, err := sstable.SparseIndex.GetOffset(key); err == nil {
-				value, err := sstable.GetValue(ctx, key, maxSeq)
+			if _, getOffsetErr := sstable.SparseIndex.GetOffset(key); getOffsetErr != nil {
 				closeErr := fs.Close()
 				h.removeOpenedFS(fs)
-				if err == nil {
+				if errors.Is(getOffsetErr, ErrKeyNotFound) {
+					if closeErr != nil {
+						return nil, fmt.Errorf("key not found in sparse index, but failed to close sstable: %w", closeErr)
+					}
+				} else {
+					return nil, errors.Join(getOffsetErr, closeErr)
+				}
+			} else {
+				value, getErr := sstable.GetValue(ctx, key, maxSeq)
+				closeErr := fs.Close()
+				h.removeOpenedFS(fs)
+
+				if getErr == nil {
 					latestValue = value
 					found = true
 					if closeErr != nil {
-						return nil, closeErr
+						return nil, fmt.Errorf("value found but failed to close sstable: %w", closeErr)
 					}
-					break
+					break // Exit the loop for this level as we've found the key.
 				}
-				if closeErr != nil {
-					return nil, closeErr
+
+				// If a tombstone is found, it's a definitive "not found" for this key.
+				// Combine with closeErr if it occurred.
+				if errors.Is(getErr, ErrTombstoneFound) {
+					return nil, errors.Join(ErrKeyNotFound, closeErr)
 				}
-				if errors.Is(err, ErrTombstoneFound) {
-					return nil, ErrKeyNotFound
-				}
-				if !errors.Is(err, ErrKeyNotFound) {
-					return nil, err
-				}
-				// key might exist in older sstables; continue
-			} else {
-				closeErr := fs.Close()
-				h.removeOpenedFS(fs)
-				if closeErr != nil {
-					return nil, closeErr
+
+				// For other "key not found" errors, continue searching.
+				// However, if a closeErr occurred, we must return it.
+				if errors.Is(getErr, ErrKeyNotFound) {
+					if closeErr != nil {
+						return nil, fmt.Errorf("key not found in sstable, but failed to close: %w", closeErr)
+					}
+					// Otherwise, continue to the next sstable.
+				} else {
+					// A different error occurred during GetValue. Return it, combined with any closeErr.
+					return nil, errors.Join(getErr, closeErr)
 				}
 			}
 
