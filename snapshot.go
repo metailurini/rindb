@@ -54,16 +54,11 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 	defer span.End()
 
 	minSnapSeq := r.minSnapshotSeq()
-	cutoff := minSnapSeq
-	if maxSeq < cutoff {
-		cutoff = maxSeq
-	}
+	cutoff := min(maxSeq, minSnapSeq)
 
 	r.memtable.Cleanup(cutoff)
 
-	r.ssTableManager.mu.Lock()
-	r.ssTableManager.minSnapshotSeq = cutoff
-	r.ssTableManager.mu.Unlock()
+	r.ssTableManager.setMinSnapshotSeq(cutoff)
 
 	if len(r.activeSnapshots) == 0 && r.memtable.ByteSize() > 0 {
 		// Memtable has unflushed data that is only in the WAL.
@@ -77,7 +72,7 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 // NewSnapshot captures the current sequence number and tracks it in the list
 // of active snapshots.
 func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
-	ctx, span := tracer.Start(ctx, "Rindb.NewSnapshot")
+	_, span := tracer.Start(ctx, "Rindb.NewSnapshot")
 	defer span.End()
 
 	r.mu.Lock()
@@ -92,9 +87,7 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
 
 	if prev == 0 {
-		r.ssTableManager.mu.Lock()
-		r.ssTableManager.minSnapshotSeq = snap.sequence
-		r.ssTableManager.mu.Unlock()
+		r.ssTableManager.setMinSnapshotSeq(snap.sequence)
 	}
 
 	return snap, nil
