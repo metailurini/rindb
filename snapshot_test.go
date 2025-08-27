@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,4 +127,28 @@ func TestSnapshot_IRange(t *testing.T) {
 	assertIteratorRecords(t, iter, expected)
 
 	assert.NoError(t, snap.Release(ctx))
+}
+
+func TestSnapshot_ReleaseConcurrent(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
+	defer cleanup()
+
+	snap, err := rin.NewSnapshot(ctx)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	const goroutines = 10
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, snap.Release(ctx))
+		}()
+	}
+	wg.Wait()
+
+	rin.mu.RLock()
+	assert.Len(t, rin.activeSnapshots, 0)
+	rin.mu.RUnlock()
 }
