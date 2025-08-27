@@ -70,7 +70,7 @@ func TestRindb_Stats(t *testing.T) {
 		assert.Equal(t, uint64(1), st.SequenceNumber)
 		assert.Equal(t, uint64(1), st.PutCalls)
 		assert.Equal(t, uint64(1), st.Flushes)
-		assert.Equal(t, 0, st.ActiveSnapshots)
+		assert.Zero(t, st.ActiveSnapshots)
 		assert.Equal(t, 0, st.MemtableBytes)
 		assert.Equal(t, uint64(0), st.WALRecords)
 		assert.Equal(t, uint64(0), st.WALBytes)
