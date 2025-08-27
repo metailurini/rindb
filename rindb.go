@@ -113,16 +113,16 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context) error {
 	r.ssTableManager.minSnapshotSeq = snapMin
 	r.ssTableManager.mu.Unlock()
 
-	walSeq := snapMin
-	if len(r.activeSnapshots) == 0 {
-		if r.memtable.ByteSize() == 0 {
-			walSeq = r.sequenceNumber
-		} else {
-			return nil
-		}
+	if len(r.activeSnapshots) == 0 && r.memtable.ByteSize() > 0 {
+		// Memtable has unflushed data that is only in the WAL.
+		// To prevent data loss on crash, we must not clean the WAL yet.
+		return nil
 	}
 
-	return r.wal.Clean(ctx, walSeq)
+	// When no snapshots, snapMin is r.sequenceNumber.
+	// When snapshots exist, snapMin is the minimum sequence.
+	// This correctly cleans the WAL in both cases.
+	return r.wal.Clean(ctx, snapMin)
 }
 
 // Stats returns current statistics of the database.
