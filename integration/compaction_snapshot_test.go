@@ -74,7 +74,10 @@ func TestCompactionPreservesTombstoneForSnapshot(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond)
 
 	st := db.Stats()
-	require.GreaterOrEqual(t, st.Flushes, uint64(1))
+	require.Equal(t, uint64(1), st.Flushes)
+	require.GreaterOrEqual(t, len(st.SSTablesPerLevel), 2)
+	require.Equal(t, 0, st.SSTablesPerLevel[0])
+	require.Equal(t, 1, st.SSTablesPerLevel[1])
 
 	_, err = db.Get(ctx, rindb.Bytes("k1"))
 	require.ErrorIs(t, err, rindb.ErrKeyNotFound)
