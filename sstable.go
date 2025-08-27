@@ -109,39 +109,23 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		return nil, err
 	}
 
-	if _, err := s.Seek(offset, io.SeekStart); err != nil {
-		if errors.Is(err, ErrFileNotOpened) {
-			if err := s.Open(ctx); err != nil {
-				return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
-			}
-			if _, err := s.Seek(offset, io.SeekStart); err != nil {
-				ERROR(ctx, "Failed to seek to offset %d in %s after reopen: %v", offset, s.Path(), err)
-				return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
-			}
-		} else {
-			ERROR(ctx, "Failed to seek to offset %d in %s: %v", offset, s.Path(), err)
-			return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
-		}
-	}
-
+	reader := newOffsetReader(s.FileSystem, offset)
 	for {
-		record, err := ReadRecord(s)
+		record, err := ReadRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				ERROR(ctx, "Unexpected EOF after seeking to offset %d in %s", offset, s.Path())
-				return nil, fmt.Errorf("unexpected EOF after seeking to offset %d: %w", offset, ErrMalFormedSSTable)
+				ERROR(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
+				return nil, fmt.Errorf("unexpected EOF after reading at offset %d: %w", offset, ErrMalFormedSSTable)
 			}
 			if errors.Is(err, ErrFileNotOpened) {
 				if err := s.Open(ctx); err != nil {
 					return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
 				}
-				if _, err := s.Seek(offset, io.SeekStart); err != nil {
-					return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
-				}
+				reader = newOffsetReader(s.FileSystem, reader.Offset())
 				continue
 			}
-			ERROR(ctx, "Failed to read record at offset %d in %s: %v", offset, s.Path(), err)
-			return nil, fmt.Errorf("failed to read record at offset %d: %w", offset, err)
+			ERROR(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
+			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
 		bytesRead += CalOnDiskSize(record)
 		if record.GetKey().Compare(key) != CmpEqual {
@@ -212,15 +196,16 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		bloom.Insert(ko.key)
 	}
 
-	// Seek to the beginning of the file
-	// Support testing assertions
-	fs.Seek(0, io.SeekStart)
 	INFO(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
 	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
 func readTailSSTable(fs *FileSystem) (int64, error) {
-	return fs.Seek(-1*mdByteSize, io.SeekEnd)
+	info, err := os.Stat(fs.Path())
+	if err != nil {
+		return 0, err
+	}
+	return info.Size() - mdByteSize, nil
 }
 
 func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
@@ -228,25 +213,23 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 		return SparseIndex{}, ErrFileNotOpened
 	}
 
-	tailOffset, err := fs.Seek(-1*mdByteSize, io.SeekEnd)
+	info, err := os.Stat(fs.Path())
 	if err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to seek to tail of sstable %s: %w", fs.Path(), err)
+		return SparseIndex{}, fmt.Errorf("failed to stat sstable %s: %w", fs.Path(), err)
 	}
 
-	sparseIndexOffset, err := ReadNumber(fs)
-	if err != nil {
+	tailOffset := info.Size() - mdByteSize
+	buf := make([]byte, mdByteSize)
+	if _, err := fs.ReadAt(buf, tailOffset); err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to read sparse index offset from %s: %w", fs.Path(), err)
 	}
+	sparseIndexOffset := byteOrder.Uint64(buf)
 
-	ret, err := fs.Seek(int64(sparseIndexOffset), io.SeekStart)
-	if err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to seek to sparse index offset %d in %s: %w", sparseIndexOffset, fs.Path(), err)
-	}
-
+	offset := int64(sparseIndexOffset)
 	sparseIndex := SparseIndex{}
-	// Read records until the calculated end of the sparse index data
-	for ret < tailOffset {
-		record, err := ReadRecord(fs)
+	for offset < tailOffset {
+		reader := newOffsetReader(fs, offset)
+		record, err := ReadRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return SparseIndex{}, fmt.Errorf("unexpected EOF while reading sparse index in %s: %w", fs.Path(), ErrMalFormedSSTable)
@@ -254,16 +237,12 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 			return SparseIndex{}, fmt.Errorf("failed to read sparse index record in %s: %w", fs.Path(), err)
 		}
 		sparseIndex = append(sparseIndex, NewKeyOffset(record.GetKey(), record.GetValue()))
-
-		ret, err = fs.CursorPos()
-		if err != nil {
-			return SparseIndex{}, fmt.Errorf("failed to get cursor position in %s: %w", fs.Path(), err)
-		}
+		offset = reader.Offset()
 	}
 
-	if ret != tailOffset {
+	if offset != tailOffset {
 		return SparseIndex{}, fmt.Errorf("mismatched sparse index size in %s: expected end at %d, but read until %d: %w",
-			fs.Path(), tailOffset, ret, ErrMalFormedSSTable)
+			fs.Path(), tailOffset, offset, ErrMalFormedSSTable)
 	}
 
 	return sparseIndex, nil
@@ -362,6 +341,7 @@ type sstableIterator struct {
 	*FileSystem
 	currentIdx int
 	maxIdx     int
+	offset     int64
 }
 
 // HasNext implements Iterator.
@@ -372,11 +352,13 @@ func (s *sstableIterator) HasNext() bool {
 // Next implements Iterator.
 func (s *sstableIterator) Next() (Record, error) {
 	if s.HasNext() {
-		record, err := ReadRecord(s)
+		reader := newOffsetReader(s.FileSystem, s.offset)
+		record, err := ReadRecord(reader)
 		if err != nil {
 			return nil, err
 		}
-		s.currentIdx += 1
+		s.offset = reader.Offset()
+		s.currentIdx++
 		return record, nil
 	}
 	return nil, EOI
@@ -389,14 +371,11 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 		}
 	}
 
-	if _, err := s.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-
 	return &sstableIterator{
 		currentIdx: 0,
 		maxIdx:     len(s.SparseIndex),
 		FileSystem: s.FileSystem,
+		offset:     0,
 	}, nil
 }
 
@@ -406,6 +385,7 @@ type sstableIRange struct {
 	current int
 	endKey  Bytes
 	seq     uint64
+	offset  int64
 }
 
 // HasNext implements Iterator.
@@ -416,10 +396,12 @@ func (sri *sstableIRange) HasNext() bool {
 // Next implements Iterator.
 func (sri *sstableIRange) Next() (Record, error) {
 	for sri.HasNext() {
-		rec, err := ReadRecord(sri.s)
+		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
+		rec, err := ReadRecord(reader)
 		if err != nil {
 			return nil, err
 		}
+		sri.offset = reader.Offset()
 		sri.current++
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
@@ -441,11 +423,9 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})
-	if startIdx >= len(s.SparseIndex) {
-		return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq}, nil
+	var startOffset int64
+	if startIdx < len(s.SparseIndex) {
+		startOffset = s.SparseIndex[startIdx].offset
 	}
-	if _, err := s.Seek(s.SparseIndex[startIdx].offset, io.SeekStart); err != nil {
-		return nil, err
-	}
-	return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq}, nil
+	return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq, offset: startOffset}, nil
 }

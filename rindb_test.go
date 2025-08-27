@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRindb_Init tests the initialization of the Rindb database using the helper.
@@ -325,6 +326,30 @@ func TestRindb_Close(t *testing.T) {
 	// We don't need the manual checks for WAL/SSTable closure here anymore,
 	// as the helper's cleanup function handles rin.Close(), which should manage them.
 	// The assertions within cleanup cover the success of rin.Close().
+}
+
+// TestConcurrentGetPut ensures concurrent Get and Put operations do not panic.
+func TestConcurrentGetPut(t *testing.T) {
+	ctx := context.Background()
+	opts := append(testOptions(), WithMaxMemtableSize(1<<20))
+	rin, cleanup := initRinDBWithCleanup(t, opts...)
+	defer cleanup()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			key := Bytes(fmt.Sprintf("k%d", i))
+			require.NoError(t, rin.Put(ctx, key, Bytes("v")))
+		}(i)
+		go func(i int) {
+			defer wg.Done()
+			key := Bytes(fmt.Sprintf("k%d", i))
+			_, _ = rin.Get(ctx, key)
+		}(i)
+	}
+	wg.Wait()
 }
 
 // TestRindb_Put_FlushMemtableOnSizeLimit tests that the memtable is flushed

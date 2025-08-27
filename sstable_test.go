@@ -2,7 +2,6 @@ package rindb
 
 import (
 	"context"
-	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,35 +48,32 @@ func TestSStable(t *testing.T) {
 		assert.NoError(t, err)
 		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
 		assert.NoError(t, err)
-		sparseIndexOffset, err := ReadNumber(sstable)
+		reader := newOffsetReader(sstable.FileSystem, tailSSTableOffset)
+		sparseIndexOffset, err := ReadNumber(reader)
 		assert.NoError(t, err)
 		assert.NotZero(t, sparseIndexOffset)
-		ret, err := sstable.Seek(0, io.SeekStart)
-		assert.NoError(t, err)
+		reader = newOffsetReader(sstable.FileSystem, 0)
 		expectedSparseIndex := make(SparseIndex, 0)
+		ret := int64(0)
 		idx := 0
 		for ret < int64(sparseIndexOffset) {
-
-			record, err := ReadRecord(sstable)
+			record, err := ReadRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, data[idx].key, record.GetKey())
 			assert.Equal(t, data[idx].value, record.GetValue())
 			expectedSparseIndex = append(expectedSparseIndex, KeyOffset{record.GetKey(), ret})
-			ret, err = sstable.CursorPos()
-			assert.NoError(t, err)
+			ret = reader.Offset()
 			idx++
 		}
 		idx = 0
 		for ret < tailSSTableOffset {
-
-			record, err := ReadRecord(sstable)
+			record, err := ReadRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, data[idx].key, record.GetKey())
 			k := NewKeyOffset(record.GetKey(), record.GetValue())
 			assert.Equal(t, expectedSparseIndex[idx].key, k.key)
 			assert.Equal(t, expectedSparseIndex[idx].offset, k.offset)
-			ret, err = sstable.CursorPos()
-			assert.NoError(t, err)
+			ret = reader.Offset()
 			idx++
 		}
 	})
@@ -112,9 +108,8 @@ func TestSStable(t *testing.T) {
 		sparseIndex := sstable.SparseIndex
 		for idx := len(sparseIndex) - 1; idx > -1; idx-- {
 			keyOffset := sparseIndex[idx]
-			_, err := sstable.Seek(keyOffset.offset, io.SeekStart)
-			assert.NoError(t, err)
-			record, err := ReadRecord(sstable)
+			reader := newOffsetReader(sstable.FileSystem, keyOffset.offset)
+			record, err := ReadRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, keyOffset.key, record.GetKey())
 		}
@@ -314,10 +309,6 @@ func TestSStable(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				// Re-seek the file to the beginning for each test case
-				_, err := sstable.Seek(0, io.SeekStart)
-				assert.NoError(t, err)
-
 				iterator, err := sstable.IRange(tt.startKey, tt.endKey)
 				if tt.expectError {
 					assert.Error(t, err)
@@ -515,9 +506,11 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	mem.Put(newRecord(Bytes("k1"), Bytes("v1"), 2))
 	sstable, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	posBefore, err := fs.CursorPos()
+	assert.NoError(t, err)
 	_, err = sstable.GetValue(ctx, Bytes("k2"))
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-	pos, err := fs.CursorPos()
+	posAfter, err := fs.CursorPos()
 	assert.NoError(t, err)
-	assert.Equal(t, int64(0), pos, "File should not be read due to Bloom filter")
+	assert.Equal(t, posBefore, posAfter, "File cursor should remain unchanged due to Bloom filter")
 }

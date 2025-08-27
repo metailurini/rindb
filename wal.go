@@ -47,13 +47,10 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 		span.End()
 	}()
 
-	if _, err := w.Seek(0, io.SeekStart); err != nil {
-		return Memtable{}, fmt.Errorf("failed to seek to start of WAL file %s: %w", w.Path(), err)
-	}
-
+	reader := newOffsetReader(w.FileSystem, 0)
 	mem := InitMemtable(w.config)
 	for {
-		record, err := ReadRecord(w)
+		record, err := ReadRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break // Normal end of file
@@ -79,17 +76,24 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 	tx := w.tm.Begin()
 	defer tx.Rollback(ctx)
 
-	if _, err := w.Seek(0, io.SeekEnd); err != nil {
+	w.FileSystem.mu.Lock()
+	if w.FileSystem.file == nil {
+		w.FileSystem.mu.Unlock()
+		return ErrFileNotOpened
+	}
+	if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
+		w.FileSystem.mu.Unlock()
 		return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
 	}
-
 	if err := WriteRecord(tx, record); err != nil {
+		w.FileSystem.mu.Unlock()
 		return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 	}
-
-	if err := tx.Commit(ctx, w.FileSystem); err != nil {
+	if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
+		w.FileSystem.mu.Unlock()
 		return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
 	}
+	w.FileSystem.mu.Unlock()
 
 	if err := w.Sync(); err != nil {
 		return fmt.Errorf("failed to sync WAL file %s: %w", w.Path(), err)
@@ -114,21 +118,30 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 	tx := w.tm.Begin()
 	defer tx.Rollback(ctx)
 
-	if _, err := w.Seek(0, io.SeekEnd); err != nil {
+	w.FileSystem.mu.Lock()
+	if w.FileSystem.file == nil {
+		w.FileSystem.mu.Unlock()
+		return ErrFileNotOpened
+	}
+	if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
+		w.FileSystem.mu.Unlock()
 		return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
 	}
 
 	var totalBytes int
 	for i, record := range records {
 		if err := WriteRecord(tx, record); err != nil {
+			w.FileSystem.mu.Unlock()
 			return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
 		}
 		totalBytes += CalOnDiskSize(record)
 	}
 
-	if err := tx.Commit(ctx, w.FileSystem); err != nil {
+	if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
+		w.FileSystem.mu.Unlock()
 		return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
 	}
+	w.FileSystem.mu.Unlock()
 
 	if err := w.Sync(); err != nil {
 		return fmt.Errorf("failed to sync WAL file %s after multi-record append: %w", w.Path(), err)
@@ -150,9 +163,7 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 	ctx, span := walTracer.Start(ctx, "WAL.Clean")
 	defer span.End()
 
-	if _, err := w.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to seek WAL start: %w", err)
-	}
+	reader := newOffsetReader(w.FileSystem, 0)
 
 	dir := filepath.Dir(w.Path())
 	tmp, err := os.CreateTemp(dir, "wal_clean_*")
@@ -166,7 +177,7 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 	var keptBytes int64
 
 	for {
-		rec, err := ReadRecord(w)
+		rec, err := ReadRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
