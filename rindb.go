@@ -103,14 +103,19 @@ func (r *Rindb) minSnapshotSeq() uint64 {
 }
 
 // cleanupObsoleteLocked removes memtable entries and WAL segments older than
-// the minimum active snapshot sequence. r.mu must be held when calling.
-func (r *Rindb) cleanupObsoleteLocked(ctx context.Context) error {
+// the minimum active snapshot sequence up to maxSeq. r.mu must be held when
+// calling.
+func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error {
 	snapMin := r.minSnapshotSeq()
+	cutoff := snapMin
+	if maxSeq < cutoff {
+		cutoff = maxSeq
+	}
 
-	r.memtable.Cleanup(snapMin)
+	r.memtable.Cleanup(cutoff)
 
 	r.ssTableManager.mu.Lock()
-	r.ssTableManager.minSnapshotSeq = snapMin
+	r.ssTableManager.minSnapshotSeq = cutoff
 	r.ssTableManager.mu.Unlock()
 
 	if len(r.activeSnapshots) == 0 && r.memtable.ByteSize() > 0 {
@@ -284,7 +289,7 @@ func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
 			break
 		}
 	}
-	return r.cleanupObsoleteLocked(ctx)
+	return r.cleanupObsoleteLocked(ctx, r.sequenceNumber)
 }
 
 // Get retrieves the value associated with the given key from the database.
@@ -471,6 +476,9 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		r.ssTableManager.minSnapshotSeq = snapMin
 		r.ssTableManager.mu.Unlock()
 
+		// Capture the sequence number at flush time for later cleanup.
+		flushSeq := r.sequenceNumber
+
 		// Trigger compaction in a goroutine *after* flushing
 		INFO(ctx, "Triggering background compaction check.")
 		r.wg.Add(1)
@@ -484,7 +492,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 				INFO(ctx, "Background compaction goroutine finished.")
 			}
 			r.mu.Lock()
-			if err := r.cleanupObsoleteLocked(ctx); err != nil {
+			if err := r.cleanupObsoleteLocked(ctx, flushSeq); err != nil {
 				ERROR(ctx, "Post-compaction cleanup failed: %v", err)
 			}
 			r.mu.Unlock()
