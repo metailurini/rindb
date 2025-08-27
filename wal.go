@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"sync/atomic"
@@ -148,62 +150,78 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 	ctx, span := walTracer.Start(ctx, "WAL.Clean")
 	defer span.End()
 
-	// Read all records and keep those with sequence >= minSeq.
 	if _, err := w.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek WAL start: %w", err)
 	}
 
-	var records []Record
+	dir := filepath.Dir(w.Path())
+	tmp, err := os.CreateTemp(dir, "wal_clean_*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp WAL file: %w", err)
+	}
+	tmpFS := NewFS(tmp)
+	tmpPath := tmpFS.Path()
+
+	var keptRecords uint64
+	var keptBytes int64
+
 	for {
 		rec, err := ReadRecord(w)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
+			_ = tmpFS.Close()
+			_ = os.Remove(tmpPath)
 			return fmt.Errorf("failed to read WAL record: %w", err)
 		}
-		if rec.GetSequenceNumber() >= minSeq {
-			records = append(records, rec)
+		if rec.GetSequenceNumber() < minSeq {
+			continue
 		}
-	}
-
-	if err := w.FileSystem.Clean(); err != nil {
-		return err
-	}
-	w.records.Store(0)
-	w.bytes.Store(0)
-
-	if len(records) == 0 {
-		return nil
-	}
-
-	tx := w.tm.Begin()
-	defer tx.Rollback(ctx)
-
-	if _, err := w.Seek(0, io.SeekEnd); err != nil {
-		return fmt.Errorf("failed to seek WAL end: %w", err)
-	}
-
-	var totalBytes int
-	for i, rec := range records {
+		tx := w.tm.Begin()
 		if err := WriteRecord(tx, rec); err != nil {
-			return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
+			_ = tmpFS.Close()
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 		}
-		totalBytes += CalOnDiskSize(rec)
+		if err := tx.Commit(ctx, tmpFS); err != nil {
+			_ = tmpFS.Close()
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("failed to commit WAL transaction: %w", err)
+		}
+		keptRecords++
+		keptBytes += int64(CalOnDiskSize(rec))
 	}
 
-	if err := tx.Commit(ctx, w.FileSystem); err != nil {
-		return fmt.Errorf("failed to commit WAL transaction: %w", err)
-	}
-
-	if err := w.Sync(); err != nil {
+	if err := tmpFS.Sync(); err != nil {
+		_ = tmpFS.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to sync WAL: %w", err)
 	}
+	if err := tmpFS.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close temp WAL: %w", err)
+	}
 
-	walRecordsCounter.Add(ctx, int64(len(records)))
-	walBytesCounter.Add(ctx, int64(totalBytes))
-	w.records.Add(uint64(len(records)))
-	w.bytes.Add(uint64(totalBytes))
+	if err := w.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to close WAL: %w", err)
+	}
+	if err := os.Rename(tmpPath, w.Path()); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to replace WAL: %w", err)
+	}
+	if err := w.Open(ctx); err != nil {
+		return fmt.Errorf("failed to reopen WAL: %w", err)
+	}
+
+	w.records.Store(keptRecords)
+	w.bytes.Store(uint64(keptBytes))
+
+	if keptRecords > 0 {
+		walRecordsCounter.Add(ctx, int64(keptRecords))
+		walBytesCounter.Add(ctx, keptBytes)
+	}
 
 	return nil
 }

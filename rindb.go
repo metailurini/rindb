@@ -430,16 +430,17 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 
 		// Clear the memtable and clean the WAL *after* successful flush and registration
 		r.memtable.Clear()
-		minSeq := r.minSnapshotSeq()
+		snapMin := r.minSnapshotSeq()
+		walThreshold := snapMin
 		if len(r.activeSnapshots) == 0 {
-			minSeq = r.sequenceNumber + 1
+			walThreshold = r.sequenceNumber + 1
 		}
-		if err := r.wal.Clean(ctx, minSeq); err != nil {
+		if err := r.wal.Clean(ctx, walThreshold); err != nil {
 			ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
 			return fmt.Errorf("failed to clean WAL: %w", err)
 		}
 		r.ssTableManager.mu.Lock()
-		r.ssTableManager.minSnapshotSeq = r.minSnapshotSeq()
+		r.ssTableManager.minSnapshotSeq = snapMin
 		r.ssTableManager.mu.Unlock()
 
 		// Trigger compaction in a goroutine *after* flushing
