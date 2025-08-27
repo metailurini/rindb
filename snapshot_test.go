@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -130,24 +131,26 @@ func TestSnapshot_IRange(t *testing.T) {
 
 func BenchmarkRindbRelease(b *testing.B) {
 	ctx := context.Background()
-	rin, err := InitRinDB(ctx, WithDatabaseDir(b.TempDir()))
+	rin, err := InitRinDB(ctx, WithDatabaseDir(b.TempDir()), WithMaxMemtableSize(1<<20))
 	require.NoError(b, err)
 	defer func() { _ = rin.Close() }()
 
 	const snapshots = 10000
 	snaps := make([]*Snapshot, snapshots)
 	for i := 0; i < snapshots; i++ {
-		rin.sequenceNumber++
+		require.NoError(b, rin.Put(ctx, Bytes(fmt.Sprintf("k-%d", i)), Bytes("v")))
 		snap, err := rin.NewSnapshot(ctx)
 		require.NoError(b, err)
 		snaps[i] = snap
 	}
 
+	next := snapshots
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		idx := i % snapshots
 		require.NoError(b, rin.Release(ctx, snaps[idx]))
-		rin.sequenceNumber++
+		require.NoError(b, rin.Put(ctx, Bytes(fmt.Sprintf("k-%d", next)), Bytes("v")))
+		next++
 		newSnap, err := rin.NewSnapshot(ctx)
 		require.NoError(b, err)
 		snaps[idx] = newSnap
