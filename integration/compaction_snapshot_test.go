@@ -4,6 +4,7 @@ package rindb_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,42 @@ func TestCompactionRespectsSnapshot(t *testing.T) {
 	got, err := db.Get(ctx, rindb.Bytes("k1"))
 	require.NoError(t, err)
 	require.Equal(t, rindb.Bytes("v2"), got)
+
+	snapVal, err := db.Get(ctx, rindb.Bytes("k1"), snap.Sequence())
+	require.NoError(t, err)
+	require.Equal(t, rindb.Bytes("v1"), snapVal)
+}
+
+func TestCompactionPreservesTombstoneForSnapshot(t *testing.T) {
+	db, cleanup := initTestDB(t,
+		rindb.WithLevel0CompactionThreshold(1),
+		rindb.WithMaxMemtableSize(200),
+	)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, db.Put(ctx, rindb.Bytes("k1"), rindb.Bytes("v1")))
+	snap, err := db.NewSnapshot(ctx)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Remove(ctx, rindb.Bytes("k1")))
+
+	largeVal := rindb.Bytes(strings.Repeat("x", 200))
+	require.NoError(t, db.Put(ctx, rindb.Bytes("k2"), largeVal))
+
+	require.Eventually(t, func() bool {
+		st := db.Stats()
+		if len(st.SSTablesPerLevel) < 2 {
+			return false
+		}
+		return st.SSTablesPerLevel[0] == 0 && st.SSTablesPerLevel[1] > 0
+	}, 5*time.Second, 100*time.Millisecond)
+
+	st := db.Stats()
+	require.GreaterOrEqual(t, st.Flushes, uint64(1))
+
+	_, err = db.Get(ctx, rindb.Bytes("k1"))
+	require.ErrorIs(t, err, rindb.ErrKeyNotFound)
 
 	snapVal, err := db.Get(ctx, rindb.Bytes("k1"), snap.Sequence())
 	require.NoError(t, err)
