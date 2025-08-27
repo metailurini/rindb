@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRindb_Stats(t *testing.T) {
@@ -16,6 +17,7 @@ func TestRindb_Stats(t *testing.T) {
 		st := ts.RinDB.Stats()
 		assert.Zero(t, st.MemtableBytes)
 		assert.Zero(t, st.SequenceNumber)
+		assert.Zero(t, st.ActiveSnapshots)
 		assert.Zero(t, st.WALBytes)
 		assert.Zero(t, st.WALRecords)
 		assert.Zero(t, st.GetCalls)
@@ -42,6 +44,7 @@ func TestRindb_Stats(t *testing.T) {
 		st = ts.RinDB.Stats()
 		assert.Equal(t, uint64(2), st.SequenceNumber)
 		assert.Greater(t, st.MemtableBytes, 0)
+		assert.Zero(t, st.ActiveSnapshots)
 		assert.Equal(t, uint64(1), st.GetCalls)
 		assert.Equal(t, uint64(1), st.PutCalls)
 		assert.Equal(t, uint64(1), st.RemoveCalls)
@@ -67,11 +70,32 @@ func TestRindb_Stats(t *testing.T) {
 		assert.Equal(t, uint64(1), st.SequenceNumber)
 		assert.Equal(t, uint64(1), st.PutCalls)
 		assert.Equal(t, uint64(1), st.Flushes)
+		assert.Equal(t, 0, st.ActiveSnapshots)
 		assert.Equal(t, 0, st.MemtableBytes)
 		assert.Equal(t, uint64(0), st.WALRecords)
 		assert.Equal(t, uint64(0), st.WALBytes)
 		if assert.NotEmpty(t, st.SSTablesPerLevel) {
 			assert.Equal(t, 1, st.SSTablesPerLevel[0])
 		}
+	})
+
+	t.Run("Snapshot", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, nil)
+		defer ts.Cleanup()
+
+		st := ts.RinDB.Stats()
+		assert.Zero(t, st.ActiveSnapshots)
+
+		snap, err := ts.RinDB.NewSnapshot(ctx)
+		require.NoError(t, err)
+
+		st = ts.RinDB.Stats()
+		assert.Equal(t, 1, st.ActiveSnapshots)
+
+		require.NoError(t, ts.RinDB.Release(ctx, snap))
+
+		st = ts.RinDB.Stats()
+		assert.Zero(t, st.ActiveSnapshots)
 	})
 }

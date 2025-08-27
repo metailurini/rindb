@@ -118,6 +118,16 @@ for it.HasNext() {
 it.Close()
 ```
 
+### Runtime Statistics
+
+```go
+s := db.Stats()
+fmt.Println("Active snapshots:", s.ActiveSnapshots)
+```
+
+The `Stats` method reports metrics such as memtable size, sequence number,
+active snapshot count, per-level SSTable counts, WAL usage, and operation counters.
+
 ### Custom Configuration
 
 ```go
