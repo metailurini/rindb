@@ -76,24 +76,26 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 	tx := w.tm.Begin()
 	defer tx.Rollback(ctx)
 
-	w.FileSystem.mu.Lock()
-	if w.FileSystem.file == nil {
-		w.FileSystem.mu.Unlock()
-		return ErrFileNotOpened
+	if err := func() error {
+		w.FileSystem.mu.Lock()
+		defer w.FileSystem.mu.Unlock()
+
+		if w.FileSystem.file == nil {
+			return ErrFileNotOpened
+		}
+		if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
+			return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
+		}
+		if err := WriteRecord(tx, record); err != nil {
+			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
+		}
+		if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
+			return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
+		}
+		return nil
+	}(); err != nil {
+		return err
 	}
-	if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
-		w.FileSystem.mu.Unlock()
-		return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
-	}
-	if err := WriteRecord(tx, record); err != nil {
-		w.FileSystem.mu.Unlock()
-		return fmt.Errorf("failed to write record to WAL transaction: %w", err)
-	}
-	if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
-		w.FileSystem.mu.Unlock()
-		return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
-	}
-	w.FileSystem.mu.Unlock()
 
 	if err := w.Sync(); err != nil {
 		return fmt.Errorf("failed to sync WAL file %s: %w", w.Path(), err)
@@ -118,30 +120,32 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 	tx := w.tm.Begin()
 	defer tx.Rollback(ctx)
 
-	w.FileSystem.mu.Lock()
-	if w.FileSystem.file == nil {
-		w.FileSystem.mu.Unlock()
-		return ErrFileNotOpened
-	}
-	if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
-		w.FileSystem.mu.Unlock()
-		return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
-	}
-
 	var totalBytes int
-	for i, record := range records {
-		if err := WriteRecord(tx, record); err != nil {
-			w.FileSystem.mu.Unlock()
-			return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
-		}
-		totalBytes += CalOnDiskSize(record)
-	}
+	if err := func() error {
+		w.FileSystem.mu.Lock()
+		defer w.FileSystem.mu.Unlock()
 
-	if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
-		w.FileSystem.mu.Unlock()
-		return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
+		if w.FileSystem.file == nil {
+			return ErrFileNotOpened
+		}
+		if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
+			return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
+		}
+
+		for i, record := range records {
+			if err := WriteRecord(tx, record); err != nil {
+				return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
+			}
+			totalBytes += CalOnDiskSize(record)
+		}
+
+		if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
+			return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
+		}
+		return nil
+	}(); err != nil {
+		return err
 	}
-	w.FileSystem.mu.Unlock()
 
 	if err := w.Sync(); err != nil {
 		return fmt.Errorf("failed to sync WAL file %s after multi-record append: %w", w.Path(), err)
