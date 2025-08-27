@@ -14,7 +14,7 @@ func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
 	defer cleanup()
 
 	key := Bytes("k")
- 	require.NoError(t, rin.Put(ctx, key, Bytes("v1")))
+	require.NoError(t, rin.Put(ctx, key, Bytes("v1")))
 	snap, err := rin.NewSnapshot(ctx)
 	require.NoError(t, err)
 
@@ -40,7 +40,7 @@ func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(maxSize))
 	defer cleanup()
 
- 	require.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v1")))
+	require.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v1")))
 	snap, err := rin.NewSnapshot(ctx)
 	require.NoError(t, err)
 
@@ -65,7 +65,7 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()
 
- 	require.NoError(t, rin.Put(ctx, Bytes("k1"), Bytes("v1")))
+	require.NoError(t, rin.Put(ctx, Bytes("k1"), Bytes("v1")))
 	snap1, err := rin.NewSnapshot(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
