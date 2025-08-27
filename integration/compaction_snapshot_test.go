@@ -49,7 +49,7 @@ func TestCompactionRespectsSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rindb.Bytes("v1"), snapVal)
 
-	require.NoError(t, db.Release(ctx, snap))
+	require.NoError(t, snap.Release(ctx))
 	st = db.Stats()
 	require.Zero(t, st.ActiveSnapshots)
 }

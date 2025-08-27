@@ -14,6 +14,7 @@ import (
 type Snapshot struct {
 	db       *Rindb
 	sequence uint64
+	released bool
 }
 
 // Sequence returns the captured sequence number for this snapshot.
@@ -35,6 +36,21 @@ func (s *Snapshot) IRange(ctx context.Context, start, end Bytes) (*RangeIterator
 	ctx, span := tracer.Start(ctx, "Snapshot.IRange")
 	defer span.End()
 	return s.db.IRange(ctx, start, end, s.sequence)
+}
+
+// Release removes the snapshot from the list of active snapshots.
+func (s *Snapshot) Release(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "Snapshot.Release")
+	defer span.End()
+
+	if s.released {
+		return nil
+	}
+	if err := s.db.release(ctx, s); err != nil {
+		return err
+	}
+	s.released = true
+	return nil
 }
 
 // minSnapshotSeq returns the minimum sequence number among active snapshots.
@@ -96,9 +112,10 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 	return snap, nil
 }
 
-// Release removes the snapshot from the list of active snapshots.
-func (r *Rindb) Release(ctx context.Context, snap *Snapshot) error {
-	ctx, span := tracer.Start(ctx, "Rindb.Release")
+// release removes the snapshot from the list of active snapshots.
+// It is intended for internal use by Snapshot.Release.
+func (r *Rindb) release(ctx context.Context, snap *Snapshot) error {
+	ctx, span := tracer.Start(ctx, "Rindb.release")
 	defer span.End()
 
 	r.mu.Lock()
