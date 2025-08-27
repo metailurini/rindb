@@ -226,13 +226,14 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 	}
 
 	snap := &Snapshot{sequence: r.sequenceNumber}
+	prev := len(r.activeSnapshots)
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
 
-	r.ssTableManager.mu.Lock()
-	if snap.sequence < r.ssTableManager.minSnapshotSeq {
+	if prev == 0 {
+		r.ssTableManager.mu.Lock()
 		r.ssTableManager.minSnapshotSeq = snap.sequence
+		r.ssTableManager.mu.Unlock()
 	}
-	r.ssTableManager.mu.Unlock()
 
 	return snap, nil
 }

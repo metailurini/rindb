@@ -138,6 +138,28 @@ func TestWALSegmentsRespectSnapshots(t *testing.T) {
 	assert.Equal(t, uint(1), mem.data.Len())
 }
 
+func TestSnapshotMinSequenceUpdatesOnlyOnFirst(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
+	defer cleanup()
+
+	assert.NoError(t, rin.Put(ctx, Bytes("k1"), Bytes("v1")))
+	snap1, err := rin.NewSnapshot(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
+
+	assert.NoError(t, rin.Put(ctx, Bytes("k2"), Bytes("v2")))
+	snap2, err := rin.NewSnapshot(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
+
+	assert.NoError(t, rin.Release(ctx, snap1))
+	assert.Equal(t, snap2.Sequence(), rin.ssTableManager.minSnapshotSeq)
+
+	assert.NoError(t, rin.Release(ctx, snap2))
+	assert.Equal(t, rin.sequenceNumber, rin.ssTableManager.minSnapshotSeq)
+}
+
 func TestRindb_IRange(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
