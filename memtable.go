@@ -147,15 +147,23 @@ func (m *Memtable) Cleanup(minSeq uint64) {
 		key  InternalKey
 		vlen int
 	}
-	var obs []obsolete
+	var (
+		obs     []obsolete
+		lastKey Bytes
+	)
 	it := m.data.Iterator()
 	for it.HasNext() {
 		rec, err := it.Next()
 		if err != nil {
 			break
 		}
+		key := rec.GetKey()
+		if !bytes.Equal(lastKey, key) {
+			lastKey = key.Clone()
+			continue // keep latest version for this key
+		}
 		if rec.GetSequenceNumber() < minSeq {
-			ik := InternalKey{UserKey: rec.GetKey(), Seq: rec.GetSequenceNumber(), Type: rec.GetType()}
+			ik := InternalKey{UserKey: key, Seq: rec.GetSequenceNumber(), Type: rec.GetType()}
 			obs = append(obs, obsolete{key: ik, vlen: len(rec.GetValue())})
 		}
 	}

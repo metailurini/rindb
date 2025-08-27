@@ -89,6 +89,35 @@ func main() {
 }
 ```
 
+### Snapshot-Based Reads
+
+```go
+ctx := context.Background()
+db, _ := rindb.InitRinDB(ctx)
+defer db.Close()
+
+// Write initial values
+_ = db.Put(ctx, []byte("k1"), []byte("v1"))
+_ = db.Put(ctx, []byte("k2"), []byte("v2"))
+
+snap, _ := db.NewSnapshot(ctx)
+defer db.Release(ctx, snap)
+
+// Mutations after snapshot do not affect reads through it
+_ = db.Put(ctx, []byte("k1"), []byte("v3"))
+_ = db.Remove(ctx, []byte("k2"))
+
+val, _ := snap.Get(ctx, []byte("k1"))
+fmt.Println(string(val)) // Output: v1
+
+it, _ := snap.IRange(ctx, []byte("k1"), []byte("k3"))
+for it.HasNext() {
+    rec, _ := it.Next()
+    fmt.Printf("%s => %s\n", rec.GetKey(), rec.GetValue())
+}
+it.Close()
+```
+
 ### Custom Configuration
 
 ```go
