@@ -106,8 +106,7 @@ func (r *Rindb) minSnapshotSeq() uint64 {
 // the minimum active snapshot sequence up to maxSeq. r.mu must be held when
 // calling.
 func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error {
-	snapMin := r.minSnapshotSeq()
-	cutoff := snapMin
+	cutoff := r.minSnapshotSeq()
 	if maxSeq < cutoff {
 		cutoff = maxSeq
 	}
@@ -124,10 +123,10 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 		return nil
 	}
 
-	// When no snapshots, snapMin is r.sequenceNumber.
-	// When snapshots exist, snapMin is the minimum sequence.
+	// When no snapshots, r.minSnapshotSeq() is r.sequenceNumber.
+	// When snapshots exist, it is the minimum sequence.
 	// This correctly cleans the WAL in both cases.
-	return r.wal.Clean(ctx, snapMin)
+	return r.wal.Clean(ctx, r.minSnapshotSeq())
 }
 
 // Stats returns current statistics of the database.
