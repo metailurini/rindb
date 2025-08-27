@@ -10,7 +10,7 @@
 - `make check`: Formats (`go fmt`), builds `tool/spanname`, runs `go vet` with it, then `staticcheck`.
 - `make test`: Cleans `testdata/` and runs all tests verbosely.
 - `make test-coverage`: Runs tests with coverage and opens the HTML report.
-- `make test-integration-smoke`: Runs quick integration tests with `integration` and `smoke` build tags.
+- `make test-integration-smoke`: Runs quick integration tests with `integration` and `smoke` build tags; run this along with unit tests before committing.
 - `make test-integration-full`: Runs full integration tests (requires the `integration` build tag).
 - `make test-integration`: Alias for `make test-integration-full`.
 - `go build -o rindb cmd/main.go`: Builds the sample CLI. Example: `./rindb` then `put key val`.
@@ -31,7 +31,7 @@
 
 ## Commit & Pull Requests
 - Commits: Follow Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Keep messages imperative and scoped.
-- PRs: Describe motivation and approach, link related issues, include tests, and note any config/CLI changes (with examples). Ensure `make check` and `make test` pass.
+- PRs: Describe motivation and approach, link related issues, include tests, and note any config/CLI changes (with examples). Ensure `make check`, `make test`, and `make test-integration-smoke` pass.
 
 ## Configuration & Telemetry
 - Database directory defaults to `rindat/`. Configure via options (e.g., `WithDatabaseDir("./mydb")`).
