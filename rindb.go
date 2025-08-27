@@ -17,24 +17,6 @@ import (
 // ErrDatabaseClosed is returned when an operation is attempted on a closed database.
 var ErrDatabaseClosed = errors.New("database is closed")
 
-// Stats represents runtime statistics of the database.
-//
-// It includes information about memtable size, sequence number,
-// active snapshot count, per-level SSTable counts, WAL usage and operation counters.
-type Stats struct {
-	MemtableBytes    int
-	SequenceNumber   uint64
-	ActiveSnapshots  int
-	SSTablesPerLevel []int
-	WALBytes         uint64
-	WALRecords       uint64
-	GetCalls         uint64
-	PutCalls         uint64
-	RemoveCalls      uint64
-	IRangeCalls      uint64
-	Flushes          uint64
-}
-
 // Rindb is the main database structure
 type Rindb struct {
 	wal               *WAL
@@ -55,37 +37,22 @@ type Rindb struct {
 	flushCount  atomic.Uint64
 }
 
-// Stats returns current statistics of the database.
-func (r *Rindb) Stats() Stats {
-	// Read atomic stats without locking first.
-	stats := Stats{
-		WALBytes:    r.wal.bytes.Load(),
-		WALRecords:  r.wal.records.Load(),
-		GetCalls:    r.getCalls.Load(),
-		PutCalls:    r.putCalls.Load(),
-		RemoveCalls: r.removeCalls.Load(),
-		IRangeCalls: r.iRangeCalls.Load(),
-		Flushes:     r.flushCount.Load(),
-	}
-
-	// Lock to get memtable stats, sequence number and snapshot count.
-	r.mu.RLock()
-	stats.MemtableBytes = r.memtable.ByteSize()
-	stats.SequenceNumber = r.sequenceNumber
-	stats.ActiveSnapshots = len(r.activeSnapshots)
-	r.mu.RUnlock()
-
-	// Lock separately for SSTable manager stats.
-	r.ssTableManager.mu.RLock()
-	stats.SSTablesPerLevel = make([]int, len(r.ssTableManager.levels))
-	for i, level := range r.ssTableManager.levels {
-		if level != nil {
-			stats.SSTablesPerLevel[i] = level.Len()
-		}
-	}
-	r.ssTableManager.mu.RUnlock()
-
-	return stats
+// Stats represents runtime statistics of the database.
+//
+// It includes information about memtable size, sequence number,
+// active snapshot count, per-level SSTable counts, WAL usage and operation counters.
+type Stats struct {
+	MemtableBytes    int
+	SequenceNumber   uint64
+	ActiveSnapshots  int
+	SSTablesPerLevel []int
+	WALBytes         uint64
+	WALRecords       uint64
+	GetCalls         uint64
+	PutCalls         uint64
+	RemoveCalls      uint64
+	IRangeCalls      uint64
+	Flushes          uint64
 }
 
 // InitRinDB initializes a new RinDB instance with provided configuration options.
@@ -169,6 +136,39 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,
 	}, nil
+}
+
+// Stats returns current statistics of the database.
+func (r *Rindb) Stats() Stats {
+	// Read atomic stats without locking first.
+	stats := Stats{
+		WALBytes:    r.wal.bytes.Load(),
+		WALRecords:  r.wal.records.Load(),
+		GetCalls:    r.getCalls.Load(),
+		PutCalls:    r.putCalls.Load(),
+		RemoveCalls: r.removeCalls.Load(),
+		IRangeCalls: r.iRangeCalls.Load(),
+		Flushes:     r.flushCount.Load(),
+	}
+
+	// Lock to get memtable stats, sequence number and snapshot count.
+	r.mu.RLock()
+	stats.MemtableBytes = r.memtable.ByteSize()
+	stats.SequenceNumber = r.sequenceNumber
+	stats.ActiveSnapshots = len(r.activeSnapshots)
+	r.mu.RUnlock()
+
+	// Lock separately for SSTable manager stats.
+	r.ssTableManager.mu.RLock()
+	stats.SSTablesPerLevel = make([]int, len(r.ssTableManager.levels))
+	for i, level := range r.ssTableManager.levels {
+		if level != nil {
+			stats.SSTablesPerLevel[i] = level.Len()
+		}
+	}
+	r.ssTableManager.mu.RUnlock()
+
+	return stats
 }
 
 // Get retrieves the value associated with the given key from the database.
