@@ -14,11 +14,11 @@ func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
 	defer cleanup()
 
 	key := Bytes("k")
-	assert.NoError(t, rin.Put(ctx, key, Bytes("v1")))
+ 	require.NoError(t, rin.Put(ctx, key, Bytes("v1")))
 	snap, err := rin.NewSnapshot(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	assert.NoError(t, rin.Put(ctx, key, Bytes("v2")))
+	require.NoError(t, rin.Put(ctx, key, Bytes("v2")))
 
 	v, err := rin.memtable.GetAt(key, snap.Sequence())
 	assert.NoError(t, err)
