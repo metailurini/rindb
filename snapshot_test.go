@@ -65,14 +65,14 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()
 
-	assert.NoError(t, rin.Put(ctx, Bytes("k1"), Bytes("v1")))
+ 	require.NoError(t, rin.Put(ctx, Bytes("k1"), Bytes("v1")))
 	snap1, err := rin.NewSnapshot(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
 
-	assert.NoError(t, rin.Put(ctx, Bytes("k2"), Bytes("v2")))
+	require.NoError(t, rin.Put(ctx, Bytes("k2"), Bytes("v2")))
 	snap2, err := rin.NewSnapshot(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
 
 	assert.NoError(t, rin.Release(ctx, snap1))
