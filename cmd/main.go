@@ -87,6 +87,7 @@ func main() {
 			s := db.Stats()
 			fmt.Printf("MemtableBytes: %d\n", s.MemtableBytes)
 			fmt.Printf("SequenceNumber: %d\n", s.SequenceNumber)
+			fmt.Printf("ActiveSnapshots: %d\n", s.ActiveSnapshots)
 			fmt.Printf("WALBytes: %d\n", s.WALBytes)
 			fmt.Printf("WALRecords: %d\n", s.WALRecords)
 			fmt.Printf("SSTablesPerLevel: %v\n", s.SSTablesPerLevel)

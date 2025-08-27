@@ -24,6 +24,8 @@ func TestCompactionRespectsSnapshot(t *testing.T) {
 	require.NoError(t, db.Put(ctx, rindb.Bytes("k1"), rindb.Bytes("v1")))
 	snap, err := db.NewSnapshot(ctx)
 	require.NoError(t, err)
+	st := db.Stats()
+	require.Equal(t, 1, st.ActiveSnapshots)
 
 	// Two puts trigger a flush due to the small memtable size
 	require.NoError(t, db.Put(ctx, rindb.Bytes("k1"), rindb.Bytes("v2")))
@@ -48,6 +50,8 @@ func TestCompactionRespectsSnapshot(t *testing.T) {
 	require.Equal(t, rindb.Bytes("v1"), snapVal)
 
 	require.NoError(t, db.Release(ctx, snap))
+	st = db.Stats()
+	require.Zero(t, st.ActiveSnapshots)
 }
 
 func TestCompactionPreservesTombstoneForSnapshot(t *testing.T) {
@@ -61,6 +65,8 @@ func TestCompactionPreservesTombstoneForSnapshot(t *testing.T) {
 	require.NoError(t, db.Put(ctx, rindb.Bytes("k1"), rindb.Bytes("v1")))
 	snap, err := db.NewSnapshot(ctx)
 	require.NoError(t, err)
+	st := db.Stats()
+	require.Equal(t, 1, st.ActiveSnapshots)
 
 	require.NoError(t, db.Remove(ctx, rindb.Bytes("k1")))
 
