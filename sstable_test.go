@@ -67,12 +67,10 @@ func TestSStable(t *testing.T) {
 		}
 		idx = 0
 		for ret < tailSSTableOffset {
-			record, err := ReadRecord(reader)
+			ko, err := readKeyOffset(reader)
 			assert.NoError(t, err)
-			assert.Equal(t, data[idx].key, record.GetKey())
-			k := NewKeyOffset(record.GetKey(), record.GetValue())
-			assert.Equal(t, expectedSparseIndex[idx].key, k.key)
-			assert.Equal(t, expectedSparseIndex[idx].offset, k.offset)
+			assert.Equal(t, expectedSparseIndex[idx].key, ko.key)
+			assert.Equal(t, expectedSparseIndex[idx].offset, ko.offset)
 			ret = reader.Offset()
 			idx++
 		}

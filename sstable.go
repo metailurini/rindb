@@ -26,40 +26,36 @@ type (
 	SparseIndex []KeyOffset
 )
 
-var _ Record = KeyOffset{}
-
-func NewKeyOffset(key, offset Bytes) KeyOffset {
-	return KeyOffset{
-		key:    key,
-		offset: int64(byteOrder.Uint64(offset)),
+func writeKeyOffset(tx *Transaction, ko KeyOffset) error {
+	if err := WriteNumber(tx, uint64(len(ko.key))); err != nil {
+		return fmt.Errorf("failed to write key length: %w", err)
 	}
+	if _, err := tx.Write(ko.key); err != nil {
+		return fmt.Errorf("failed to write key bytes: %w", err)
+	}
+	if err := WriteNumber(tx, uint64(ko.offset)); err != nil {
+		return fmt.Errorf("failed to write offset: %w", err)
+	}
+	return nil
 }
 
-// GetSize implements Record.
-func (k KeyOffset) GetSize() int {
-	return len(k.GetKey()) + mdByteSize
-}
+func readKeyOffset(r io.Reader) (KeyOffset, error) {
+	keyLen, err := ReadNumber(r)
+	if err != nil {
+		return KeyOffset{}, fmt.Errorf("failed to read key length: %w", err)
+	}
 
-// GetKey implements Record.
-func (k KeyOffset) GetKey() Bytes {
-	return k.key
-}
+	key := make(Bytes, keyLen)
+	if _, err := io.ReadFull(r, key); err != nil {
+		return KeyOffset{}, fmt.Errorf("failed to read key bytes: %w", err)
+	}
 
-// GetValue implements Record.
-func (k KeyOffset) GetValue() Bytes {
-	valueLenBytes := make(Bytes, mdByteSize)
-	byteOrder.PutUint64(valueLenBytes, uint64(k.offset))
-	return valueLenBytes
-}
+	off, err := ReadNumber(r)
+	if err != nil {
+		return KeyOffset{}, fmt.Errorf("failed to read offset: %w", err)
+	}
 
-// GetSequenceNumber implements Record.
-func (k KeyOffset) GetSequenceNumber() uint64 {
-	return 0
-}
-
-// GetType implements Record.
-func (k KeyOffset) GetType() RecordType {
-	return TypeValue
+	return KeyOffset{key: key, offset: int64(off)}, nil
 }
 
 func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
@@ -229,14 +225,14 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	sparseIndex := SparseIndex{}
 	for offset < tailOffset {
 		reader := newOffsetReader(fs, offset)
-		record, err := ReadRecord(reader)
+		ko, err := readKeyOffset(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return SparseIndex{}, fmt.Errorf("unexpected EOF while reading sparse index in %s: %w", fs.Path(), ErrMalFormedSSTable)
 			}
-			return SparseIndex{}, fmt.Errorf("failed to read sparse index record in %s: %w", fs.Path(), err)
+			return SparseIndex{}, fmt.Errorf("failed to read sparse index entry in %s: %w", fs.Path(), err)
 		}
-		sparseIndex = append(sparseIndex, NewKeyOffset(record.GetKey(), record.GetValue()))
+		sparseIndex = append(sparseIndex, ko)
 		offset = reader.Offset()
 	}
 
@@ -300,7 +296,7 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 
 	sparseIndex := genSparseIndex(mem)
 	for _, v := range sparseIndex {
-		if err := WriteRecord(tx, v); err != nil {
+		if err := writeKeyOffset(tx, v); err != nil {
 			return SStable{}, fmt.Errorf("failed to write sparse index entry to transaction buffer: %w", err)
 		}
 	}
