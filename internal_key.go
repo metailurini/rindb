@@ -56,9 +56,9 @@ func DecodeInternalKey(ikey Bytes) (Bytes, uint64, RecordType, error) {
 	userKeyEnd := len(ikey) - internalKeySuffixLen
 	seq := ^byteOrder.Uint64(ikey[userKeyEnd : userKeyEnd+seqNumBytes])
 	typ := RecordType(ikey[len(ikey)-1])
-	userKey := Bytes(ikey[:userKeyEnd])
-	if userKeyEnd == 0 {
-		userKey = nil
+	var userKey Bytes
+	if userKeyEnd > 0 {
+		userKey = append(Bytes(nil), ikey[:userKeyEnd]...)
 	}
 	return userKey, seq, typ, nil
 }
