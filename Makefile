@@ -25,6 +25,7 @@ test-integration-smoke: clean-testdata
 	@$(GO) test -v -tags "integration smoke" ./integration
 
 test-integration-full: clean-testdata
+	@$(GO) clean -testcache
 	@echo "Running full integration tests..."
 	@$(GO) test -v -tags integration ./integration
 
