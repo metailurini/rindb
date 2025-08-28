@@ -28,10 +28,10 @@ func TestConcurrentPutGet(t *testing.T) {
 			defer wg.Done()
 			key := rindb.Bytes(fmt.Sprintf("key-%d", i))
 			val := rindb.Bytes(fmt.Sprintf("value-%d", i))
-			require.NoError(t, db.Put(ctx, key, val))
+			require.NoError(t, db.Put(ctx, key, val), "Put failed for i=%d", i)
 			got, err := db.Get(ctx, key)
-			require.NoError(t, err)
-			require.Equal(t, val, got)
+			require.NoError(t, err, "Get failed for i=%d", i)
+			require.Equal(t, val, got, "value mismatch for i=%d", i)
 		}()
 	}
 
