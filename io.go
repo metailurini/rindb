@@ -19,30 +19,6 @@ func ReadNumber(storage io.Reader) (uint64, error) {
 	return byteOrder.Uint64(numBytes[:]), nil
 }
 
-func encodeInternalKey(key Bytes, seq uint64, typ RecordType) []byte {
-	internalKey := make([]byte, len(key)+internalKeySuffixLen)
-	copy(internalKey, key)
-	var seqBuf [seqNumBytes]byte
-	byteOrder.PutUint64(seqBuf[:], ^seq)
-	copy(internalKey[len(key):], seqBuf[:])
-	internalKey[len(key)+seqNumBytes] = byte(typ)
-	return internalKey
-}
-
-func decodeInternalKey(ikey Bytes) (Bytes, uint64, RecordType, error) {
-	if len(ikey) < internalKeySuffixLen {
-		return nil, 0, 0, fmt.Errorf("internal key too short: %d", len(ikey))
-	}
-	userKeyEnd := len(ikey) - internalKeySuffixLen
-	seq := ^byteOrder.Uint64(ikey[userKeyEnd : userKeyEnd+seqNumBytes])
-	typ := RecordType(ikey[len(ikey)-1])
-	userKey := Bytes(ikey[:userKeyEnd])
-	if userKeyEnd == 0 {
-		userKey = nil
-	}
-	return userKey, seq, typ, nil
-}
-
 func ReadRecord(storage io.Reader) (Record, error) {
 	internalKeyLen, err := ReadNumber(storage)
 	if err != nil {
@@ -62,7 +38,7 @@ func ReadRecord(storage io.Reader) (Record, error) {
 		}
 	}
 
-	userKey, seq, typ, err := decodeInternalKey(internalKeyBytes)
+	userKey, seq, typ, err := DecodeInternalKey(internalKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +69,7 @@ func WriteNumber(tx *Transaction, number uint64) error {
 }
 
 func WriteRecord(tx *Transaction, record Record) error {
-	ikey := encodeInternalKey(record.GetKey(), record.GetSequenceNumber(), record.GetType())
+	ikey := EncodeInternalKey(record.GetKey(), record.GetSequenceNumber(), record.GetType())
 
 	if err := WriteNumber(tx, uint64(len(ikey))); err != nil {
 		return fmt.Errorf("failed to write internal key length: %w", err)

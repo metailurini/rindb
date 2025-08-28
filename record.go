@@ -8,11 +8,6 @@ const (
 	TypeMerge
 )
 
-const (
-	seqNumBytes          = 8
-	internalKeySuffixLen = seqNumBytes + 1 // sequence number + type
-)
-
 type Record interface {
 	GetKey() Bytes
 	GetValue() Bytes

@@ -114,7 +114,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		var buf bytes.Buffer
 		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length for "key"
 		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)                      // Value length
-		buf.Write(encodeInternalKey(Bytes("key"), 0, TypeValue))
+		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		buf.Write([]byte("val")) // only 3 bytes of value
 		_, err := ReadRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read value bytes")
@@ -125,7 +125,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		var buf bytes.Buffer
 		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length
 		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)                      // Value length
-		buf.Write(encodeInternalKey(Bytes("key"), 0, TypeValue))
+		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		reader := io.MultiReader(&buf, iotest.ErrReader(errors.New("read value bytes failed")))
 		_, err := ReadRecord(reader)
 		assert.ErrorContains(t, err, "failed to read value bytes")
