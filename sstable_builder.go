@@ -6,12 +6,13 @@ import (
 )
 
 type SSTableBuilder struct {
-	tx     *Transaction
-	index  []KeyOffset
-	bloom  *BloomFilter
-	offset int64
-	fs     *FileSystem
-	config Config
+	tx      *Transaction
+	index   []KeyOffset
+	bloom   *BloomFilter
+	offset  int64
+	fs      *FileSystem
+	config  Config
+	lastKey Bytes
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTableBuilder, error) {
@@ -42,12 +43,17 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTabl
 }
 
 func (b *SSTableBuilder) Add(rec Record) error {
+	key := rec.GetKey()
+	if b.lastKey != nil && key.Compare(b.lastKey) != CmpGreater {
+		return fmt.Errorf("keys must be in strictly increasing order")
+	}
 	if err := WriteRecord(b.tx, rec); err != nil {
 		return err
 	}
-	b.index = append(b.index, KeyOffset{key: rec.GetKey().Clone(), offset: b.offset})
-	b.bloom.Insert(rec.GetKey())
+	b.index = append(b.index, KeyOffset{key: key.Clone(), offset: b.offset})
+	b.bloom.Insert(key)
 	b.offset += int64(CalOnDiskSize(rec))
+	b.lastKey = key.Clone()
 	return nil
 }
 
