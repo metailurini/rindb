@@ -62,6 +62,8 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 		w.records.Add(1)
 		w.bytes.Add(uint64(CalOnDiskSize(record)))
 	}
+	walRecordsCounter.Add(ctx, int64(w.records.Load()))
+	walBytesCounter.Add(ctx, int64(w.bytes.Load()))
 	return mem, nil
 }
 
