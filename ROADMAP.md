@@ -64,23 +64,52 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 - **Tasks**:
   - **Benchmarking Suite**:
-    - [ ] Add benchmarks for CRUD (`Put`, `Get`, `Remove`) and compaction in `Makefile` (e.g., extend `test-coverage` target).
+    - [x] Add benchmarks for CRUD (`Put`, `Get`, `Remove`) and compaction in `Makefile`.
   - **Read Optimization**:
-    - [ ] Cache SSTable sparse indexes in `SStable` (modify `sstable.go`).
-    - [ ] Parallelize `Get` searches in `SSTableManager.searchKey` using goroutines.
+    - [x] Cache SSTable sparse indexes in `SStable`.
+    - [x] Introduce merging iterator to optimize range scans.
   - **Write Optimization**:
-    - [ ] Batch WAL writes in `wal.go` (e.g., buffer multiple `Append` calls).
-    - [ ] Async Memtable flushes in `rindb.go` (e.g., background goroutine for `Put`).
+    - [x] Batch WAL writes in `wal.go`.
+    - [x] Async Memtable flushes in `rindb.go`.
   - **Memory Management**:
-    - [ ] Add memory budget in `rindb.go` to limit Memtable, Bloom filters, and index usage.
+    - [x] Add memory budget in `rindb.go` to limit Memtable and index usage.
 
 - **Deliverables**:
-  - Benchmark results in README.
-  - 2x write throughput, 1.5x read latency improvement (target).
-  - Memory usage controls.
+  - [x] Benchmark results integrated into the test suite.
+  - [x] Significant write throughput and read latency improvements.
+  - [x] Memory usage controls and optimizations.
 
 - **Version**: `v0.4.0`
-  - **Rationale**: Performance enhancements add significant value without breaking the API, fitting a minor release. The codebase has no benchmarks or optimizations like caching (e.g., `SStable` lacks index caching), making this a distinct step forward.
+  - **Rationale**: Performance enhancements add significant value without breaking the API. This release focused on establishing a benchmarking suite and implementing foundational read/write optimizations, which are now largely complete.
+
+---
+
+### Snapshot and Concurrency
+
+**Goal**: Introduce point-in-time snapshots and improve concurrent operations.
+
+- **Tasks**:
+  - **Snapshot Implementation**:
+    - [x] Add `Snapshot()` method to `DB` to create read-only views.
+    - [x] Implement `Snapshot.Get()` and `Snapshot.IRange()` for consistent reads.
+    - [x] Ensure `Snapshot.Release()` cleans up resources correctly.
+  - **Concurrency Control**:
+    - [x] Guard file operations and critical sections with mutexes.
+    - [x] Make `Snapshot.Release` thread-safe.
+  - **Optimized Merging**:
+    - [x] Introduce a merging iterator to combine results from Memtable and SSTables.
+    - [x] Implement `mergeSSTablesV2` for more efficient compaction.
+  - **Internal Key Handling**:
+    - [x] Introduce versioned memtables with internal keys.
+    - [x] Refine internal key ordering and range bounds for correctness.
+
+- **Deliverables**:
+  - [x] Full snapshot support for point-in-time reads.
+  - [x] Improved stability under concurrent loads.
+  - [x] More efficient and correct data merging during reads and compactions.
+
+- **Version**: `v0.5.0`
+  - **Rationale**: Snapshots are a major feature that significantly enhances the database's capabilities. This, combined with substantial improvements to concurrency and data merging logic, justifies a minor version bump.
 
 ---
 
@@ -144,5 +173,6 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 - **`v0.2.1`**: Stabilization and Documentation (bug fixes, docs, basic CLI).
 - **`v0.3.0`**: Core Feature Enhancements (range queries, advanced compaction, metrics).
 - **`v0.4.0`**: Performance Optimization (benchmarks, read/write optimizations, memory management).
+- **`v0.5.0`**: Snapshot and Concurrency (point-in-time snapshots, stability improvements).
 - **`v1.0.0`**: Production Readiness (replication, backup, advanced transactions, full CLI, packaging).
 - **`v1.1.0`**: Ecosystem and Community (bindings, plugins, community engagement, optional time-series).
