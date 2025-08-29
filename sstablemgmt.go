@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -29,7 +28,7 @@ const writeRateAlpha = 0.2
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
-	openedFs *list.List // List of *FileSystem that are currently opened
+	openedFs map[*FileSystem]struct{} // Set of *FileSystem that are currently opened
 	levels   []*LinkedList[*FileSystem]
 	config   Config
 	mu       sync.RWMutex
@@ -73,13 +72,13 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 		_ = fs.Close() // Ensure file is closed on SSTable creation error
 		return nil, fmt.Errorf("failed to create sstable object for %s: %w", fs.Path(), err)
 	}
-	h.openedFs.PushBack(fs) // Track opened file system
+	h.openedFs[fs] = struct{}{} // Track opened file system
 	return &sstable, nil
 }
 
 func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, error) {
 	h := &SSTableManager{
-		openedFs:          list.New(),
+		openedFs:          make(map[*FileSystem]struct{}),
 		config:            config,
 		stopIOLoadSampler: make(chan struct{}),
 		now:               time.Now,
@@ -275,7 +274,7 @@ func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*File
 		return nil, err
 	}
 
-	h.openedFs.PushBack(fs)
+	h.openedFs[fs] = struct{}{}
 	return fs, nil
 }
 
@@ -288,21 +287,13 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for e := h.openedFs.Front(); e != nil; {
-		next := e.Next()
-		fs, ok := e.Value.(*FileSystem)
-		if !ok {
-			ERROR(ctx, "can not cast element to file system")
-			break
-		}
-
+	for fs := range h.openedFs {
 		if err := fs.Close(); err != nil {
 			ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
 		} else {
 			INFO(ctx, "Closed %s successfully", fs.Path())
 		}
-		h.openedFs.Remove(e)
-		e = next
+		delete(h.openedFs, fs)
 	}
 
 	for _, level := range h.levels {
@@ -576,13 +567,7 @@ func (h *SSTableManager) closeSSTables(sstables []SStable) {
 }
 
 func (h *SSTableManager) removeOpenedFS(target *FileSystem) {
-	for e := h.openedFs.Front(); e != nil; e = e.Next() {
-		fs, ok := e.Value.(*FileSystem)
-		if ok && fs == target {
-			h.openedFs.Remove(e)
-			return
-		}
-	}
+	delete(h.openedFs, target)
 }
 
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
