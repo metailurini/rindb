@@ -209,12 +209,11 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 		return SparseIndex{}, ErrFileNotOpened
 	}
 
-	info, err := os.Stat(fs.Path())
+	tailOffset, err := readTailSSTable(fs)
 	if err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to stat sstable %s: %w", fs.Path(), err)
+		return SparseIndex{}, fmt.Errorf("failed to get sstable tail offset from %s: %w", fs.Path(), err)
 	}
 
-	tailOffset := info.Size() - mdByteSize
 	buf := make([]byte, mdByteSize)
 	if _, err := fs.ReadAt(buf, tailOffset); err != nil {
 		return SparseIndex{}, fmt.Errorf("failed to read sparse index offset from %s: %w", fs.Path(), err)
