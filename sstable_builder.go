@@ -67,7 +67,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 	}
 
 	if err := b.fs.Sync(); err != nil {
-		return SStable{}, 0, fmt.Errorf("failed to sync file system: %w", err)
+		return SStable{}, 0, fmt.Errorf("failed to sync file system for %s: %w", b.fs.Path(), err)
 	}
 
 	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, written, nil
