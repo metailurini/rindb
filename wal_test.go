@@ -10,26 +10,65 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// validateWALFormat validates the WAL file format.
+// validateWALFormat validates that the WAL records are well-formed according to
+// the record structure used by WriteRecord/ReadRecord. It checks that each
+// record contains the internal key (including sequence number and type) and the
+// associated value bytes.
 func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 	_, err := file.Seek(0, io.SeekStart)
 	assert.NoError(t, err)
-	for {
-		keyLenBytes := [mdByteSize]byte{}
-		_, err := file.Read(keyLenBytes[:])
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		assert.NoError(t, err)
 
+	for {
+		// Read the internal key length. io.ReadFull ensures we either
+		// read the full length or get an EOF/ErrUnexpectedEOF.
+		keyLenBytes := [mdByteSize]byte{}
+		if _, err := io.ReadFull(file, keyLenBytes[:]); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			assert.NoError(t, err)
+		}
+
+		// Read the value length.
 		valueLenBytes := [mdByteSize]byte{}
-		_, err = file.Read(valueLenBytes[:])
+		_, err = io.ReadFull(file, valueLenBytes[:])
 		assert.NoError(t, err)
 
 		keyLen := byteOrder.Uint64(keyLenBytes[:])
 		valueLen := byteOrder.Uint64(valueLenBytes[:])
-		_, err = file.Seek(int64(keyLen+valueLen), io.SeekCurrent)
+
+		// The internal key must at least contain the sequence number
+		// and type information.
+		assert.GreaterOrEqual(t, keyLen, uint64(internalKeySuffixLen))
+
+		// Read and decode the internal key bytes to ensure the
+		// sequence number and type are encoded correctly.
+		keyBytes := make([]byte, keyLen)
+		_, err = io.ReadFull(file, keyBytes)
 		assert.NoError(t, err)
+
+		userKey, seq, typ, err := DecodeInternalKey(keyBytes)
+		assert.NoError(t, err)
+		// The encoded length should match user key length plus the
+		// suffix for sequence number and type.
+		assert.Equal(t, int(keyLen), len(userKey)+internalKeySuffixLen)
+		// Ensure the record type is one of the valid constants.
+		assert.True(t, typ == TypeValue || typ == TypeDeletion || typ == TypeMerge)
+		// Sequence number can be any uint64, but decoding should not
+		// return a negative value or overflow. Since seq is uint64, no
+		// additional check is needed beyond successful decoding.
+
+		// Read value bytes to move the file cursor and ensure correct
+		// length.
+		valueBytes := make([]byte, valueLen)
+		_, err = io.ReadFull(file, valueBytes)
+		assert.NoError(t, err)
+
+		// For completeness, verify the value length matches bytes
+		// read.
+		assert.Equal(t, int(valueLen), len(valueBytes))
+
+		_ = seq // silence unused warning if seq not used otherwise
 	}
 }
 
