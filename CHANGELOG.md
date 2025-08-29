@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.5.0](https://github.com/metailurini/rindb/compare/v0.4.0...v0.5.0) (2025-08-29)
+
+
+### Features
+
+* Add Bytes.Clone method ([50feb4d](https://github.com/metailurini/rindb/commit/50feb4db9a751ef9b18f8ef79f3805e63a1ff5f0))
+* add sequence filtering to reads ([2f36dd1](https://github.com/metailurini/rindb/commit/2f36dd161c9bd607e86c4fd3962ec8129c2c7d8e))
+* add snapshot release method ([be69f66](https://github.com/metailurini/rindb/commit/be69f66802fbfa1e209b6dce0041efdc63e4d0e6))
+* add snapshot support ([0ce1e2e](https://github.com/metailurini/rindb/commit/0ce1e2e08445651488645738a5e53fba8fca89a0))
+* add snapshot-aware cleanup ([b73bcb8](https://github.com/metailurini/rindb/commit/b73bcb8211d0f63385491323b953b599e78bb69d))
+* add versioned memtable with internal keys ([f011fb1](https://github.com/metailurini/rindb/commit/f011fb13f990e2b8227649362cdba607adaf7095))
+* honor snapshots during SSTable merge ([f6da10f](https://github.com/metailurini/rindb/commit/f6da10fcbd58bb87a31573b4371963784287d78b))
+* Introduce mergeSSTablesV2 for optimized merging ([af63c70](https://github.com/metailurini/rindb/commit/af63c701b61859b8827e076c20fb46d0971ad682))
+* introduce merging iterator ([1f03ae6](https://github.com/metailurini/rindb/commit/1f03ae65c5893152b59369a4d6ca5dd160b438a7))
+
+
+### Bug Fixes
+
+* aggregate merge iterator close errors ([9d26330](https://github.com/metailurini/rindb/commit/9d2633092ae4894fedc56121efe441ef579b2f2d))
+* avoid unused context in snapshot methods ([6d3f85b](https://github.com/metailurini/rindb/commit/6d3f85b7342e365d2be8b4b8e147b0520ead5838))
+* Correctly handle tombstones in RangeIterator ([23a1a86](https://github.com/metailurini/rindb/commit/23a1a86a67388d100c214ba4530a7ea444459034))
+* ensure consistent snapshot cleanup ([e93f8e1](https://github.com/metailurini/rindb/commit/e93f8e1fb4f500aca9bc0d7e6e8ad2e3d5068e29))
+* ensure merging iterator closed on error ([3a67d14](https://github.com/metailurini/rindb/commit/3a67d142028641f0854d2e1b54c8a2f88aa39ab0))
+* export Go toolchain ([24cd89a](https://github.com/metailurini/rindb/commit/24cd89ab4e41bb41dc30782d090e5d558796aeb6))
+* guard file operations against concurrent access ([d19b3f3](https://github.com/metailurini/rindb/commit/d19b3f3563121128fd7cc570ee6782fb3b528bb6))
+* guard higher-level compaction removal and add tests ([b03ee17](https://github.com/metailurini/rindb/commit/b03ee178484142cdb271b7119a201a1c65e7da87))
+* guard sstable reads with filesystem helpers ([042cac3](https://github.com/metailurini/rindb/commit/042cac3264464313f2d38a8c9b0c8a23222ef7bd))
+* handle empty sources and cleanup on overlap errors ([7840273](https://github.com/metailurini/rindb/commit/78402736277145e9503cd2dc4863c685d44e2085))
+* Improve sstable tail offset calculation ([ca097f7](https://github.com/metailurini/rindb/commit/ca097f7cc69b1c1f4a0ec245b6a94a8798079095))
+* init WAL metrics on load ([bd27f8a](https://github.com/metailurini/rindb/commit/bd27f8a0f676d28029749c3f193e8e7d198f31c1))
+* make Snapshot.Release thread-safe ([cc1a658](https://github.com/metailurini/rindb/commit/cc1a6586e3c6d8b3565de3310ea99dd21d00f9a9))
+* refine internal key ordering and range bounds ([41f72ee](https://github.com/metailurini/rindb/commit/41f72eef4debd4c414766808fc75ecddf9189f5f))
+* remove overlapping SSTables from level1 list ([58b8bf9](https://github.com/metailurini/rindb/commit/58b8bf94455b3f47335337d6d821f9e093ccc6f8))
+* retain latest memtable entries during cleanup ([db96aba](https://github.com/metailurini/rindb/commit/db96aba497b60ae818d597a0012090642bf8aa2e))
+* set Go toolchain in Makefile ([1c7eb58](https://github.com/metailurini/rindb/commit/1c7eb5892a4efb09ae59807146270d630aaf6703))
+* track and cleanup opened sstables ([d01d557](https://github.com/metailurini/rindb/commit/d01d557d449271c33b0934e9c3490eaa6491e7c9))
+* track WAL metrics as net values ([9da852c](https://github.com/metailurini/rindb/commit/9da852c409681463d6f78d6c2265018f37d2071f))
+
+
+### Performance Improvements
+
+* minimize snapshot min sequence updates ([c7551d4](https://github.com/metailurini/rindb/commit/c7551d4441c778e9251d3721bbae257666bb879a))
+* optimize snapshot release with binary search ([618b8aa](https://github.com/metailurini/rindb/commit/618b8aac82ae73256d131858cd1aebbbb9d91d68))
+
 ## [0.4.0](https://github.com/metailurini/rindb/compare/v0.3.0...v0.4.0) (2025-08-24)
 
 
