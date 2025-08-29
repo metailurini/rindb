@@ -333,20 +333,40 @@ func TestSStable(t *testing.T) {
 	})
 }
 
-// Test_genSparseIndex tests the generation of sparse index from memtable.
-func Test_genSparseIndex(t *testing.T) {
+// TestSSTableBuilder verifies that the builder writes sparse index and Bloom filter entries correctly.
+func TestSSTableBuilder(t *testing.T) {
+	ctx := context.Background()
 	cfg := testConfig()
-	mem := InitMemtable(cfg)
-	mem.Put(newRecord(Bytes("1"), Bytes("2"), 1))
-	mem.Put(newRecord(Bytes("2"), Bytes("3"), 2))
-	mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-	index := genSparseIndex(mem)
-	assert.Equal(t, Bytes("1"), index[0].key)
-	assert.Equal(t, int64(0), index[0].offset)
-	assert.Equal(t, Bytes("2"), index[1].key)
-	assert.Equal(t, int64(27), index[1].offset)
-	assert.Equal(t, Bytes("3"), index[2].key)
-	assert.Equal(t, int64(54), index[2].offset)
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	assert.NoError(t, err)
+
+	recs := []Record{
+		newRecord(Bytes("a"), Bytes("1"), 1),
+		newRecord(Bytes("b"), Bytes("2"), 2),
+		newRecord(Bytes("c"), Bytes("3"), 3),
+	}
+	for _, r := range recs {
+		assert.NoError(t, builder.Add(r))
+	}
+
+	sst, err := builder.Build(ctx)
+	assert.NoError(t, err)
+
+	// Verify sparse index entries and offsets
+	var offset int64
+	for i, r := range recs {
+		assert.Equal(t, r.GetKey(), sst.SparseIndex[i].key)
+		assert.Equal(t, offset, sst.SparseIndex[i].offset)
+		assert.True(t, sst.Bloom.Lookup(r.GetKey()))
+		offset += int64(CalOnDiskSize(r))
+	}
+
+	// Bloom filter should reject an unknown key
+	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.

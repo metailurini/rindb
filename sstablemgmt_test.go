@@ -1516,6 +1516,10 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("1"), v)
 
+		// Builder should have populated bloom filter
+		assert.True(t, merged.Bloom.Lookup(Bytes("a")))
+		assert.False(t, merged.Bloom.Lookup(Bytes("x")))
+
 		v, err = merged.GetValue(ctx, Bytes("b"))
 		assert.ErrorIs(t, err, ErrTombstoneFound)
 		assert.Nil(t, v)
