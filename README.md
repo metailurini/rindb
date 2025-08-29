@@ -144,23 +144,6 @@ if err != nil {
 defer db.Close()
 ```
 
-### Building an SSTable from an Iterator
-
-The `SSTableBuilder` can materialize an SSTable directly from any `Iterator[Record]`:
-
-```go
-ctx := context.Background()
-fs := rindb.NewFileSystem("sst.dat")
-builder, _ := rindb.NewSSTableBuilder(ctx, cfg, fs)
-for it.HasNext() {
-    rec, _ := it.Next()
-    _ = builder.Add(rec)
-}
-sst, _ := builder.Build(ctx)
-```
-
-This builder API is also used internally during compaction.
-
 ## Building and Testing
 
 Run tests:

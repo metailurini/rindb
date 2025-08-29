@@ -914,7 +914,7 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		return nil, nil
 	}
 
-	sst, err := builder.Build(ctx)
+	sst, _, err := builder.Build(ctx)
 	if err != nil {
 		return nil, err
 	}
