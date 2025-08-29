@@ -230,13 +230,11 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 		return fmt.Errorf("failed to reopen WAL: %w", err)
 	}
 
-	w.records.Store(keptRecords)
-	w.bytes.Store(uint64(keptBytes))
+	prevRecords := w.records.Swap(keptRecords)
+	prevBytes := w.bytes.Swap(uint64(keptBytes))
 
-	if keptRecords > 0 {
-		walRecordsCounter.Add(ctx, int64(keptRecords))
-		walBytesCounter.Add(ctx, keptBytes)
-	}
+	walRecordsCounter.Add(ctx, int64(keptRecords)-int64(prevRecords))
+	walBytesCounter.Add(ctx, keptBytes-int64(prevBytes))
 
 	return nil
 }

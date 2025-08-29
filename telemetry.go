@@ -38,8 +38,8 @@ var (
 	walLoadDuration       metric.Float64Histogram
 	walAppendDuration     metric.Float64Histogram
 	walAppendManyDuration metric.Float64Histogram
-	walRecordsCounter     metric.Int64Counter
-	walBytesCounter       metric.Int64Counter
+	walRecordsCounter     metric.Int64UpDownCounter
+	walBytesCounter       metric.Int64UpDownCounter
 
 	// RinDB metrics
 	rindbMeter = otel.Meter("rindb")
@@ -77,8 +77,8 @@ func init() {
 	walLoadDuration = must(walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("ms")))
 	walAppendDuration = must(walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("ms")))
 	walAppendManyDuration = must(walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("ms")))
-	walRecordsCounter = must(walMeter.Int64Counter("rindb.wal.records"))
-	walBytesCounter = must(walMeter.Int64Counter("rindb.wal.bytes"))
+	walRecordsCounter = must(walMeter.Int64UpDownCounter("rindb.wal.records"))
+	walBytesCounter = must(walMeter.Int64UpDownCounter("rindb.wal.bytes"))
 
 	getCalls = must(rindbMeter.Int64Counter("rindb.get.calls"))
 	putCalls = must(rindbMeter.Int64Counter("rindb.put.calls"))
