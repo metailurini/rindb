@@ -51,21 +51,22 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	return nil
 }
 
-func (b *SSTableBuilder) Build(ctx context.Context) (SStable, error) {
+func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 	sparseIndexOffset := int64(b.tx.buffer.Len())
 	for _, ko := range b.index {
 		if err := writeKeyOffset(b.tx, ko); err != nil {
-			return SStable{}, err
+			return SStable{}, 0, err
 		}
 	}
 	if err := WriteNumber(b.tx, uint64(sparseIndexOffset)); err != nil {
-		return SStable{}, fmt.Errorf("failed to write sparse index offset: %w", err)
+		return SStable{}, 0, fmt.Errorf("failed to write sparse index offset: %w", err)
 	}
+	written := b.tx.buffer.Len()
 	if err := b.tx.Commit(ctx, b.fs); err != nil {
-		return SStable{}, fmt.Errorf("failed to commit transaction: %w", err)
+		return SStable{}, 0, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, nil
+	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, written, nil
 }
 
 func (b *SSTableBuilder) Close(ctx context.Context) error {

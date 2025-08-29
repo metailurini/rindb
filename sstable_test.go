@@ -353,7 +353,7 @@ func TestSSTableBuilder(t *testing.T) {
 		assert.NoError(t, builder.Add(r))
 	}
 
-	sst, err := builder.Build(ctx)
+	sst, _, err := builder.Build(ctx)
 	assert.NoError(t, err)
 
 	// Verify sparse index entries and offsets

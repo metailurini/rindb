@@ -293,9 +293,10 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 		r = r.Next()
 	}
 
-	written = builder.tx.buffer.Len()
-	sst, err := builder.Build(ctx)
+	var sst SStable
+	sst, written, err = builder.Build(ctx)
 	if err != nil {
+		written = 0
 		return SStable{}, err
 	}
 	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
