@@ -369,6 +369,36 @@ func TestSSTableBuilder(t *testing.T) {
 	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 }
 
+// TestSSTableBuilder_Errors verifies that calling Add or Build after a successful build returns an error.
+func TestSSTableBuilder_Errors(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	assert.NoError(t, err)
+
+	rec := newRecord(Bytes("a"), Bytes("1"), 1)
+	assert.NoError(t, builder.Add(rec))
+
+	_, _, err = builder.Build(ctx)
+	assert.NoError(t, err)
+
+	t.Run("AddAfterBuild", func(t *testing.T) {
+		err := builder.Add(newRecord(Bytes("b"), Bytes("2"), 2))
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "SSTable already built")
+	})
+
+	t.Run("BuildTwice", func(t *testing.T) {
+		_, _, err := builder.Build(ctx)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "SSTable already built")
+	})
+}
+
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
 func TestSparseIndex_GetOffset(t *testing.T) {
 	type args struct {

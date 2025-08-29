@@ -12,6 +12,7 @@ type SSTableBuilder struct {
 	offset int64
 	fs     *FileSystem
 	config Config
+	built  bool
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTableBuilder, error) {
@@ -42,6 +43,9 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTabl
 }
 
 func (b *SSTableBuilder) Add(rec Record) error {
+	if b.built {
+		return fmt.Errorf("SSTable already built")
+	}
 	if err := WriteRecord(b.tx, rec); err != nil {
 		return err
 	}
@@ -52,6 +56,9 @@ func (b *SSTableBuilder) Add(rec Record) error {
 }
 
 func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
+	if b.built {
+		return SStable{}, 0, fmt.Errorf("SSTable already built")
+	}
 	sparseIndexOffset := int64(b.tx.buffer.Len())
 	for _, ko := range b.index {
 		if err := writeKeyOffset(b.tx, ko); err != nil {
@@ -70,6 +77,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 		return SStable{}, 0, fmt.Errorf("failed to sync file system for %s: %w", b.fs.Path(), err)
 	}
 
+	b.built = true
 	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, written, nil
 }
 
