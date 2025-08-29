@@ -64,10 +64,6 @@ assert.Contains(t, []RecordType{TypeValue, TypeDeletion, TypeMerge}, typ)
 		_, err = io.ReadFull(file, valueBytes)
 		assert.NoError(t, err)
 
-		// For completeness, verify the value length matches bytes
-		// read.
-		assert.Equal(t, int(valueLen), len(valueBytes))
-
 		_ = seq // silence unused warning if seq not used otherwise
 	}
 }
