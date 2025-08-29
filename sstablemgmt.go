@@ -861,28 +861,6 @@ func getKeyRange(sstables []SStable) (Bytes, Bytes) {
 	return minKey, maxKey
 }
 
-func mergeSSTables(ctx context.Context, config Config, target *FileSystem, sources []SStable) (SStable, error) {
-	memtable := InitMemtable(config)
-	for _, sstable := range sources {
-		iterator, err := sstable.Iterator()
-		if err != nil {
-			return SStable{}, err
-		}
-		for iterator.HasNext() {
-			record, err := iterator.Next()
-			if err != nil {
-				return SStable{}, err
-			}
-			memtable.Put(record)
-		}
-	}
-	sstable, err := flush(ctx, config, memtable, target)
-	if err != nil {
-		return SStable{}, err
-	}
-	return sstable, nil
-}
-
 func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, err error) {
 	if len(sources) == 0 {
 		return nil, nil
