@@ -3,7 +3,6 @@ package rindb
 import (
 	"context"
 	"fmt"
-	"os"
 )
 
 type SSTableBuilder struct {
@@ -66,24 +65,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, error) {
 		return SStable{}, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	bloomPath := b.fs.Path() + ".bloom"
-	file, err := os.OpenFile(bloomPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileSystemPermission)
-	if err != nil {
-		return SStable{}, fmt.Errorf("failed to create bloom filter file %s: %w", bloomPath, err)
-	}
-	defer file.Close()
-	var buf [mdByteSize]byte
-	byteOrder.PutUint64(buf[:], uint64(b.bloom.bucket.size))
-	if _, err := file.Write(buf[:]); err != nil {
-		return SStable{}, fmt.Errorf("failed to write bloom filter size: %w", err)
-	}
-	for _, word := range b.bloom.bucket.set {
-		byteOrder.PutUint64(buf[:], word)
-		if _, err := file.Write(buf[:]); err != nil {
-			return SStable{}, fmt.Errorf("failed to write bloom filter data: %w", err)
-		}
-	}
-	return NewSSTable(ctx, b.config, b.fs)
+	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, nil
 }
 
 func (b *SSTableBuilder) Close(ctx context.Context) error {
