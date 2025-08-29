@@ -55,6 +55,9 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 			if errors.Is(err, io.EOF) {
 				break // Normal end of file
 			}
+			if errors.Is(err, ErrChecksumMismatch) {
+				return Memtable{}, fmt.Errorf("checksum mismatch in WAL %s: %w", w.Path(), err)
+			}
 			return Memtable{}, fmt.Errorf("failed to read record from WAL %s: %w", w.Path(), err)
 		}
 
@@ -187,6 +190,11 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
+			}
+			if errors.Is(err, ErrChecksumMismatch) {
+				_ = tmpFS.Close()
+				_ = os.Remove(tmpPath)
+				return fmt.Errorf("checksum mismatch while reading WAL: %w", err)
 			}
 			_ = tmpFS.Close()
 			_ = os.Remove(tmpPath)

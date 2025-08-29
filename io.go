@@ -2,14 +2,21 @@ package rindb
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 )
 
 // Use BigEndian for consistent cross-platform encoding/decoding
 var byteOrder = binary.BigEndian
 
-const mdByteSize = 8
+const (
+	mdByteSize   = 8
+	checksumSize = 4
+)
+
+var ErrChecksumMismatch = errors.New("checksum mismatch")
 
 func ReadNumber(storage io.Reader) (uint64, error) {
 	numBytes := [mdByteSize]byte{}
@@ -51,6 +58,19 @@ func ReadRecord(storage io.Reader) (Record, error) {
 		}
 	}
 
+	var checksumBytes [checksumSize]byte
+	if _, err := io.ReadFull(storage, checksumBytes[:]); err != nil {
+		return nil, fmt.Errorf("failed to read checksum: %w", err)
+	}
+	expected := byteOrder.Uint32(checksumBytes[:])
+	buf := make([]byte, len(internalKeyBytes)+len(valueBytes))
+	copy(buf, internalKeyBytes)
+	copy(buf[len(internalKeyBytes):], valueBytes)
+	actual := crc32.ChecksumIEEE(buf)
+	if actual != expected {
+		return nil, ErrChecksumMismatch
+	}
+
 	return RecordImpl{
 		Key:            userKey,
 		Value:          valueBytes,
@@ -70,12 +90,18 @@ func WriteNumber(tx *Transaction, number uint64) error {
 
 func WriteRecord(tx *Transaction, record Record) error {
 	ikey := EncodeInternalKey(record.GetKey(), record.GetSequenceNumber(), record.GetType())
+	val := record.GetValue()
+
+	buf := make([]byte, len(ikey)+len(val))
+	copy(buf, ikey)
+	copy(buf[len(ikey):], val)
+	checksum := crc32.ChecksumIEEE(buf)
 
 	if err := WriteNumber(tx, uint64(len(ikey))); err != nil {
 		return fmt.Errorf("failed to write internal key length: %w", err)
 	}
 
-	if err := WriteNumber(tx, uint64(len(record.GetValue()))); err != nil {
+	if err := WriteNumber(tx, uint64(len(val))); err != nil {
 		return fmt.Errorf("failed to write value length: %w", err)
 	}
 
@@ -83,8 +109,14 @@ func WriteRecord(tx *Transaction, record Record) error {
 		return fmt.Errorf("failed to write internal key bytes: %w", err)
 	}
 
-	if _, err := tx.Write(record.GetValue()); err != nil {
+	if _, err := tx.Write(val); err != nil {
 		return fmt.Errorf("failed to write value bytes: %w", err)
+	}
+
+	var checksumBytes [checksumSize]byte
+	byteOrder.PutUint32(checksumBytes[:], checksum)
+	if _, err := tx.Write(checksumBytes[:]); err != nil {
+		return fmt.Errorf("failed to write checksum: %w", err)
 	}
 
 	return nil

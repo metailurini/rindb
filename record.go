@@ -21,7 +21,8 @@ func CalOnDiskSize(r Record) int {
 		mdByteSize /* value len size */ +
 		len(r.GetKey()) /* user key */ +
 		internalKeySuffixLen /* seq+type */ +
-		len(r.GetValue()))
+		len(r.GetValue()) /* value */ +
+		checksumSize /* checksum */)
 }
 
 var _ Record = RecordImpl{}

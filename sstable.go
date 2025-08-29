@@ -113,6 +113,10 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 				ERROR(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
 				return nil, fmt.Errorf("unexpected EOF after reading at offset %d: %w", offset, ErrMalFormedSSTable)
 			}
+			if errors.Is(err, ErrChecksumMismatch) {
+				ERROR(ctx, "Checksum mismatch at offset %d in %s", reader.Offset(), s.Path())
+				return nil, fmt.Errorf("checksum mismatch at offset %d: %w", reader.Offset(), err)
+			}
 			if errors.Is(err, ErrFileNotOpened) {
 				if err := s.Open(ctx); err != nil {
 					return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)

@@ -131,4 +131,28 @@ func TestReadRecord_Errors(t *testing.T) {
 		assert.ErrorContains(t, err, "failed to read value bytes")
 		assert.ErrorContains(t, err, "read value bytes failed")
 	})
+
+	t.Run("Error reading checksum", func(t *testing.T) {
+		var buf bytes.Buffer
+		ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)
+		buf.Write(ikey)
+		buf.Write([]byte("value"))
+		_, err := ReadRecord(&buf)
+		assert.ErrorContains(t, err, "failed to read checksum")
+		assert.ErrorIs(t, err, io.EOF)
+	})
+
+	t.Run("Checksum mismatch", func(t *testing.T) {
+		var buf bytes.Buffer
+		ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
+		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)
+		buf.Write(ikey)
+		buf.Write([]byte("value"))
+		buf.Write([]byte{0, 0, 0, 0})
+		_, err := ReadRecord(&buf)
+		assert.ErrorIs(t, err, ErrChecksumMismatch)
+	})
 }

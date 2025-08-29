@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"testing"
 
@@ -53,7 +54,7 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		// suffix for sequence number and type.
 		assert.Equal(t, int(keyLen), len(userKey)+internalKeySuffixLen)
 		// Ensure the record type is one of the valid constants.
-assert.Contains(t, []RecordType{TypeValue, TypeDeletion, TypeMerge}, typ)
+		assert.Contains(t, []RecordType{TypeValue, TypeDeletion, TypeMerge}, typ)
 		// Sequence number can be any uint64, but decoding should not
 		// return a negative value or overflow. Since seq is uint64, no
 		// additional check is needed beyond successful decoding.
@@ -63,6 +64,17 @@ assert.Contains(t, []RecordType{TypeValue, TypeDeletion, TypeMerge}, typ)
 		valueBytes := make([]byte, valueLen)
 		_, err = io.ReadFull(file, valueBytes)
 		assert.NoError(t, err)
+
+		// Read checksum and verify
+		checksumBytes := [checksumSize]byte{}
+		_, err = io.ReadFull(file, checksumBytes[:])
+		assert.NoError(t, err)
+		expected := byteOrder.Uint32(checksumBytes[:])
+		buf := make([]byte, len(keyBytes)+len(valueBytes))
+		copy(buf, keyBytes)
+		copy(buf[len(keyBytes):], valueBytes)
+		actual := crc32.ChecksumIEEE(buf)
+		assert.Equal(t, expected, actual)
 
 		_ = seq // silence unused warning if seq not used otherwise
 	}
@@ -222,4 +234,22 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	// Verify record 3 is NOT present
 	_, err = mem.Get(Bytes("key3"))
 	assert.Error(t, err) // Should return an error as key3 was not fully written
+}
+
+// TestWAL_LoadChecksumMismatch ensures checksum errors surface when loading WAL.
+func TestWAL_LoadChecksumMismatch(t *testing.T) {
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+	w := NewWAL(cfg, fs)
+	assert.NoError(t, w.Append(context.Background(), newRecord(Bytes("k"), Bytes("v"), 1)))
+
+	info, err := fs.file.Stat()
+	assert.NoError(t, err)
+	_, err = fs.file.WriteAt([]byte{0}, info.Size()-1)
+	assert.NoError(t, err)
+
+	_, err = w.Load(context.Background())
+	assert.ErrorIs(t, err, ErrChecksumMismatch)
 }
