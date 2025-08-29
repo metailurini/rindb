@@ -285,15 +285,9 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
+	filesToClose := make([]*FileSystem, 0, len(h.openedFs))
 	for fs := range h.openedFs {
-		if err := fs.Close(); err != nil {
-			ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
-		} else {
-			INFO(ctx, "Closed %s successfully", fs.Path())
-		}
-		delete(h.openedFs, fs)
+		filesToClose = append(filesToClose, fs)
 	}
 
 	for _, level := range h.levels {
@@ -309,19 +303,24 @@ func (h *SSTableManager) Close(ctx context.Context) {
 				ERROR(ctx, "Error iterating through level: %v", err)
 				continue
 			}
-
-			if !fs.IsOpened() {
-				WARN(ctx, "File %s is already closed", fs.Path())
+			if _, exists := h.openedFs[fs]; exists {
 				continue
 			}
+			filesToClose = append(filesToClose, fs)
+		}
+	}
+	h.openedFs = make(map[*FileSystem]struct{})
+	h.mu.Unlock()
 
-			if err := fs.Close(); err != nil {
-				ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
-				h.removeOpenedFS(fs)
-				continue
-			}
+	for _, fs := range filesToClose {
+		if !fs.IsOpened() {
+			WARN(ctx, "File %s is already closed", fs.Path())
+			continue
+		}
+		if err := fs.Close(); err != nil {
+			ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
+		} else {
 			INFO(ctx, "Closed %s successfully", fs.Path())
-			h.removeOpenedFS(fs)
 		}
 	}
 }
