@@ -149,8 +149,8 @@ func TestSStable(t *testing.T) {
 		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		value, err := sstable.GetValue(ctx, Bytes("a"), 1)
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("old"), value)
+		assert.Error(t, err)
+		assert.Nil(t, value)
 		value, err = sstable.GetValue(ctx, Bytes("a"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("new"), value)
@@ -367,6 +367,21 @@ func TestSSTableBuilder(t *testing.T) {
 
 	// Bloom filter should reject an unknown key
 	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
+}
+
+func TestSSTableBuilder_AddRequiresAscendingKeys(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	assert.NoError(t, err)
+
+	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
+	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 2)))
+	assert.Error(t, builder.Add(newRecord(Bytes("0"), Bytes("3"), 3)))
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
