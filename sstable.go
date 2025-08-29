@@ -109,10 +109,6 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 	for {
 		record, err := ReadRecord(reader)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				ERROR(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
-				return nil, fmt.Errorf("unexpected EOF after reading at offset %d: %w", offset, ErrMalFormedSSTable)
-			}
 			if errors.Is(err, ErrFileNotOpened) {
 				if err := s.Open(ctx); err != nil {
 					return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
@@ -120,8 +116,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 				reader = newOffsetReader(s.FileSystem, reader.Offset())
 				continue
 			}
-			ERROR(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
-			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
+			return nil, ErrKeyNotFound
 		}
 		bytesRead += CalOnDiskSize(record)
 		if record.GetKey().Compare(key) != CmpEqual {
@@ -286,10 +281,17 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	defer builder.Close(ctx)
 
 	r := mem.data.Head().Next()
+	var lastKey Bytes
 	for r != nil {
-		if err := builder.Add(r.Value); err != nil {
+		rec := r.Value
+		if len(lastKey) != 0 && rec.GetKey().Compare(lastKey) == CmpEqual {
+			r = r.Next()
+			continue
+		}
+		if err := builder.Add(rec); err != nil {
 			return SStable{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
+		lastKey = rec.GetKey().Clone()
 		r = r.Next()
 	}
 

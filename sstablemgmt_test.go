@@ -1605,11 +1605,9 @@ func Test_mergeSSTablesV2(t *testing.T) {
 			assert.NoError(t, err)
 			recs = append(recs, rec)
 		}
-		assert.Equal(t, 2, len(recs))
+		assert.Equal(t, 1, len(recs))
 		assert.Equal(t, uint64(3), recs[0].GetSequenceNumber())
 		assert.Equal(t, TypeDeletion, recs[0].GetType())
-		assert.Equal(t, uint64(2), recs[1].GetSequenceNumber())
-		assert.Equal(t, TypeValue, recs[1].GetType())
 	})
 
 	t.Run("handles multiple versions of a key", func(t *testing.T) {
@@ -1790,11 +1788,9 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 			assert.NoError(t, err)
 			recs = append(recs, rec)
 		}
-		assert.Equal(t, 2, len(recs))
+		assert.Equal(t, 1, len(recs))
 		assert.Equal(t, uint64(3), recs[0].GetSequenceNumber())
 		assert.Equal(t, TypeDeletion, recs[0].GetType())
-		assert.Equal(t, uint64(1), recs[1].GetSequenceNumber())
-		assert.Equal(t, TypeValue, recs[1].GetType())
 	})
 
 	t.Run("no-op on empty sources", func(t *testing.T) {

@@ -876,10 +876,9 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 	defer builder.Close(ctx)
 
 	var (
-		wrote      int
-		lastKey    Bytes
-		lastKeySet bool
-		lastSeq    uint64
+		wrote   int
+		lastKey Bytes
+		gcKey   Bytes
 	)
 	for mergeIter.HasNext() {
 		if err := ctx.Err(); err != nil {
@@ -891,21 +890,23 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		}
 
 		key := rec.GetKey()
-		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
-			lastKey = key.Clone()
-			lastKeySet = true
-		} else if lastSeq <= minSeq {
+		if len(gcKey) != 0 && key.Compare(gcKey) == CmpEqual {
 			continue
 		}
-		lastSeq = rec.GetSequenceNumber()
-
+		if len(lastKey) != 0 && key.Compare(lastKey) == CmpEqual {
+			continue
+		}
 		if rec.GetType() == TypeDeletion && bottommost && rec.GetSequenceNumber() < minSeq {
-			continue // GC tombstone only at bottommost when older than snapshots
+			gcKey = key.Clone()
+			lastKey = key.Clone()
+			continue // GC tombstone and skip older versions
 		}
 
 		if err := builder.Add(rec); err != nil {
 			return nil, err
 		}
+		lastKey = key.Clone()
+		gcKey = nil
 		wrote++
 	}
 

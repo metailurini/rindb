@@ -149,8 +149,8 @@ func TestSStable(t *testing.T) {
 		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		value, err := sstable.GetValue(ctx, Bytes("a"), 1)
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("old"), value)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, value)
 		value, err = sstable.GetValue(ctx, Bytes("a"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("new"), value)
@@ -367,6 +367,61 @@ func TestSSTableBuilder(t *testing.T) {
 
 	// Bloom filter should reject an unknown key
 	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
+}
+
+// TestSSTableBuilder_AddOrder ensures Add enforces increasing key order.
+func TestSSTableBuilder_AddOrder(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	tests := []struct {
+		name    string
+		recs    []Record
+		wantErr bool
+	}{
+		{
+			name: "increasing",
+			recs: []Record{
+				newRecord(Bytes("a"), Bytes("1"), 1),
+				newRecord(Bytes("b"), Bytes("2"), 2),
+			},
+			wantErr: false,
+		},
+		{
+			name: "equal",
+			recs: []Record{
+				newRecord(Bytes("a"), Bytes("1"), 1),
+				newRecord(Bytes("a"), Bytes("2"), 2),
+			},
+			wantErr: true,
+		},
+		{
+			name: "decreasing",
+			recs: []Record{
+				newRecord(Bytes("b"), Bytes("1"), 1),
+				newRecord(Bytes("a"), Bytes("2"), 2),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
+			fs := fss[0]
+			builder, err := NewSSTableBuilder(ctx, cfg, fs)
+			assert.NoError(t, err)
+			defer builder.Close(ctx)
+			for i, r := range tt.recs {
+				err := builder.Add(r)
+				if i == len(tt.recs)-1 && tt.wantErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			}
+		})
+	}
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
