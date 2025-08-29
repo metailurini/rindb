@@ -344,9 +344,9 @@ func Test_genSparseIndex(t *testing.T) {
 	assert.Equal(t, Bytes("1"), index[0].key)
 	assert.Equal(t, int64(0), index[0].offset)
 	assert.Equal(t, Bytes("2"), index[1].key)
-	assert.Equal(t, int64(27), index[1].offset)
+	assert.Equal(t, int64(31), index[1].offset)
 	assert.Equal(t, Bytes("3"), index[2].key)
-	assert.Equal(t, int64(54), index[2].offset)
+	assert.Equal(t, int64(62), index[2].offset)
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
@@ -511,4 +511,25 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	posAfter, err := fs.CursorPos()
 	assert.NoError(t, err)
 	assert.Equal(t, posBefore, posAfter, "File cursor should remain unchanged due to Bloom filter")
+}
+
+// TestSStableChecksumMismatch verifies that corrupted checksums are reported.
+func TestSStableChecksumMismatch(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+	mem := InitMemtable(cfg)
+	rec := newRecord(Bytes("a"), Bytes("1"), 1)
+	mem.Put(rec)
+	sstable, err := flush(ctx, cfg, mem, fs)
+	assert.NoError(t, err)
+
+	offset := int64(CalOnDiskSize(rec)) - checksumSize
+	_, err = fs.file.WriteAt([]byte{0}, offset)
+	assert.NoError(t, err)
+
+	_, err = sstable.GetValue(ctx, Bytes("a"))
+	assert.ErrorIs(t, err, ErrChecksumMismatch)
 }
