@@ -66,6 +66,10 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 		return SStable{}, 0, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	if err := b.fs.Sync(); err != nil {
+		return SStable{}, 0, fmt.Errorf("failed to sync file system: %w", err)
+	}
+
 	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, written, nil
 }
 
