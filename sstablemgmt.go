@@ -902,8 +902,8 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		return nil, err
 	}
 	defer func() {
-		if cerr := mergeIter.Close(); err == nil && cerr != nil {
-			err = cerr
+		if cerr := mergeIter.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
 		}
 	}()
 
