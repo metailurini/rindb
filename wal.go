@@ -191,13 +191,11 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			if errors.Is(err, ErrChecksumMismatch) {
-				_ = tmpFS.Close()
-				_ = os.Remove(tmpPath)
-				return fmt.Errorf("checksum mismatch while reading WAL: %w", err)
-			}
 			_ = tmpFS.Close()
 			_ = os.Remove(tmpPath)
+			if errors.Is(err, ErrChecksumMismatch) {
+				return fmt.Errorf("checksum mismatch while reading WAL: %w", err)
+			}
 			return fmt.Errorf("failed to read WAL record: %w", err)
 		}
 		if rec.GetSequenceNumber() < minSeq {
