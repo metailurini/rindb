@@ -70,10 +70,10 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		_, err = io.ReadFull(file, checksumBytes[:])
 		assert.NoError(t, err)
 		expected := byteOrder.Uint32(checksumBytes[:])
-		buf := make([]byte, len(keyBytes)+len(valueBytes))
-		copy(buf, keyBytes)
-		copy(buf[len(keyBytes):], valueBytes)
-		actual := crc32.ChecksumIEEE(buf)
+		hasher := crc32.NewIEEE()
+		_, _ = hasher.Write(keyBytes)
+		_, _ = hasher.Write(valueBytes)
+		actual := hasher.Sum32()
 		assert.Equal(t, expected, actual)
 
 		_ = seq // silence unused warning if seq not used otherwise
