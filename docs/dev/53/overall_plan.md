@@ -108,6 +108,10 @@ func (c *Compactor) commit(ctx context.Context, outs []FileMeta, dels []FileMeta
 }
 ```
 
+`removeFiles` deletes the physical SSTable files referenced by `dels` after the
+manifest edit has been synced, ensuring obsolete files are reclaimed only after
+the new state is durable.
+
 ## Rotation and Checkpointing
 - When the MANIFEST grows beyond a threshold, write a new snapshot manifest and swap `CURRENT`.
 ```go

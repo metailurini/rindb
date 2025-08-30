@@ -11,10 +11,15 @@ type CompactionOps interface {
     ShouldCompact(ctx context.Context, level int, files []FileMeta) bool
     PickFiles(ctx context.Context, level int, files []FileMeta) []FileMeta
     FindOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error)
+    // Merge writes a new set of SSTables for the destination level and returns
+    // FileMeta populated with that level and allocator-assigned file numbers
+    // (see allocator notes in overall_plan.md).
     Merge(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error)
 }
 
-// Compactor orchestrates SSTable merges and manifest updates.
+// Compactor orchestrates SSTable merges and manifest updates. It is not
+// concurrency-safe; callers (e.g., SSTableManager) must hold their own locks
+// around Compact to serialize access to VersionSet and filesystem state.
 type Compactor struct {
     ops      CompactionOps
     manifest ManifestWriter
@@ -26,15 +31,31 @@ func NewCompactor(ops CompactionOps, mw ManifestWriter, vs *VersionSet) *Compact
 }
 ```
 
+## Concurrency
+
+`Compactor` relies on its caller for synchronization. `SSTableManager` holds its
+`mu` while invoking `Compact` and throughout `commit`, serializing updates to the
+`VersionSet` and physical file removals.
+
 ## Public Entry
 ```go
-// Compact scans levels from the VersionSet and dispatches work.
+// Compact scans levels and continues dispatching work until no level qualifies.
 func (c *Compactor) Compact(ctx context.Context) error {
-    for lvl, files := range c.version.Levels {
-        if !c.ops.ShouldCompact(ctx, lvl, files) { continue }
-        if err := c.compactLevel(ctx, lvl, files); err != nil { return err }
+    for {
+        progressed := false
+        for lvl, files := range c.version.Levels {
+            if !c.ops.ShouldCompact(ctx, lvl, files) {
+                continue
+            }
+            if err := c.compactLevel(ctx, lvl, files); err != nil {
+                return err
+            }
+            progressed = true
+        }
+        if !progressed {
+            return nil
+        }
     }
-    return nil
 }
 ```
 
@@ -44,7 +65,7 @@ func (c *Compactor) Compact(ctx context.Context) error {
 func (c *Compactor) commit(ctx context.Context, outs, dels []FileMeta) error {
     edit := VersionEdit{AddFiles: outs}
     for _, f := range dels {
-        edit.DeleteFiles = append(edit.DeleteFiles, struct{Level int; Number uint64}{f.Level, f.Number})
+        edit.DeleteFiles = append(edit.DeleteFiles, DeletedFileMeta{Level: f.Level, Number: f.Number})
     }
     if err := c.manifest.Append(edit); err != nil { return err }
     if err := c.manifest.Sync(); err != nil { return err }
@@ -52,6 +73,10 @@ func (c *Compactor) commit(ctx context.Context, outs, dels []FileMeta) error {
     return removeFiles(dels)
 }
 ```
+
+`removeFiles` deletes obsolete SSTable files from disk after the manifest edit is
+durably persisted. The helper already exists in `sstablemgmt.go` and is reused
+by the compactor.
 
 ## Internal Helpers
 ```go
