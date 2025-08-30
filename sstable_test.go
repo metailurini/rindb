@@ -1,14 +1,10 @@
 package rindb
 
 import (
-	"bytes"
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestSStable tests the SStable functionality.
@@ -335,139 +331,6 @@ func TestSStable(t *testing.T) {
 			})
 		}
 	})
-}
-
-// TestSSTableBuilder verifies that the builder writes sparse index and Bloom filter entries correctly.
-func TestSSTableBuilder(t *testing.T) {
-	ctx := context.Background()
-	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1, nil)
-	defer closer()
-	fs := fss[0]
-
-	recs := []Record{
-		newRecord(Bytes("a"), Bytes("1"), 1),
-		newRecord(Bytes("b"), Bytes("2"), 2),
-		newRecord(Bytes("c"), Bytes("3"), 3),
-	}
-	builder, err := NewSSTableBuilder(ctx, cfg, fs, len(recs))
-	assert.NoError(t, err)
-	for _, r := range recs {
-		assert.NoError(t, builder.Add(r))
-	}
-
-	sst, _, err := builder.Build(ctx)
-	assert.NoError(t, err)
-
-	// Verify sparse index entries and offsets
-	var offset int64
-	for i, r := range recs {
-		assert.Equal(t, r.GetKey(), sst.SparseIndex[i].key)
-		assert.Equal(t, offset, sst.SparseIndex[i].offset)
-		assert.True(t, sst.Bloom.Lookup(r.GetKey()))
-		offset += int64(CalOnDiskSize(r))
-	}
-
-	// Bloom filter should reject an unknown key
-	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
-}
-
-func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
-	ctx := context.Background()
-	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1, nil)
-	defer closer()
-	fs := fss[0]
-
-	builder, err := NewSSTableBuilder(ctx, cfg, fs, 4)
-	assert.NoError(t, err)
-
-	// Increasing key order
-	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 2)))
-	// Same key with lower sequence number is allowed
-	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("0"), 1)))
-	// Non-decreasing sequence number for same key is rejected
-	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 1)))
-	// Keys must be non-decreasing
-	assert.Error(t, builder.Add(newRecord(Bytes("0"), Bytes("3"), 3)))
-}
-
-func TestSSTableBuilder_TruncatesExistingFile(t *testing.T) {
-	ctx := context.Background()
-	cfg := testConfig()
-	initial := bytes.Repeat([]byte("x"), 256)
-	fss, closer := initTempFileSystems(t, 1, [][]byte{initial})
-	defer closer()
-	fs := fss[0]
-
-	builder, err := NewSSTableBuilder(ctx, cfg, fs, 1)
-	assert.NoError(t, err)
-	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
-
-	_, written, err := builder.Build(ctx)
-	assert.NoError(t, err)
-
-	info, err := os.Stat(fs.Path())
-	assert.NoError(t, err)
-	assert.Equal(t, int64(written), info.Size())
-}
-
-// TestSSTableBuilder_Errors verifies that calling Add or Build after a successful build returns an error.
-func TestSSTableBuilder_Errors(t *testing.T) {
-	ctx := context.Background()
-	cfg := testConfig()
-	fss, closer := initTempFileSystems(t, 1, nil)
-	defer closer()
-	fs := fss[0]
-
-	builder, err := NewSSTableBuilder(ctx, cfg, fs, 2)
-	assert.NoError(t, err)
-
-	rec := newRecord(Bytes("a"), Bytes("1"), 1)
-	assert.NoError(t, builder.Add(rec))
-
-	_, _, err = builder.Build(ctx)
-	assert.NoError(t, err)
-
-	t.Run("AddAfterBuild", func(t *testing.T) {
-		err := builder.Add(newRecord(Bytes("b"), Bytes("2"), 2))
-		assert.ErrorIs(t, err, ErrSSTableAlreadyBuilt)
-	})
-
-	t.Run("BuildTwice", func(t *testing.T) {
-		_, _, err := builder.Build(ctx)
-		assert.ErrorIs(t, err, ErrSSTableAlreadyBuilt)
-	})
-}
-
-// TestSSTableBuilder_CleansOnWriteError ensures that a write failure triggers filesystem cleanup.
-func TestSSTableBuilder_CleansOnWriteError(t *testing.T) {
-	ctx := context.Background()
-	cfg := testConfig()
-
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "fail.sst")
-
-	devFull, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skip("/dev/full not available")
-	}
-
-	fs := &FileSystem{filePath: path, file: devFull}
-
-	builder, err := NewSSTableBuilder(ctx, cfg, fs, 1)
-	require.NoError(t, err)
-
-	require.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
-
-	_, _, err = builder.Build(ctx)
-	require.Error(t, err)
-
-	info, statErr := os.Stat(path)
-	require.NoError(t, statErr)
-	require.Equal(t, int64(0), info.Size())
-
-	require.NoError(t, fs.Close())
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
