@@ -869,12 +869,22 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		}
 	}()
 
+	expected := 0
+	for _, sstable := range sources {
+		expected += len(sstable.SparseIndex)
+	}
+
+	builder, err := NewSSTableBuilder(ctx, config, target, expected)
+	if err != nil {
+		return nil, err
+	}
+	defer builder.Close(ctx)
+
 	var (
 		wrote      int
 		lastKey    Bytes
 		lastKeySet bool
 		lastSeq    uint64
-		memtable   = InitMemtable(config)
 	)
 	for mergeIter.HasNext() {
 		if err := ctx.Err(); err != nil {
@@ -884,7 +894,6 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		if err != nil {
 			return nil, err
 		}
-
 		key := rec.GetKey()
 		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
 			lastKey = key.Clone()
@@ -898,7 +907,9 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 			continue // GC tombstone only at bottommost when older than snapshots
 		}
 
-		memtable.Put(rec)
+		if err := builder.Add(rec); err != nil {
+			return nil, err
+		}
 		wrote++
 	}
 
@@ -907,9 +918,9 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		return nil, nil
 	}
 
-	sstable, err := flush(ctx, config, memtable, target)
+	sst, _, err := builder.Build(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &sstable, nil
+	return &sst, nil
 }

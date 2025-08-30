@@ -333,22 +333,6 @@ func TestSStable(t *testing.T) {
 	})
 }
 
-// Test_genSparseIndex tests the generation of sparse index from memtable.
-func Test_genSparseIndex(t *testing.T) {
-	cfg := testConfig()
-	mem := InitMemtable(cfg)
-	mem.Put(newRecord(Bytes("1"), Bytes("2"), 1))
-	mem.Put(newRecord(Bytes("2"), Bytes("3"), 2))
-	mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-	index := genSparseIndex(mem)
-	assert.Equal(t, Bytes("1"), index[0].key)
-	assert.Equal(t, int64(0), index[0].offset)
-	assert.Equal(t, Bytes("2"), index[1].key)
-	assert.Equal(t, int64(31), index[1].offset)
-	assert.Equal(t, Bytes("3"), index[2].key)
-	assert.Equal(t, int64(62), index[2].offset)
-}
-
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
 func TestSparseIndex_GetOffset(t *testing.T) {
 	type args struct {

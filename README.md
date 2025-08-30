@@ -21,7 +21,7 @@
 - **Skip List Implementation**: Fast in-memory key lookups using a probabilistic skip list data structure.
 - **Bloom Filters**: Reduces unnecessary disk reads for non-existent keys.
 - **Write-Ahead Logging (WAL)**: Ensures durability and crash recovery.
-- **Compaction**: Background process to manage disk space and optimize read performance.
+- **Compaction**: Background process to manage disk space and optimize read performance. Compaction now writes directly to new SSTables via the builder without buffering into an intermediate memtable.
 - **Configurable**: Customize database behavior with options like memtable size, compaction thresholds, and bloom filter settings.
 - **Concurrent Access**: Thread-safe operations with transaction support.
 - **Range Queries**: Efficient retrieval of key-value pairs within a specified key range.

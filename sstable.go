@@ -283,34 +283,23 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 		log.Panic("empty memtable!")
 	}
 
-	tm := NewTransactionManager()
-	tx := tm.Begin()
-	defer tx.Rollback(ctx)
-
-	r := mem.data.Head().Next()
-	for r != nil {
-		if err := WriteRecord(tx, r.Value); err != nil {
-			return SStable{}, fmt.Errorf("failed to write record to transaction buffer: %w", err)
-		}
-		r = r.Next()
+	builder, err := NewSSTableBuilder(ctx, config, fs, int(mem.data.Len()))
+	if err != nil {
+		return SStable{}, fmt.Errorf("failed to create sstable builder: %w", err)
 	}
+	defer builder.Close(ctx)
 
-	sparseIndexOffset := uint64(tx.buffer.Len())
-
-	sparseIndex := genSparseIndex(mem)
-	for _, v := range sparseIndex {
-		if err := writeKeyOffset(tx, v); err != nil {
-			return SStable{}, fmt.Errorf("failed to write sparse index entry to transaction buffer: %w", err)
+	for r := mem.data.Head().Next(); r != nil; r = r.Next() {
+		if err := builder.Add(r.Value); err != nil {
+			return SStable{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
 	}
 
-	if err := WriteNumber(tx, sparseIndexOffset); err != nil {
-		return SStable{}, fmt.Errorf("failed to write sparse index offset to transaction buffer: %w", err)
-	}
-
-	written = tx.buffer.Len()
-	if err := tx.Commit(ctx, fs); err != nil {
-		return SStable{}, fmt.Errorf("failed to commit transaction to file system %s: %w", fs.Path(), err)
+	var sst SStable
+	sst, written, err = builder.Build(ctx)
+	if err != nil {
+		written = 0
+		return SStable{}, err
 	}
 	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
 
@@ -318,20 +307,7 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return NewSSTable(ctx, config, fs)
-}
-
-func genSparseIndex(mem Memtable) SparseIndex {
-	sparseIndex := make(SparseIndex, 0, mem.data.Len())
-
-	cursor := int64(0)
-	runNode := mem.data.Head().Next()
-	for runNode != nil {
-		sparseIndex = append(sparseIndex, KeyOffset{runNode.Key.UserKey, cursor})
-		cursor += int64(CalOnDiskSize(runNode.Value))
-		runNode = runNode.Next()
-	}
-	return sparseIndex
+	return sst, nil
 }
 
 var _ Iterator[Record] = (*sstableIterator)(nil)
