@@ -189,6 +189,9 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 - Update `AddSSTable`, `Compact`, `compactLevel0`, `compactHigherLevel`,
   and `mergeSSTables` to emit `VersionEdit` records and apply them to `versionSet`.
 
+- Update unit tests to construct `VersionSet` fixtures instead of populating
+  `levels` lists.
+
 ### `rindb.go`
 - `InitRinDB` now bootstraps from the MANIFEST, which dictates both live SSTables and WAL identifiers.
 - Flow:
@@ -228,6 +231,8 @@ id := allocator.Next()
 walPath := path.Join(cfg.databaseDir, fmt.Sprintf("%06d.wal", id))
 ```
 
+- Update WAL tests to expect numbered log files seeded by the allocator.
+
 ### `sstablemgmt.go` `NewSSTableFS`
 - Replace ULID-based file names with allocator-issued numbers.
 ```go
@@ -240,8 +245,26 @@ id := allocator.Next()
 sstableFileName := fmt.Sprintf("%06d.sst", id)
 ```
 
+- Tests should seed the allocator to generate predictable file names.
+
 ### `config.go`
 - Extend `Config` with constructors for the manifest and file-number allocator (e.g., `newManifestFunc`, `newFileNumberAllocator`).
+
+### `sstable_builder.go`
+- Track `Smallest`, `Largest`, `SeqLo`, `SeqHi`, and total bytes during `Add`.
+- `Build` returns the `SSTable` and a `FileMeta` populated with the allocator-issued file number.
+- Callers assign the level and forward the metadata when constructing `VersionEdit`s.
+- Update `mergeSSTables` and existing tests to handle the new `FileMeta` result.
+
+### Memtable Flush Path
+- After flushing the memtable, create a `VersionEdit` containing the returned `FileMeta`.
+- Append through a `ManifestWriter`, `Sync`, apply it to the `VersionSet`, then clear the memtable and obsolete WAL.
+- Extend tests to verify the flush records the file in `VersionSet` and cleans up the WAL using that metadata.
+
+### `sstable_files.go`
+- Introduce `removeFiles(files []FileMeta)` to map file numbers to paths and delete them once the manifest edit is durable.
+- Replace ad-hoc file deletions in flush and compaction paths with this helper.
+- Cover deletion and error cases with unit tests.
 
 ## Next Steps
 - Implement manifest writer/reader packages.
