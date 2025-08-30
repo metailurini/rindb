@@ -889,10 +889,13 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		}
 
 		key := rec.GetKey()
-		if lastKey != nil && key.Compare(lastKey) != CmpGreater {
-			continue
+		if lastKey != nil && key.Compare(lastKey) == CmpEqual {
+			if rec.GetSequenceNumber() < minSeq {
+				continue
+			}
+		} else {
+			lastKey = key.Clone()
 		}
-		lastKey = key.Clone()
 		if rec.GetType() == TypeDeletion && bottommost && rec.GetSequenceNumber() < minSeq {
 			continue // GC tombstone only at bottommost when older than snapshots
 		}

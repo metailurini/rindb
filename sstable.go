@@ -285,16 +285,10 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	}
 	defer builder.Close(ctx)
 
-	var lastKey Bytes
 	for r := mem.data.Head().Next(); r != nil; r = r.Next() {
-		key := r.Value.GetKey()
-		if lastKey != nil && key.Compare(lastKey) != CmpGreater {
-			continue
-		}
 		if err := builder.Add(r.Value); err != nil {
 			return SStable{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
-		lastKey = key.Clone()
 	}
 
 	var sst SStable

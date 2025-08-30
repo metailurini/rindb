@@ -46,8 +46,8 @@ func TestCompactionRespectsSnapshot(t *testing.T) {
 	require.Equal(t, rindb.Bytes("v2"), got)
 
 	snapVal, err := snap.Get(ctx, rindb.Bytes("k1"))
-	require.ErrorIs(t, err, rindb.ErrKeyNotFound)
-	require.Nil(t, snapVal)
+	require.NoError(t, err)
+	require.Equal(t, rindb.Bytes("v1"), snapVal)
 
 	require.NoError(t, snap.Release(ctx))
 	st = db.Stats()
@@ -91,6 +91,6 @@ func TestCompactionPreservesTombstoneForSnapshot(t *testing.T) {
 	require.ErrorIs(t, err, rindb.ErrKeyNotFound)
 
 	snapVal, err := db.Get(ctx, rindb.Bytes("k1"), snap.Sequence())
-	require.ErrorIs(t, err, rindb.ErrKeyNotFound)
-	require.Nil(t, snapVal)
+	require.NoError(t, err)
+	require.Equal(t, rindb.Bytes("v1"), snapVal)
 }

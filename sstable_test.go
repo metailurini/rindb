@@ -149,8 +149,8 @@ func TestSStable(t *testing.T) {
 		sstable, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		value, err := sstable.GetValue(ctx, Bytes("a"), 1)
-		assert.Error(t, err)
-		assert.Nil(t, value)
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("old"), value)
 		value, err = sstable.GetValue(ctx, Bytes("a"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("new"), value)
@@ -369,7 +369,7 @@ func TestSSTableBuilder(t *testing.T) {
 	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 }
 
-func TestSSTableBuilder_AddRequiresAscendingKeys(t *testing.T) {
+func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1, nil)
@@ -379,8 +379,13 @@ func TestSSTableBuilder_AddRequiresAscendingKeys(t *testing.T) {
 	builder, err := NewSSTableBuilder(ctx, cfg, fs)
 	assert.NoError(t, err)
 
-	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
-	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 2)))
+	// Increasing key order
+	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 2)))
+	// Same key with lower sequence number is allowed
+	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("0"), 1)))
+	// Non-decreasing sequence number for same key is rejected
+	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 1)))
+	// Keys must be non-decreasing
 	assert.Error(t, builder.Add(newRecord(Bytes("0"), Bytes("3"), 3)))
 }
 
