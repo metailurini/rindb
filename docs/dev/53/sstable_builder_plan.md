@@ -12,7 +12,7 @@ Emit `FileMeta` during table construction so flush and compaction can write mani
 ```go
 // FileMeta records table statistics.
 type FileMeta struct {
-    FileNum        uint64
+    Number         uint64
     Level          int
     Smallest, Largest InternalKey
     SeqLo, SeqHi   uint64
