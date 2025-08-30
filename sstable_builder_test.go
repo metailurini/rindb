@@ -14,7 +14,7 @@ func TestSSTableBuilder_BuildWithoutAdd(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 
-	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	builder, err := NewSSTableBuilder(ctx, cfg, fs, 0)
 	assert.NoError(t, err)
 
 	_, _, err = builder.Build(ctx)

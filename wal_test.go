@@ -53,7 +53,7 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		// suffix for sequence number and type.
 		assert.Equal(t, int(keyLen), len(userKey)+internalKeySuffixLen)
 		// Ensure the record type is one of the valid constants.
-assert.Contains(t, []RecordType{TypeValue, TypeDeletion, TypeMerge}, typ)
+		assert.Contains(t, []RecordType{TypeValue, TypeDeletion, TypeMerge}, typ)
 		// Sequence number can be any uint64, but decoding should not
 		// return a negative value or overflow. Since seq is uint64, no
 		// additional check is needed beyond successful decoding.

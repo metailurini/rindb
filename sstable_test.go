@@ -416,7 +416,7 @@ func TestSSTableBuilder_TruncatesExistingFile(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 
-	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	builder, err := NewSSTableBuilder(ctx, cfg, fs, 1)
 	assert.NoError(t, err)
 	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
 
