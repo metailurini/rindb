@@ -67,6 +67,9 @@ func (b *SSTableBuilder) Add(rec Record) error {
 }
 
 func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
+	if len(b.index) == 0 {
+		return SStable{}, 0, fmt.Errorf("no records to build")
+	}
 	sparseIndexOffset := int64(b.tx.buffer.Len())
 	for _, ko := range b.index {
 		if err := writeKeyOffset(b.tx, ko); err != nil {
