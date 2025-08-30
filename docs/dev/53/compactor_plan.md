@@ -71,7 +71,8 @@ threshold—so restarting the scan ensures each decision uses the latest state.
 ```go
 // commit persists version edits and removes obsolete files.
 func (c *Compactor) commit(ctx context.Context, outs, dels []FileMeta) error {
-    edit := VersionEdit{AddFiles: outs}
+    last := maxSeq(outs)
+    edit := VersionEdit{AddFiles: outs, LastSequence: &last}
     for _, f := range dels {
         edit.DeleteFiles = append(edit.DeleteFiles, DeletedFileMeta{Level: f.Level, Number: f.Number})
     }
