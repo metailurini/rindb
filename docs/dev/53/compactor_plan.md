@@ -40,6 +40,8 @@ func NewCompactor(ops CompactionOps, mw ManifestWriter, vs *VersionSet) *Compact
 ## Public Entry
 ```go
 // Compact scans levels and continues dispatching work until no level qualifies.
+// After each compaction the scan restarts from level 0 because compaction can
+// alter which levels require work.
 func (c *Compactor) Compact(ctx context.Context) error {
     for {
         progressed := false
@@ -51,6 +53,7 @@ func (c *Compactor) Compact(ctx context.Context) error {
                 return err
             }
             progressed = true
+            break // restart scan with refreshed view of c.version.Levels
         }
         if !progressed {
             return nil
@@ -58,6 +61,11 @@ func (c *Compactor) Compact(ctx context.Context) error {
     }
 }
 ```
+
+Breaking out of the inner loop avoids iterating over a stale snapshot of
+`c.version.Levels`. Compaction at one level can change the size of adjacent
+levels—for example, compacting level 0 into level 1 may push level 1 over its
+threshold—so restarting the scan ensures each decision uses the latest state.
 
 ## Commit Hook
 ```go
