@@ -288,7 +288,7 @@ if err := mw.Append(edit); err != nil { return err }
 if err := mw.Sync(); err != nil { return err }
 vs.Apply(edit)
 ```
-- Append through a `ManifestWriter`, apply it to the `VersionSet`, then clear the memtable and obsolete WAL.
+- Append through a `ManifestWriter`, `Sync`, apply it to the `VersionSet`, then clear the memtable and obsolete WAL.
 - Extend tests to verify the flush records the file in `VersionSet` and cleans up the WAL using that metadata.
 
 ### `sstable_files.go`
