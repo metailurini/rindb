@@ -113,6 +113,29 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ---
 
+### SSTable Enhancements and Reliability
+
+**Goal**: Improve SSTable robustness, efficiency, and data integrity.
+
+- **Tasks**:
+  - **SSTable Builder**:
+    - [x] Implement a dedicated SSTable builder for efficient creation.
+    - [x] Allow configuration of SSTable builder size.
+  - **Checksum Verification**:
+    - [x] Add checksum verification for data integrity.
+  - **Bug Fixes and Performance Improvements**:
+    - [x] Address various SSTable-related bugs and optimize performance (e.g., checksum computation).
+
+- **Deliverables**:
+  - More robust and configurable SSTable creation.
+  - Enhanced data integrity with checksums.
+  - Improved overall stability and performance.
+
+- **Version**: `v0.6.0`
+  - **Rationale**: These features significantly enhance the reliability and efficiency of SSTables, justifying a minor version bump.
+
+---
+
 ### Production Readiness
 
 **Goal**: Ensure reliability and completeness for real-world use.
@@ -174,5 +197,6 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 - **`v0.3.0`**: Core Feature Enhancements (range queries, advanced compaction, metrics).
 - **`v0.4.0`**: Performance Optimization (benchmarks, read/write optimizations, memory management).
 - **`v0.5.0`**: Snapshot and Concurrency (point-in-time snapshots, stability improvements).
+- **`v0.6.0`**: SSTable Enhancements and Reliability (SSTable builder, checksums, bug fixes).
 - **`v1.0.0`**: Production Readiness (replication, backup, advanced transactions, full CLI, packaging).
 - **`v1.1.0`**: Ecosystem and Community (bindings, plugins, community engagement, optional time-series).
