@@ -86,7 +86,7 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	return nil
 }
 
-func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
+func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, written int, err error) {
 	if len(b.index) == 0 {
 		return SStable{}, 0, fmt.Errorf("no records to build")
 	}
@@ -94,55 +94,52 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 		return SStable{}, 0, ErrSSTableAlreadyBuilt
 	}
 
+	defer func() {
+		if err != nil {
+			if cleanErr := b.fs.Clean(); cleanErr != nil {
+				WARN(ctx, "failed to clean file system after error: %v", cleanErr)
+			}
+			sst = SStable{}
+			written = 0
+		}
+	}()
+
 	if b.bloom == nil {
 		n := len(b.index)
-		if n > 0 {
-			b.bloom = NewBloomFilter(
-				SetN(uint64(n)),
-				SetP(b.config.bloomFalsePositiveRate),
-				WithCalculatedM(),
-				WithCalculatedK(),
-			)
-			for _, ko := range b.index {
-				b.bloom.Insert(ko.key)
-			}
-		} else {
-			// n=0 would panic when calculating Bloom filter parameters.
-			// Use n=1 to create a valid but empty filter.
-			b.bloom = NewBloomFilter(
-				SetN(1),
-				SetP(b.config.bloomFalsePositiveRate),
-				WithCalculatedM(),
-				WithCalculatedK(),
-			)
+		b.bloom = NewBloomFilter(
+			SetN(uint64(n)),
+			SetP(b.config.bloomFalsePositiveRate),
+			WithCalculatedM(),
+			WithCalculatedK(),
+		)
+		for _, ko := range b.index {
+			b.bloom.Insert(ko.key)
 		}
 	}
 	sparseIndexOffset := int64(b.tx.buffer.Len())
 	for _, ko := range b.index {
-		if err := writeKeyOffset(b.tx, ko); err != nil {
-			return SStable{}, 0, err
+		if err = writeKeyOffset(b.tx, ko); err != nil {
+			return
 		}
 	}
-	if err := WriteNumber(b.tx, uint64(sparseIndexOffset)); err != nil {
-		return SStable{}, 0, fmt.Errorf("failed to write sparse index offset: %w", err)
+	if err = WriteNumber(b.tx, uint64(sparseIndexOffset)); err != nil {
+		err = fmt.Errorf("failed to write sparse index offset: %w", err)
+		return
 	}
-	written := b.tx.buffer.Len()
-	if err := b.tx.Commit(ctx, b.fs); err != nil {
-		if cleanErr := b.fs.Clean(); cleanErr != nil {
-			WARN(ctx, "failed to clean file system after commit error: %v", cleanErr)
-		}
-		return SStable{}, 0, fmt.Errorf("failed to commit transaction: %w", err)
+	written = b.tx.buffer.Len()
+	if err = b.tx.Commit(ctx, b.fs); err != nil {
+		err = fmt.Errorf("failed to commit transaction: %w", err)
+		return
 	}
 
-	if err := b.fs.Sync(); err != nil {
-		if cleanErr := b.fs.Clean(); cleanErr != nil {
-			WARN(ctx, "failed to clean file system after sync error: %v", cleanErr)
-		}
-		return SStable{}, 0, fmt.Errorf("failed to sync file system for %s: %w", b.fs.Path(), err)
+	if err = b.fs.Sync(); err != nil {
+		err = fmt.Errorf("failed to sync file system for %s: %w", b.fs.Path(), err)
+		return
 	}
 
 	b.built = true
-	return SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}, written, nil
+	sst = SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}
+	return
 }
 
 func (b *SSTableBuilder) Close(ctx context.Context) error {
