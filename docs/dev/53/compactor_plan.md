@@ -83,8 +83,8 @@ func (c *Compactor) commit(ctx context.Context, outs, dels []FileMeta) error {
 ```
 
 `removeFiles` deletes obsolete SSTable files from disk after the manifest edit is
-durably persisted. The helper already exists in `sstablemgmt.go` and is reused
-by the compactor.
+durably persisted. A new helper (see `overall_plan.md`) provides this function
+and is reused by the compactor.
 
 ## Internal Helpers
 ```go
