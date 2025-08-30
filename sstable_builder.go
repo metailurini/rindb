@@ -13,6 +13,7 @@ type SSTableBuilder struct {
 	fs      *FileSystem
 	config  Config
 	lastKey Bytes
+	lastSeq uint64
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTableBuilder, error) {
@@ -44,8 +45,15 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTabl
 
 func (b *SSTableBuilder) Add(rec Record) error {
 	key := rec.GetKey()
-	if b.lastKey != nil && key.Compare(b.lastKey) != CmpGreater {
-		return fmt.Errorf("keys must be in strictly increasing order")
+	seq := rec.GetSequenceNumber()
+	if b.lastKey != nil {
+		cmp := key.Compare(b.lastKey)
+		if cmp == CmpLess {
+			return fmt.Errorf("keys must be in non-decreasing order")
+		}
+		if cmp == CmpEqual && seq >= b.lastSeq {
+			return fmt.Errorf("sequence numbers for the same key must be strictly decreasing")
+		}
 	}
 	if err := WriteRecord(b.tx, rec); err != nil {
 		return err
@@ -54,6 +62,7 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	b.bloom.Insert(key)
 	b.offset += int64(CalOnDiskSize(rec))
 	b.lastKey = key.Clone()
+	b.lastSeq = seq
 	return nil
 }
 
