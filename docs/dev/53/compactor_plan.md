@@ -6,32 +6,33 @@ be extracted into a dedicated `Compactor` type located in `compactor.go`.
 
 ## Type & Constructor
 ```go
+// Low-level helpers supplied by SSTableManager.
+type CompactionOps interface {
+    ShouldCompact(ctx context.Context, level int, files []FileMeta) bool
+    PickFiles(ctx context.Context, level int, files []FileMeta) []FileMeta
+    FindOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error)
+    Merge(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error)
+}
+
 // Compactor orchestrates SSTable merges and manifest updates.
 type Compactor struct {
-    mgr      *SSTableManager
+    ops      CompactionOps
     manifest ManifestWriter
     version  *VersionSet
 }
 
-func NewCompactor(m *SSTableManager, mw ManifestWriter, vs *VersionSet) *Compactor {
-    return &Compactor{mgr: m, manifest: mw, version: vs}
+func NewCompactor(ops CompactionOps, mw ManifestWriter, vs *VersionSet) *Compactor {
+    return &Compactor{ops: ops, manifest: mw, version: vs}
 }
 ```
 
 ## Public Entry
 ```go
-// Compact scans levels and dispatches work just like
-// the former SSTableManager.Compact.
+// Compact scans levels from the VersionSet and dispatches work.
 func (c *Compactor) Compact(ctx context.Context) error {
-    for lvl, ll := range c.mgr.levels {
-        if ll == nil { continue }
-        if !c.mgr.shouldCompact(ctx, lvl, ll) { continue }
-        nxt := lvl + 1
-        if lvl == 0 {
-            if err := c.compactLevel0(ctx, ll, nxt); err != nil { return err }
-        } else {
-            if err := c.compactHigherLevel(ctx, ll, nxt); err != nil { return err }
-        }
+    for lvl, files := range c.version.Levels {
+        if !c.ops.ShouldCompact(ctx, lvl, files) { continue }
+        if err := c.compactLevel(ctx, lvl, files); err != nil { return err }
     }
     return nil
 }
@@ -54,21 +55,13 @@ func (c *Compactor) commit(ctx context.Context, outs, dels []FileMeta) error {
 
 ## Internal Helpers
 ```go
-func (c *Compactor) compactLevel0(ctx context.Context, src *LinkedList[*FileSystem], dst int) error {
-    picked := c.mgr.pickAll(ctx, src)
-    over, err := c.mgr.findOverlappingSSTables(ctx, dst, picked)
-    if err != nil { return err }
-    outs, err := c.mgr.mergeSSTables(ctx, dst, append(over, picked...))
-    if err != nil { return err }
-    return c.commit(ctx, outs, append(over, picked...))
-}
-
-func (c *Compactor) compactHigherLevel(ctx context.Context, src *LinkedList[*FileSystem], dst int) error {
-    picked := c.mgr.pickAll(ctx, src)
+func (c *Compactor) compactLevel(ctx context.Context, lvl int, files []FileMeta) error {
+    picked := c.ops.PickFiles(ctx, lvl, files)
     if len(picked) == 0 { return nil }
-    over, err := c.mgr.findOverlappingSSTables(ctx, dst, picked)
+    dst := lvl + 1
+    over, err := c.ops.FindOverlaps(ctx, dst, picked)
     if err != nil { return err }
-    outs, err := c.mgr.mergeSSTables(ctx, dst, append(over, picked...))
+    outs, err := c.ops.Merge(ctx, dst, append(over, picked...))
     if err != nil { return err }
     return c.commit(ctx, outs, append(over, picked...))
 }
@@ -77,22 +70,26 @@ func (c *Compactor) compactHigherLevel(ctx context.Context, src *LinkedList[*Fil
 ## Manager Wiring
 ```go
 type SSTableManager struct {
-    levels []*LinkedList[*FileSystem]
-    compactor *Compactor
+    versionSet *VersionSet
+    compactor  *Compactor
     // ... existing fields ...
 }
 
+// SSTableManager implements CompactionOps via helpers such as
+// ShouldCompact, PickFiles, FindOverlaps, and Merge.
+
 func InitSSTableManager(ctx context.Context, cfg Config) (*SSTableManager, error) {
-    mgr := &SSTableManager{levels: make([]*LinkedList[*FileSystem], 0), config: cfg}
+    vs := cfg.newVersionSetFunc()
+    mgr := &SSTableManager{versionSet: vs, config: cfg}
     // ... existing initialization ...
     mw := cfg.newManifestFunc()
-    vs := cfg.newVersionSetFunc()
     mgr.compactor = NewCompactor(mgr, mw, vs)
     return mgr, nil
 }
 ```
 
 ## Follow Ups
-- Remove old compaction methods from `sstablemgmt.go` and delegate to `Compactor`.
+- Delete `Compact`, `compactLevel0`, and `compactHigherLevel` from `sstablemgmt.go`.
+- Retain and rename helpers as `ShouldCompact`, `PickFiles`, `FindOverlaps`, and `Merge` on `SSTableManager`; update them to use `[]FileMeta` and `VersionSet` data.
 - Adjust tests to construct the manager with a mock `ManifestWriter` and `VersionSet`.
 - Extend `Config` with hooks for manifest and version constructors if not already present.
