@@ -2,8 +2,11 @@ package rindb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+var ErrSSTableAlreadyBuilt = errors.New("SSTable already built")
 
 type SSTableBuilder struct {
 	tx     *Transaction
@@ -44,7 +47,7 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTabl
 
 func (b *SSTableBuilder) Add(rec Record) error {
 	if b.built {
-		return fmt.Errorf("SSTable already built")
+		return ErrSSTableAlreadyBuilt
 	}
 	if err := WriteRecord(b.tx, rec); err != nil {
 		return err
@@ -57,7 +60,7 @@ func (b *SSTableBuilder) Add(rec Record) error {
 
 func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 	if b.built {
-		return SStable{}, 0, fmt.Errorf("SSTable already built")
+		return SStable{}, 0, ErrSSTableAlreadyBuilt
 	}
 	sparseIndexOffset := int64(b.tx.buffer.Len())
 	for _, ko := range b.index {

@@ -388,14 +388,12 @@ func TestSSTableBuilder_Errors(t *testing.T) {
 
 	t.Run("AddAfterBuild", func(t *testing.T) {
 		err := builder.Add(newRecord(Bytes("b"), Bytes("2"), 2))
-		assert.Error(t, err)
-		assert.ErrorContains(t, err, "SSTable already built")
+		assert.ErrorIs(t, err, ErrSSTableAlreadyBuilt)
 	})
 
 	t.Run("BuildTwice", func(t *testing.T) {
 		_, _, err := builder.Build(ctx)
-		assert.Error(t, err)
-		assert.ErrorContains(t, err, "SSTable already built")
+		assert.ErrorIs(t, err, ErrSSTableAlreadyBuilt)
 	})
 }
 
