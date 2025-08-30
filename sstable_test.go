@@ -368,6 +368,22 @@ func TestSSTableBuilder(t *testing.T) {
 	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 }
 
+func TestSSTableBuilder_BuildEmpty(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs, 0)
+	assert.NoError(t, err)
+
+	sst, _, err := builder.Build(ctx)
+	assert.NoError(t, err)
+	assert.NotNil(t, sst.Bloom)
+	assert.False(t, sst.Bloom.Lookup(Bytes("a")))
+}
+
 func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()

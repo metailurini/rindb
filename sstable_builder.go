@@ -14,7 +14,6 @@ type SSTableBuilder struct {
 	config  Config
 	lastKey Bytes
 	lastSeq uint64
-	expect  int
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected int) (*SSTableBuilder, error) {
@@ -48,7 +47,6 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 		offset: 0,
 		fs:     fs,
 		config: cfg,
-		expect: expected,
 	}, nil
 }
 
@@ -80,14 +78,25 @@ func (b *SSTableBuilder) Add(rec Record) error {
 func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 	if b.bloom == nil {
 		n := len(b.index)
-		b.bloom = NewBloomFilter(
-			SetN(uint64(n)),
-			SetP(b.config.bloomFalsePositiveRate),
-			WithCalculatedM(),
-			WithCalculatedK(),
-		)
-		for _, ko := range b.index {
-			b.bloom.Insert(ko.key)
+		if n > 0 {
+			b.bloom = NewBloomFilter(
+				SetN(uint64(n)),
+				SetP(b.config.bloomFalsePositiveRate),
+				WithCalculatedM(),
+				WithCalculatedK(),
+			)
+			for _, ko := range b.index {
+				b.bloom.Insert(ko.key)
+			}
+		} else {
+			// n=0 would panic when calculating Bloom filter parameters.
+			// Use n=1 to create a valid but empty filter.
+			b.bloom = NewBloomFilter(
+				SetN(1),
+				SetP(b.config.bloomFalsePositiveRate),
+				WithCalculatedM(),
+				WithCalculatedK(),
+			)
 		}
 	}
 	sparseIndexOffset := int64(b.tx.buffer.Len())
