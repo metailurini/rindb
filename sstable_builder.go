@@ -84,6 +84,9 @@ func (b *SSTableBuilder) Add(rec Record) error {
 }
 
 func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
+	if len(b.index) == 0 {
+		return SStable{}, 0, fmt.Errorf("no records to build")
+	}
 	if b.built {
 		return SStable{}, 0, ErrSSTableAlreadyBuilt
 	}
