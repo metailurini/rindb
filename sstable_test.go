@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -405,6 +406,26 @@ func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
 	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 1)))
 	// Keys must be non-decreasing
 	assert.Error(t, builder.Add(newRecord(Bytes("0"), Bytes("3"), 3)))
+}
+
+func TestSSTableBuilder_TruncatesExistingFile(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	initial := bytes.Repeat([]byte("x"), 256)
+	fss, closer := initTempFileSystems(t, 1, [][]byte{initial})
+	defer closer()
+	fs := fss[0]
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	assert.NoError(t, err)
+	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
+
+	_, written, err := builder.Build(ctx)
+	assert.NoError(t, err)
+
+	info, err := os.Stat(fs.Path())
+	assert.NoError(t, err)
+	assert.Equal(t, int64(written), info.Size())
 }
 
 // TestSSTableBuilder_Errors verifies that calling Add or Build after a successful build returns an error.
