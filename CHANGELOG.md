@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.6.0](https://github.com/metailurini/rindb/compare/v0.5.0...v0.6.0) (2025-08-30)
+
+
+### Features
+
+* add checksum verification ([96e3010](https://github.com/metailurini/rindb/commit/96e301046ee6a7c379886545db5b236b0ba9264f))
+* add sstable builder ([da84a7f](https://github.com/metailurini/rindb/commit/da84a7fd95162432deb73fb7f77ca2217cfe6165))
+* allow configuring SSTable builder size ([900644c](https://github.com/metailurini/rindb/commit/900644cf10c02efbfb3393a17bbb18d9f93f33aa))
+
+
+### Bug Fixes
+
+* clean file on build error ([eb5f2d8](https://github.com/metailurini/rindb/commit/eb5f2d86154c62b72f2f542e112e07c5539dd82b))
+* clean SSTable file before building ([6594466](https://github.com/metailurini/rindb/commit/65944668443b001ed519d697777b33645e5c457e))
+* enforce strict key ordering in SSTableBuilder ([50715c8](https://github.com/metailurini/rindb/commit/50715c8007615d7ef805e6e8996a5e03e4b6d9f2))
+* expose builder output size ([f1c460a](https://github.com/metailurini/rindb/commit/f1c460a4e13a7839c72f806fc3676b3175dd65c8))
+* handle empty SSTable bloom filter ([e7755f2](https://github.com/metailurini/rindb/commit/e7755f20b090c3c1c03db4bd9ccbe30fb68d47d8))
+* keep bloom filter in memory ([55c5a32](https://github.com/metailurini/rindb/commit/55c5a329c8a828143040825b6e80fb73feb3d7bc))
+* log cleanup failures and tidy write error test ([e83c067](https://github.com/metailurini/rindb/commit/e83c0675cfdb69963faafb331a0c3332c4faaf13))
+* prevent SSTableBuilder reuse after build ([4bff650](https://github.com/metailurini/rindb/commit/4bff650aa2adf3097bb67bc546ac6c255436747e))
+* restore snapshot-aware compaction ([71d7a91](https://github.com/metailurini/rindb/commit/71d7a91867bf7f6192eeb4cc853c986195081400))
+* retain snapshot-visible versions ([4b63caf](https://github.com/metailurini/rindb/commit/4b63caf07afdf854d4cdb258bcd1cfa5a5df82b8))
+* return error on empty SSTable build ([dabbb88](https://github.com/metailurini/rindb/commit/dabbb88d1d9eba6e6e28ba4f6d094946810232f2))
+* sync filesystem after SSTable commit ([401619e](https://github.com/metailurini/rindb/commit/401619e2dbef753208395a88f495ef2d84339bc3))
+
+
+### Performance Improvements
+
+* compute checksums without extra allocations ([abe32d0](https://github.com/metailurini/rindb/commit/abe32d0e3d0bf2c322f9da77f0c7bb7b4a9019e7))
+
 ## [0.5.0](https://github.com/metailurini/rindb/compare/v0.4.0...v0.5.0) (2025-08-29)
 
 
