@@ -78,10 +78,12 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 	}
 	written := b.tx.buffer.Len()
 	if err := b.tx.Commit(ctx, b.fs); err != nil {
+		_ = b.fs.Clean()
 		return SStable{}, 0, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	if err := b.fs.Sync(); err != nil {
+		_ = b.fs.Clean()
 		return SStable{}, 0, fmt.Errorf("failed to sync file system for %s: %w", b.fs.Path(), err)
 	}
 

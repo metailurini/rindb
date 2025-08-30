@@ -2,9 +2,12 @@ package rindb
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSStable tests the SStable functionality.
@@ -387,6 +390,37 @@ func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
 	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 1)))
 	// Keys must be non-decreasing
 	assert.Error(t, builder.Add(newRecord(Bytes("0"), Bytes("3"), 3)))
+}
+
+// TestSSTableBuilder_CleansOnWriteError ensures that a write failure triggers filesystem cleanup.
+func TestSSTableBuilder_CleansOnWriteError(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "fail.sst")
+
+	devFull, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Skip("/dev/full not available")
+	}
+	defer devFull.Close()
+
+	fs := &FileSystem{filePath: path, file: devFull}
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	require.NoError(t, err)
+
+	require.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
+
+	_, _, err = builder.Build(ctx)
+	require.Error(t, err)
+
+	info, statErr := os.Stat(path)
+	require.NoError(t, statErr)
+	require.Equal(t, int64(0), info.Size())
+
+	_ = fs.Close()
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
