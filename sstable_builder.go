@@ -14,9 +14,10 @@ type SSTableBuilder struct {
 	config  Config
 	lastKey Bytes
 	lastSeq uint64
+	expect  int
 }
 
-func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTableBuilder, error) {
+func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected int) (*SSTableBuilder, error) {
 	if fs == nil {
 		return nil, fmt.Errorf("file system is nil")
 	}
@@ -27,19 +28,27 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTabl
 	}
 	tm := NewTransactionManager()
 	tx := tm.Begin()
-	bloom := NewBloomFilter(
-		SetN(uint64(cfg.maxMemtableSize)),
-		SetP(cfg.bloomFalsePositiveRate),
-		WithCalculatedM(),
-		WithCalculatedK(),
-	)
+	var bloom *BloomFilter
+	if expected > 0 {
+		bloom = NewBloomFilter(
+			SetN(uint64(expected)),
+			SetP(cfg.bloomFalsePositiveRate),
+			WithCalculatedM(),
+			WithCalculatedK(),
+		)
+	}
+	cap := expected
+	if cap <= 0 {
+		cap = int(cfg.maxMemtableSize)
+	}
 	return &SSTableBuilder{
 		tx:     tx,
-		index:  make([]KeyOffset, 0, int(cfg.maxMemtableSize)),
+		index:  make([]KeyOffset, 0, cap),
 		bloom:  bloom,
 		offset: 0,
 		fs:     fs,
 		config: cfg,
+		expect: expected,
 	}, nil
 }
 
@@ -59,7 +68,9 @@ func (b *SSTableBuilder) Add(rec Record) error {
 		return err
 	}
 	b.index = append(b.index, KeyOffset{key: key.Clone(), offset: b.offset})
-	b.bloom.Insert(key)
+	if b.bloom != nil {
+		b.bloom.Insert(key)
+	}
 	b.offset += int64(CalOnDiskSize(rec))
 	b.lastKey = key.Clone()
 	b.lastSeq = seq
@@ -67,6 +78,18 @@ func (b *SSTableBuilder) Add(rec Record) error {
 }
 
 func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
+	if b.bloom == nil {
+		n := len(b.index)
+		b.bloom = NewBloomFilter(
+			SetN(uint64(n)),
+			SetP(b.config.bloomFalsePositiveRate),
+			WithCalculatedM(),
+			WithCalculatedK(),
+		)
+		for _, ko := range b.index {
+			b.bloom.Insert(ko.key)
+		}
+	}
 	sparseIndexOffset := int64(b.tx.buffer.Len())
 	for _, ko := range b.index {
 		if err := writeKeyOffset(b.tx, ko); err != nil {

@@ -869,7 +869,12 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		}
 	}()
 
-	builder, err := NewSSTableBuilder(ctx, config, target)
+	expected := 0
+	for _, sstable := range sources {
+		expected += len(sstable.SparseIndex)
+	}
+
+	builder, err := NewSSTableBuilder(ctx, config, target, expected)
 	if err != nil {
 		return nil, err
 	}

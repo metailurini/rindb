@@ -341,14 +341,13 @@ func TestSSTableBuilder(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 
-	builder, err := NewSSTableBuilder(ctx, cfg, fs)
-	assert.NoError(t, err)
-
 	recs := []Record{
 		newRecord(Bytes("a"), Bytes("1"), 1),
 		newRecord(Bytes("b"), Bytes("2"), 2),
 		newRecord(Bytes("c"), Bytes("3"), 3),
 	}
+	builder, err := NewSSTableBuilder(ctx, cfg, fs, len(recs))
+	assert.NoError(t, err)
 	for _, r := range recs {
 		assert.NoError(t, builder.Add(r))
 	}
@@ -376,7 +375,7 @@ func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
 	defer closer()
 	fs := fss[0]
 
-	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	builder, err := NewSSTableBuilder(ctx, cfg, fs, 4)
 	assert.NoError(t, err)
 
 	// Increasing key order

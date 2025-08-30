@@ -279,7 +279,7 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 		log.Panic("empty memtable!")
 	}
 
-	builder, err := NewSSTableBuilder(ctx, config, fs)
+	builder, err := NewSSTableBuilder(ctx, config, fs, int(mem.data.Len()))
 	if err != nil {
 		return SStable{}, fmt.Errorf("failed to create sstable builder: %w", err)
 	}
