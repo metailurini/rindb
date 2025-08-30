@@ -122,10 +122,16 @@ func (b *SSTableBuilder) Build(ctx context.Context) (SStable, int, error) {
 	}
 	written := b.tx.buffer.Len()
 	if err := b.tx.Commit(ctx, b.fs); err != nil {
+		if cleanErr := b.fs.Clean(); cleanErr != nil {
+			WARN(ctx, "failed to clean file system after commit error: %v", cleanErr)
+		}
 		return SStable{}, 0, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	if err := b.fs.Sync(); err != nil {
+		if cleanErr := b.fs.Clean(); cleanErr != nil {
+			WARN(ctx, "failed to clean file system after sync error: %v", cleanErr)
+		}
 		return SStable{}, 0, fmt.Errorf("failed to sync file system for %s: %w", b.fs.Path(), err)
 	}
 
