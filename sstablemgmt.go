@@ -889,7 +889,6 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		if err != nil {
 			return nil, err
 		}
-
 		key := rec.GetKey()
 		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
 			lastKey = key.Clone()

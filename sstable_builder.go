@@ -9,13 +9,15 @@ import (
 var ErrSSTableAlreadyBuilt = errors.New("SSTable already built")
 
 type SSTableBuilder struct {
-	tx     *Transaction
-	index  []KeyOffset
-	bloom  *BloomFilter
-	offset int64
-	fs     *FileSystem
-	config Config
+	tx      *Transaction
+	index   []KeyOffset
+	bloom   *BloomFilter
+	offset  int64
+	fs      *FileSystem
+	config  Config
 	built  bool
+	lastKey Bytes
+	lastSeq uint64
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTableBuilder, error) {
@@ -49,12 +51,26 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	if b.built {
 		return ErrSSTableAlreadyBuilt
 	}
+
+	key := rec.GetKey()
+	seq := rec.GetSequenceNumber()
+	if b.lastKey != nil {
+		cmp := key.Compare(b.lastKey)
+		if cmp == CmpLess {
+			return fmt.Errorf("keys must be in non-decreasing order")
+		}
+		if cmp == CmpEqual && seq >= b.lastSeq {
+			return fmt.Errorf("sequence numbers for the same key must be strictly decreasing")
+		}
+	}
 	if err := WriteRecord(b.tx, rec); err != nil {
 		return err
 	}
-	b.index = append(b.index, KeyOffset{key: rec.GetKey().Clone(), offset: b.offset})
-	b.bloom.Insert(rec.GetKey())
+	b.index = append(b.index, KeyOffset{key: key.Clone(), offset: b.offset})
+	b.bloom.Insert(key)
 	b.offset += int64(CalOnDiskSize(rec))
+	b.lastKey = key.Clone()
+	b.lastSeq = seq
 	return nil
 }
 

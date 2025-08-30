@@ -369,6 +369,26 @@ func TestSSTableBuilder(t *testing.T) {
 	assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 }
 
+func TestSSTableBuilder_AddEnforcesOrder(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	builder, err := NewSSTableBuilder(ctx, cfg, fs)
+	assert.NoError(t, err)
+
+	// Increasing key order
+	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 2)))
+	// Same key with lower sequence number is allowed
+	assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("0"), 1)))
+	// Non-decreasing sequence number for same key is rejected
+	assert.Error(t, builder.Add(newRecord(Bytes("a"), Bytes("2"), 1)))
+	// Keys must be non-decreasing
+	assert.Error(t, builder.Add(newRecord(Bytes("0"), Bytes("3"), 3)))
+}
+
 // TestSSTableBuilder_Errors verifies that calling Add or Build after a successful build returns an error.
 func TestSSTableBuilder_Errors(t *testing.T) {
 	ctx := context.Background()

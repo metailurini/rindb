@@ -285,12 +285,10 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	}
 	defer builder.Close(ctx)
 
-	r := mem.data.Head().Next()
-	for r != nil {
+	for r := mem.data.Head().Next(); r != nil; r = r.Next() {
 		if err := builder.Add(r.Value); err != nil {
 			return SStable{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
-		r = r.Next()
 	}
 
 	var sst SStable
