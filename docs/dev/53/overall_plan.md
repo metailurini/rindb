@@ -5,6 +5,7 @@ This document outlines how to integrate a MANIFEST-based versioning system into 
 ## Data Structures
 - Introduce in-memory `VersionSet` as the authoritative mapping from levels to files.
 - Use `VersionEdit` deltas to record structural changes.
+- Record the highest sequence in `VersionSet.LastSequence` to avoid startup scans.
 ```go
 // Describes a new or updated state change.
 type VersionEdit struct {
@@ -40,6 +41,7 @@ type VersionSet struct {
     NextFileNumber uint64
     LogNumber     uint64
     PrevLogNumber uint64
+    LastSequence  uint64
 }
 ```
 
@@ -207,7 +209,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (*Rindb, error) {
     if err != nil { return nil, err }
 
     allocator := cfg.newFileNumberAllocatorFunc(vs.NextFileNumber)
-    wal, mem, lastSeq, err := openAndReplayWALs(ctx, cfg, allocator, vs.LogNumber, vs.PrevLogNumber)
+    wal, mem, err := openAndReplayWALs(ctx, cfg, allocator, vs.LogNumber, vs.PrevLogNumber, vs.LastSequence)
     if err != nil { return nil, err }
 
     mgr := NewSSTableManager(vs, cfg)
@@ -215,10 +217,18 @@ func InitRinDB(ctx context.Context, opts ...Option) (*Rindb, error) {
         wal:            wal,
         memtable:       mem,
         ssTableManager: mgr,
-        sequenceNumber: lastSeq,
+        sequenceNumber: vs.LastSequence,
     }, nil
 }
 ```
+
+### `filepaths.go`
+- Centralize numbered file naming for WALs and SSTables.
+```go
+func walPath(num uint64) string { return fmt.Sprintf("%06d.wal", num) }
+func sstPath(num uint64) string { return fmt.Sprintf("%06d.sst", num) }
+```
+- Callers use these helpers with numbers from `FileNumberAllocator`.
 
 ### `wal.go`
 - `DefaultNewWALFunc` uses a fixed "WAL" file; switch to numbered logs via `FileNumberAllocator` and persist `LogNumber`/`PrevLogNumber` in the manifest.
@@ -228,7 +238,7 @@ walPath := path.Join(cfg.databaseDir, "WAL")
 changes to
 ```go
 id := allocator.Next()
-walPath := path.Join(cfg.databaseDir, fmt.Sprintf("%06d.wal", id))
+walPath := path.Join(cfg.databaseDir, walPath(id))
 ```
 
 - Update WAL tests to expect numbered log files seeded by the allocator.
@@ -242,13 +252,25 @@ sstableFileName := fmt.Sprintf("l%02d_%s.sst", levelNumb, uid)
 becomes
 ```go
 id := allocator.Next()
-sstableFileName := fmt.Sprintf("%06d.sst", id)
+sstableFileName := sstPath(id)
 ```
 
 - Tests should seed the allocator to generate predictable file names.
 
 ### `config.go`
 - Extend `Config` with constructors for the manifest and file-number allocator (e.g., `newManifestFunc`, `newFileNumberAllocator`).
+- Add a `repairMode` flag and option to force directory scans.
+```go
+type Config struct {
+    databaseDir string
+    repairMode  bool
+    // ... existing fields ...
+}
+
+func WithRepairMode(v bool) Option {
+    return func(c *Config) { c.repairMode = v }
+}
+```
 
 ### `sstable_builder.go`
 - Track `Smallest`, `Largest`, `SeqLo`, `SeqHi`, and total bytes during `Add`.
@@ -257,8 +279,16 @@ sstableFileName := fmt.Sprintf("%06d.sst", id)
 - Update `mergeSSTables` and existing tests to handle the new `FileMeta` result.
 
 ### Memtable Flush Path
-- After flushing the memtable, create a `VersionEdit` containing the returned `FileMeta`.
-- Append through a `ManifestWriter`, `Sync`, apply it to the `VersionSet`, then clear the memtable and obsolete WAL.
+- After flushing the memtable, create a `VersionEdit` containing the returned `FileMeta` and updated sequence.
+```go
+meta := FileMeta{Number: id, Level: 0, Smallest: s, Largest: l, SeqLo: lo, SeqHi: hi}
+last := meta.SeqHi
+edit := VersionEdit{AddFiles: []FileMeta{meta}, LastSequence: &last}
+if err := mw.Append(edit); err != nil { return err }
+if err := mw.Sync(); err != nil { return err }
+vs.Apply(edit)
+```
+- Append through a `ManifestWriter`, apply it to the `VersionSet`, then clear the memtable and obsolete WAL.
 - Extend tests to verify the flush records the file in `VersionSet` and cleans up the WAL using that metadata.
 
 ### `sstable_files.go`
