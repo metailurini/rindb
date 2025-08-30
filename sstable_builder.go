@@ -25,6 +25,9 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem) (*SSTabl
 			return nil, fmt.Errorf("failed to open file system: %w", err)
 		}
 	}
+	if err := fs.Clean(); err != nil {
+		return nil, fmt.Errorf("failed to clean file system: %w", err)
+	}
 	tm := NewTransactionManager()
 	tx := tm.Begin()
 	bloom := NewBloomFilter(
