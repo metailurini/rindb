@@ -404,7 +404,6 @@ func TestSSTableBuilder_CleansOnWriteError(t *testing.T) {
 	if err != nil {
 		t.Skip("/dev/full not available")
 	}
-	defer devFull.Close()
 
 	fs := &FileSystem{filePath: path, file: devFull}
 
@@ -420,7 +419,7 @@ func TestSSTableBuilder_CleansOnWriteError(t *testing.T) {
 	require.NoError(t, statErr)
 	require.Equal(t, int64(0), info.Size())
 
-	_ = fs.Close()
+	require.NoError(t, fs.Close())
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
