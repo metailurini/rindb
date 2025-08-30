@@ -186,16 +186,31 @@ func (h *SSTableManager) LoadLevels(dir string) error {
   and `mergeSSTables` to emit `VersionEdit` records and apply them to `versionSet`.
 
 ### `rindb.go`
-- `InitRinDB` will replay the manifest instead of scanning SSTables for sequence numbers.
+- `InitRinDB` now bootstraps from the MANIFEST, which dictates both live SSTables and WAL identifiers.
+- Flow:
+  1. `recoverVersionSet` reads `CURRENT` and replays the manifest to rebuild levels and allocator state.
+  2. Seed a `FileNumberAllocator` and WAL plumbing from `vs.NextFileNumber`, `vs.LogNumber`, and `vs.PrevLogNumber`.
+  3. Replay the WAL files referenced by those log numbers to restore the memtable and determine `lastSeq`.
+  4. Construct `SSTableManager` directly from the recovered `VersionSet`—no directory scan.
 ```go
-ssTableManager, err := cfg.newSSTableManagerFunc(ctx, cfg)
-sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ssTableManager)
-```
-becomes
-```go
-vs, err := recoverVersionSet(cfg.databaseDir)
-ssTableManager := NewSSTableManager(vs, cfg)
-// sequence derived during WAL replay
+func InitRinDB(ctx context.Context, opts ...Option) (*Rindb, error) {
+    cfg := NewConfig(opts...)
+
+    vs, err := recoverVersionSet(cfg.databaseDir)
+    if err != nil { return nil, err }
+
+    allocator := cfg.newFileNumberAllocatorFunc(vs.NextFileNumber)
+    wal, mem, lastSeq, err := openAndReplayWALs(ctx, cfg, allocator, vs.LogNumber, vs.PrevLogNumber)
+    if err != nil { return nil, err }
+
+    mgr := NewSSTableManager(vs, cfg)
+    return &Rindb{
+        wal:            wal,
+        memtable:       mem,
+        ssTableManager: mgr,
+        sequenceNumber: lastSeq,
+    }, nil
+}
 ```
 
 ### `wal.go`
