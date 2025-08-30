@@ -13,8 +13,8 @@ type VersionEdit struct {
     NextFileNumber *uint64
     LogNumber      *uint64
     PrevLogNumber  *uint64
-    AddFiles       []FileMeta
-    DeleteFiles    []struct{Level int; Number uint64}
+    AddFiles    []FileMeta
+    DeleteFiles []DeletedFileMeta
 }
 
 // Live SSTable metadata.
@@ -26,6 +26,11 @@ type FileMeta struct {
     Size     uint64
     SeqLo    uint64
     SeqHi    uint64
+}
+
+type DeletedFileMeta struct {
+    Level  int
+    Number uint64
 }
 
 // In-memory snapshot of all levels.
@@ -72,8 +77,16 @@ func (db *DB) recover(ctx context.Context) error {
     r := openManifestReader(mf)
     vs := &VersionSet{}
     for {
-        edit, err := r.Next(); if err == io.EOF { break } else if err != nil { return err }
-        if err := edit.Apply(vs); err != nil { return err }
+        edit, err := r.Next()
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            return err
+        }
+        if err := edit.Apply(vs); err != nil {
+            return err
+        }
     }
     return replayWALs(ctx, vs)
 }
@@ -85,7 +98,9 @@ func (db *DB) recover(ctx context.Context) error {
 ```go
 func (c *Compactor) commit(ctx context.Context, outs []FileMeta, dels []FileMeta) error {
     edit := VersionEdit{AddFiles: outs}
-    for _, f := range dels { edit.DeleteFiles = append(edit.DeleteFiles, struct{Level int; Number uint64}{f.Level, f.Number}) }
+    for _, f := range dels {
+        edit.DeleteFiles = append(edit.DeleteFiles, DeletedFileMeta{Level: f.Level, Number: f.Number})
+    }
     if err := c.manifest.Append(edit); err != nil { return err }
     if err := c.manifest.Sync(); err != nil { return err }
     c.version.Apply(edit)
@@ -103,9 +118,18 @@ func (vs *VersionSet) SnapshotEdit() VersionEdit {
 func rotateManifest(dir string, vs *VersionSet) error {
     snap := vs.SnapshotEdit()
     w := newManifestWriter(newPath())
-    _ = w.Append(snap)
-    _ = w.Sync()
-    _ = WriteCURRENT(dir, w.Path())
+    if err := w.Append(snap); err != nil {
+        w.Close()
+        return err
+    }
+    if err := w.Sync(); err != nil {
+        w.Close()
+        return err
+    }
+    if err := WriteCURRENT(dir, w.Path()); err != nil {
+        w.Close()
+        return err
+    }
     return w.Close()
 }
 ```
@@ -113,16 +137,16 @@ func rotateManifest(dir string, vs *VersionSet) error {
 ## Allocator Integration
 - Replace ad-hoc file numbering with a persistent allocator.
 ```go
-type FileNumberAllocator struct{ next uint64 }
+type FileNumberAllocator struct{ next atomic.Uint64 }
 
 func (a *FileNumberAllocator) Next() uint64 {
-    id := a.next
-    a.next++
-    return id
+    return a.next.Add(1) - 1
 }
 
 func (a *FileNumberAllocator) Apply(edit VersionEdit) {
-    if edit.NextFileNumber != nil { a.next = *edit.NextFileNumber }
+    if edit.NextFileNumber != nil {
+        a.next.Store(*edit.NextFileNumber)
+    }
 }
 ```
 
