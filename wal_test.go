@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"testing"
 
@@ -70,10 +69,7 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		_, err = io.ReadFull(file, checksumBytes[:])
 		assert.NoError(t, err)
 		expected := byteOrder.Uint32(checksumBytes[:])
-		hasher := crc32.NewIEEE()
-		_, _ = hasher.Write(keyBytes)
-		_, _ = hasher.Write(valueBytes)
-		actual := hasher.Sum32()
+		actual := checksum(keyBytes, valueBytes)
 		assert.Equal(t, expected, actual)
 
 		_ = seq // silence unused warning if seq not used otherwise
