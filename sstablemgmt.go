@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oklog/ulid/v2"
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
@@ -233,42 +232,29 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 		return dirEntries[i].Name() < dirEntries[j].Name()
 	})
 
-	levels := make([]*LinkedList[*FileSystem], 0)
+	levels := make([]*LinkedList[*FileSystem], 1)
 	for _, dirEntry := range dirEntries {
 		fileName := dirEntry.Name()
-		filePath := path.Join(dir, fileName)
-		isSSTable := strings.HasSuffix(filePath, ".sst")
-		if !isSSTable {
+		if !strings.HasSuffix(fileName, ".sst") {
 			continue
 		}
-
-		idx := strings.Index(fileName, "_")
-		if idx == -1 {
+		base := strings.TrimSuffix(fileName, ".sst")
+		if _, err := strconv.ParseUint(base, 10, 64); err != nil {
 			return fmt.Errorf("invalid sstable name: %s", fileName)
 		}
-
-		levelNumb, err := strconv.ParseInt(fileName[1:idx], 10, 32)
-		if err != nil {
-			return fmt.Errorf("invalid level in sstable name %s: %w", fileName, err)
+		filePath := path.Join(dir, fileName)
+		if levels[0] == nil {
+			levels[0] = InitLinkedList[*FileSystem]()
 		}
-
-		extLevelNumb := int(levelNumb) + 1
-		if extLevelNumb > len(levels) {
-			levels = append(levels, make([]*LinkedList[*FileSystem], extLevelNumb-len(levels))...)
-		}
-
-		if levels[levelNumb] == nil {
-			levels[levelNumb] = InitLinkedList[*FileSystem]()
-		}
-		levels[levelNumb].PushBack(&FileSystem{filePath: filePath})
+		levels[0].PushBack(&FileSystem{filePath: filePath})
 	}
 	h.levels = levels
 	return nil
 }
 
 func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*FileSystem, error) {
-	uid := ulid.Make()
-	sstableFileName := path.Join(h.config.databaseDir, fmt.Sprintf("l%02d_%s.sst", levelNumb, uid.String()))
+	id := h.config.fileNumberAllocator.Next()
+	sstableFileName := path.Join(h.config.databaseDir, sstPath(id))
 	fs, err := OpenFS(ctx, sstableFileName)
 	if err != nil {
 		return nil, err

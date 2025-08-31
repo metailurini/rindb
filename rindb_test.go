@@ -435,9 +435,9 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		ctx := context.Background()
 		// Manually create WAL and add records to simulate memtable content
-		walPath := path.Join(databaseDir, "WAL")
-		_ = os.RemoveAll(walPath) // delete WAL directory if it exists
-		fs, err := OpenFS(ctx, walPath)
+		wp := path.Join(databaseDir, walPath(1))
+		_ = os.RemoveAll(wp) // delete WAL directory if it exists
+		fs, err := OpenFS(ctx, wp)
 		assert.NoError(t, err)
 		wal := NewWAL(DefaultConfig(), fs)
 		defer func() { _ = wal.Close() }()
@@ -481,8 +481,8 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
-		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(ctx, walPath)
+		wp := path.Join(rin.config.databaseDir, walPath(1))
+		walFs, err := OpenFS(ctx, wp)
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
@@ -520,8 +520,8 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Create a WAL with the same highest sequence number
 		// The database directory is already created by initRinDBWithCleanup
-		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(ctx, walPath)
+		wp := path.Join(rin.config.databaseDir, walPath(1))
+		walFs, err := OpenFS(ctx, wp)
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()

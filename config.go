@@ -64,6 +64,12 @@ type Config struct {
 
 	// newSSTableManagerFunc allows custom SSTableManager initialization logic.
 	newSSTableManagerFunc NewSSTableManagerFunc
+
+	// fileNumberAllocator provides sequential identifiers for WAL and SSTable files.
+	fileNumberAllocator *FileNumberAllocator
+
+	// newFileNumberAllocatorFunc constructs a FileNumberAllocator seeded with the given start.
+	newFileNumberAllocatorFunc func(start uint64) *FileNumberAllocator
 }
 
 // Option defines a functional option type for Config.
@@ -82,23 +88,25 @@ func NewConfig(opts ...Option) Config {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
-		databaseDir:               "rindat",
-		maxMemtableSize:           1000,
-		level0CompactionThreshold: 2,
-		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
-		levelSizeMultiplier:       10, // Default: Level N threshold = base * (multiplier^N)
-		writeRateTrigger:          0,
-		ioLoadMax:                 0,
-		bloomFalsePositiveRate:    0.01,
-		skipListDefaultLevel:      2,
-		skipListMaxLevel:          32,
-		skipListP:                 0.5,
-		enableTelemetry:           false,
-		exporterEndpoint:          "",
-		exporterInsecure:          false,
-		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
-		newWALFunc:                DefaultNewWALFunc,
-		newSSTableManagerFunc:     InitSSTableManager,
+		databaseDir:                "rindat",
+		maxMemtableSize:            1000,
+		level0CompactionThreshold:  2,
+		baseCompactionSizeMB:       10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
+		levelSizeMultiplier:        10, // Default: Level N threshold = base * (multiplier^N)
+		writeRateTrigger:           0,
+		ioLoadMax:                  0,
+		bloomFalsePositiveRate:     0.01,
+		skipListDefaultLevel:       2,
+		skipListMaxLevel:           32,
+		skipListP:                  0.5,
+		enableTelemetry:            false,
+		exporterEndpoint:           "",
+		exporterInsecure:           false,
+		telemetrySamplingRate:      0.1, // Default to sample 10% of traces
+		newWALFunc:                 DefaultNewWALFunc,
+		newSSTableManagerFunc:      InitSSTableManager,
+		fileNumberAllocator:        NewFileNumberAllocator(1),
+		newFileNumberAllocatorFunc: NewFileNumberAllocator,
 	}
 }
 
@@ -151,6 +159,12 @@ func (c Config) Validate() {
 	}
 	if c.newSSTableManagerFunc == nil {
 		panic("newSSTableManagerFunc cannot be nil")
+	}
+	if c.fileNumberAllocator == nil {
+		panic("fileNumberAllocator cannot be nil")
+	}
+	if c.newFileNumberAllocatorFunc == nil {
+		panic("newFileNumberAllocatorFunc cannot be nil")
 	}
 }
 
@@ -225,4 +239,14 @@ func WithNewWALFunc(f NewWALFunc) Option {
 
 func WithNewSSTableManagerFunc(f NewSSTableManagerFunc) Option {
 	return func(c *Config) { c.newSSTableManagerFunc = f }
+}
+
+// WithFileNumberAllocator sets a custom FileNumberAllocator.
+func WithFileNumberAllocator(a *FileNumberAllocator) Option {
+	return func(c *Config) { c.fileNumberAllocator = a }
+}
+
+// WithNewFileNumberAllocatorFunc sets the constructor for FileNumberAllocator.
+func WithNewFileNumberAllocatorFunc(f func(start uint64) *FileNumberAllocator) Option {
+	return func(c *Config) { c.newFileNumberAllocatorFunc = f }
 }
