@@ -1,6 +1,6 @@
 # Manifest and Versioning Plan
 
-This document outlines how to integrate a MANIFEST-based versioning system into `rindb`.  The plan below balances prose and illustrative code snippets at roughly a 3:7 ratio.
+This document tracks ongoing work after landing a MANIFEST-based versioning system in `rindb`.  It balances prose and illustrative code snippets at roughly a 3:7 ratio.
 
 ## Data Structures
 - Introduce in-memory `VersionSet` as the authoritative mapping from levels to files.
@@ -66,9 +66,20 @@ func WriteCURRENT(ctx context.Context, dir, manifest string) error {
     tmp := filepath.Join(dir, "CURRENT.tmp")
     fs, err := OpenFS(ctx, tmp)
     if err != nil { return err }
-    if _, err := fs.Write([]byte(manifest+"\n")); err != nil { return err }
-    if err := fs.Sync(); err != nil { return err }
-    if err := fs.Rename(filepath.Join(dir, "CURRENT")); err != nil { return err }
+    if _, err := fs.Write([]byte(manifest+"\n")); err != nil {
+        _ = fs.Close()
+        _ = os.Remove(tmp)
+        return err
+    }
+    if err := fs.Sync(); err != nil {
+        _ = fs.Close()
+        _ = os.Remove(tmp)
+        return err
+    }
+    if err := fs.Rename(filepath.Join(dir, "CURRENT")); err != nil {
+        _ = os.Remove(tmp)
+        return err
+    }
     return syncDir(dir)
 }
 ```
@@ -300,6 +311,5 @@ vs.Apply(edit)
 - Cover deletion and error cases with unit tests.
 
 ## Next Steps
-- Implement manifest writer/reader packages.
 - Integrate allocator and version set into existing DB paths.
 - Add integration tests covering crash recovery and rotation.

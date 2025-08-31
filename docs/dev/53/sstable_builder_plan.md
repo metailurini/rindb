@@ -1,6 +1,6 @@
 # SSTableBuilder Metadata Plan
 
-Emit `FileMeta` during table construction so flush and compaction can write manifest edits.
+With `FileMeta` and manifest editing in place, emit `FileMeta` during table construction so flush and compaction can write manifest edits.
 
 ## Plan
 - Track smallest/largest keys, sequence bounds, and total bytes in `Add`.
