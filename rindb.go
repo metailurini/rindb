@@ -93,6 +93,14 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if vs.NextFileNumber == 0 {
+		vs.NextFileNumber = 1
+	}
+	if cfg.fileNumberAllocator != nil {
+		cfg.fileNumberAllocator.Set(vs.NextFileNumber)
+	} else {
+		cfg.fileNumberAllocator = cfg.newFileNumberAllocatorFunc(vs.NextFileNumber)
+	}
 
 	wal, err := cfg.newWALFunc(ctx, cfg)
 	if err != nil {
