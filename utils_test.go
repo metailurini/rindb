@@ -174,7 +174,7 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 		seqNum++
 		mem.Put(newRecord(Bytes(k), Bytes(v), seqNum))
 	}
-	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
+	sstable, _, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -188,7 +188,7 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 		mem.Put(newRecord(Bytes(k), Bytes(v), seqNum))
 		seqNum++
 	}
-	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
+	sstable, _, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -222,7 +222,8 @@ func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*File
 	fss := make([]*FileSystem, 0, n)
 	tempDir := t.TempDir()
 	for i := 0; i < n; i++ {
-		fs, err := OpenFS(context.Background(), fmt.Sprintf("%s/test-%d", tempDir, i))
+		name := sstPath(uint64(i + 1))
+		fs, err := OpenFS(context.Background(), fmt.Sprintf("%s/%s", tempDir, name))
 		assert.NoError(t, err)
 
 		// Write initial content if provided for this index
@@ -281,7 +282,7 @@ func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) SStable {
 	t.Helper() // Mark this as a test helper function
 	mem := populateMemtable(cfg, pairs...)
-	sstable, err := flush(context.Background(), cfg, mem, fs)
+	sstable, _, err := flush(context.Background(), cfg, mem, fs)
 	assert.NoError(t, err, "Failed to flush memtable to create SSTable")
 	return sstable
 }
