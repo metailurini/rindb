@@ -4,15 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
-
-// crcTable holds the Castagnoli table used for CRC32C checksums.
-var crcTable = crc32.MakeTable(crc32.Castagnoli)
 
 // ManifestWriter appends edits to a MANIFEST file.
 type ManifestWriter interface {
@@ -55,7 +51,7 @@ func (w *fileManifestWriter) Append(edit VersionEdit) error {
 	}
 	var header [8]byte
 	byteOrder.PutUint32(header[0:4], uint32(len(data)))
-	crc := crc32.Checksum(data, crcTable)
+	crc := checksum(data)
 	byteOrder.PutUint32(header[4:8], crc)
 	if _, err := w.fs.Write(header[:]); err != nil {
 		return err
@@ -89,7 +85,7 @@ func (r *fileManifestReader) Next() (VersionEdit, error) {
 	if _, err := io.ReadFull(r.fs, data); err != nil {
 		return VersionEdit{}, err
 	}
-	if crc32.Checksum(data, crcTable) != crc {
+	if checksum(data) != crc {
 		return VersionEdit{}, ErrChecksumMismatch
 	}
 	var edit VersionEdit
