@@ -12,26 +12,30 @@ Switch checksum calculations from streaming CRC-32 IEEE (`crc32.NewIEEE()`) to o
 
 2. **Replace Streaming Hashers**
    - Convert existing code that constructs a `crc32.NewIEEE()` hasher and writes to it in chunks.
-   - Instead, compute the checksum in one call using the table.
+   - Instead, compute the checksum directly using `crc32.Update` with the CRC-32C table.
    ```go
-   checksum := crc32.Checksum(buf, crc32cTable)
+   sum := crc32.Update(0, crc32cTable, buf)
    ```
 
 3. **Update Write Path**
-   - In modules like `io.go`, remove incremental writes and pass the full byte slice to `crc32.Checksum`.
+   - In modules like `io.go`, remove incremental writes and pass slices to a helper that folds them with `crc32.Update`.
    - Return the resulting checksum as `uint32` without keeping a hasher state.
    ```go
-   func checksum(b []byte) uint32 {
-       return crc32.Checksum(b, crc32cTable)
+   func checksum(parts ...[]byte) uint32 {
+       var sum uint32
+       for _, p := range parts {
+           sum = crc32.Update(sum, crc32cTable, p)
+       }
+       return sum
    }
    ```
 
 4. **Adjust Tests**
    - Rewrite tests that previously fed data to the streaming hasher.
-   - Use one-shot calls and assert against precomputed CRC-32C values.
+   - Call the new helper with one or multiple slices and assert against precomputed CRC-32C values.
    ```go
    expected := uint32(0x8a9136aa)
-   actual := crc32.Checksum(data, crc32cTable)
+   actual := checksum([]byte("foo"), []byte("bar"))
    require.Equal(t, expected, actual)
    ```
 
