@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 )
 
@@ -63,10 +62,7 @@ func ReadRecord(storage io.Reader) (Record, error) {
 		return nil, fmt.Errorf("failed to read checksum: %w", err)
 	}
 	expected := byteOrder.Uint32(checksumBytes[:])
-	hasher := crc32.NewIEEE()
-	_, _ = hasher.Write(internalKeyBytes)
-	_, _ = hasher.Write(valueBytes)
-	if actual := hasher.Sum32(); actual != expected {
+	if actual := checksum(internalKeyBytes, valueBytes); actual != expected {
 		return nil, ErrChecksumMismatch
 	}
 
@@ -91,10 +87,7 @@ func WriteRecord(tx *Transaction, record Record) error {
 	ikey := EncodeInternalKey(record.GetKey(), record.GetSequenceNumber(), record.GetType())
 	val := record.GetValue()
 
-	hasher := crc32.NewIEEE()
-	_, _ = hasher.Write(ikey)
-	_, _ = hasher.Write(val)
-	checksum := hasher.Sum32()
+	checksum := checksum(ikey, val)
 
 	if err := WriteNumber(tx, uint64(len(ikey))); err != nil {
 		return fmt.Errorf("failed to write internal key length: %w", err)
