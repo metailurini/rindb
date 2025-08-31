@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ type Rindb struct {
 	memtable          Memtable
 	ssTableManager    *SSTableManager
 	versionSet        *VersionSet
+	manifest          ManifestWriter
 	config            Config
 	shutdownTelemetry func(context.Context) error
 	mu                sync.RWMutex   // Mutex for thread-safe access
@@ -89,10 +91,26 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
-	vs, err := recoverVersionSet(ctx, cfg.databaseDir)
+	vs, manifestPath, err := recoverVersionSet(ctx, cfg.databaseDir)
 	if err != nil {
 		return nil, err
 	}
+	if manifestPath == "" {
+		manifestFile := "MANIFEST-000001"
+		manifestPath = path.Join(cfg.databaseDir, manifestFile)
+		if err := WriteCURRENT(ctx, cfg.databaseDir, manifestFile); err != nil {
+			return nil, err
+		}
+	}
+	mw, err := cfg.newManifestWriterFunc(ctx, manifestPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = mw.Close()
+		}
+	}()
 	if vs.NextFileNumber == 0 {
 		vs.NextFileNumber = 1
 	}
@@ -143,6 +161,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		memtable:          memtable,
 		ssTableManager:    ssTableManager,
 		versionSet:        vs,
+		manifest:          mw,
 		config:            cfg,
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,
@@ -338,7 +357,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			return fmt.Errorf("failed to create new SSTable file system: %w", err)
 		}
 
-		_, err = flush(ctx, r.config, r.memtable, fs)
+		_, meta, err := flush(ctx, r.config, r.memtable, fs)
 		if err != nil {
 			_ = fs.Close() // Attempt to close FS on flush error
 			ERROR(ctx, "Failed to flush memtable: %v", err)
@@ -349,6 +368,23 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		if err := r.ssTableManager.AddSSTable(ctx, 0, fs); err != nil {
 			ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
+		}
+
+		edit := VersionEdit{
+			AddFiles:       []FileMeta{meta},
+			LastSequence:   r.sequenceNumber,
+			NextFileNumber: r.config.fileNumberAllocator.Peek(),
+		}
+		if err := r.manifest.Append(edit); err != nil {
+			ERROR(ctx, "Failed to append manifest edit: %v", err)
+			return err
+		}
+		if err := r.manifest.Sync(); err != nil {
+			ERROR(ctx, "Failed to sync manifest: %v", err)
+			return err
+		}
+		if err := edit.Apply(r.versionSet); err != nil {
+			return err
 		}
 
 		// Clear the memtable and clean the WAL *after* successful flush and registration
@@ -473,6 +509,12 @@ func (r *Rindb) Close() error {
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
 	r.ssTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
 	INFO(ctx, "SSTableManager closed.")
+
+	if r.manifest != nil {
+		if err := r.manifest.Close(); err != nil {
+			ERROR(ctx, "Error closing manifest: %v", err)
+		}
+	}
 
 	if err := r.shutdownTelemetry(ctx); err != nil {
 		ERROR(ctx, "Error shutting down telemetry: %v", err)

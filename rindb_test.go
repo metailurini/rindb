@@ -75,7 +75,7 @@ func TestRindb_IRange(t *testing.T) {
 	mem1 := InitMemtable(cfg)
 	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
 	mem1.Put(newRecord(Bytes("b"), Bytes("sstB"), 2))
-	sst1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
+	sst1, _, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst1)
 
@@ -83,7 +83,7 @@ func TestRindb_IRange(t *testing.T) {
 	mem2 := InitMemtable(cfg)
 	mem2.Put(newRecord(Bytes("k"), nil, 3)) // tombstone
 	mem2.Put(newRecord(Bytes("z"), Bytes("sstZ"), 4))
-	sst2, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
+	sst2, _, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
 	ts.AddSSTableToLevel(0, &sst2)
 
@@ -226,7 +226,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
-	newSStable, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
+	newSStable, _, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean(ctx, math.MaxUint64)
 	assert.NoError(t, err)
@@ -476,7 +476,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem := InitMemtable(rin.config)
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 50))
 		mem.Put(newRecord(Bytes("sk2"), Bytes("sv2"), 60))
-		_, err = flush(ctx, rin.config, mem, fs)
+		_, _, err = flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
 
@@ -514,7 +514,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		mem := InitMemtable(rin.config)
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 70))
-		_, err = flush(ctx, rin.config, mem, fs)
+		_, _, err = flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
 		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
 

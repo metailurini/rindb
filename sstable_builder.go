@@ -4,20 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 )
 
 var ErrSSTableAlreadyBuilt = errors.New("SSTable already built")
 
 type SSTableBuilder struct {
-	tx      *Transaction
-	index   []KeyOffset
-	bloom   *BloomFilter
-	offset  int64
-	fs      *FileSystem
-	config  Config
-	built   bool
-	lastKey Bytes
-	lastSeq uint64
+	tx       *Transaction
+	index    []KeyOffset
+	bloom    *BloomFilter
+	offset   int64
+	fs       *FileSystem
+	config   Config
+	built    bool
+	lastKey  Bytes
+	lastSeq  uint64
+	smallest InternalKey
+	largest  InternalKey
+	seqLo    uint64
+	seqHi    uint64
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected int) (*SSTableBuilder, error) {
@@ -54,6 +59,7 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 		offset: 0,
 		fs:     fs,
 		config: cfg,
+		seqLo:  math.MaxUint64,
 	}, nil
 }
 
@@ -76,6 +82,7 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	if err := WriteRecord(b.tx, rec); err != nil {
 		return err
 	}
+	ik := InternalKey{UserKey: key.Clone(), Seq: seq, Type: rec.GetType()}
 	b.index = append(b.index, KeyOffset{key: key.Clone(), offset: b.offset})
 	if b.bloom != nil {
 		b.bloom.Insert(key)
@@ -83,15 +90,25 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	b.offset += int64(CalOnDiskSize(rec))
 	b.lastKey = key.Clone()
 	b.lastSeq = seq
+	if len(b.index) == 1 {
+		b.smallest = ik
+	}
+	b.largest = ik
+	if seq < b.seqLo {
+		b.seqLo = seq
+	}
+	if seq > b.seqHi {
+		b.seqHi = seq
+	}
 	return nil
 }
 
-func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, written int, err error) {
+func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta FileMeta, written int, err error) {
 	if len(b.index) == 0 {
-		return SStable{}, 0, fmt.Errorf("no records to build")
+		return SStable{}, FileMeta{}, 0, fmt.Errorf("no records to build")
 	}
 	if b.built {
-		return SStable{}, 0, ErrSSTableAlreadyBuilt
+		return SStable{}, FileMeta{}, 0, ErrSSTableAlreadyBuilt
 	}
 
 	defer func() {
@@ -100,6 +117,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, written int, e
 				WARN(ctx, "failed to clean file system after error: %v", cleanErr)
 			}
 			sst = SStable{}
+			meta = FileMeta{}
 			written = 0
 		}
 	}()
@@ -139,6 +157,19 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, written int, e
 
 	b.built = true
 	sst = SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom}
+	num, nerr := fileNum(b.fs.Path())
+	if nerr != nil {
+		err = fmt.Errorf("invalid sstable path %s: %w", b.fs.Path(), nerr)
+		return
+	}
+	meta = FileMeta{
+		Number:   num,
+		Smallest: b.smallest,
+		Largest:  b.largest,
+		Size:     uint64(written),
+		SeqLo:    b.seqLo,
+		SeqHi:    b.seqHi,
+	}
 	return
 }
 

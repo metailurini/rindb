@@ -131,20 +131,21 @@ func syncDir(dir string) error {
 }
 
 // recoverVersionSet rebuilds the VersionSet by replaying the MANIFEST.
-func recoverVersionSet(ctx context.Context, dir string) (*VersionSet, error) {
+func recoverVersionSet(ctx context.Context, dir string) (*VersionSet, string, error) {
 	vs := &VersionSet{}
 	curr := filepath.Join(dir, "CURRENT")
 	data, err := os.ReadFile(curr)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return vs, nil
+			return vs, "", nil
 		}
-		return nil, err
+		return nil, "", err
 	}
 	manifest := strings.TrimSpace(string(data))
-	r, err := NewManifestReader(ctx, filepath.Join(dir, manifest))
+	manifestPath := filepath.Join(dir, manifest)
+	r, err := NewManifestReader(ctx, manifestPath)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer r.Close()
 	for {
@@ -153,11 +154,11 @@ func recoverVersionSet(ctx context.Context, dir string) (*VersionSet, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, err
+			return nil, "", err
 		}
 		if err := edit.Apply(vs); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
-	return vs, nil
+	return vs, manifestPath, nil
 }

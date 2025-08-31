@@ -596,10 +596,17 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	}
 	h.levels[newLevelNumb].PushBack(newLevelSSTable)
 
+	var dels []FileMeta
 	for _, sstable := range pickedUpSSTable {
-		if err := os.Remove(sstable.Path()); err != nil {
-			ERROR(ctx, "Error removing file %s: %v", sstable.Path(), err)
+		num, nerr := fileNum(sstable.Path())
+		if nerr != nil {
+			ERROR(ctx, "Error parsing file number for %s: %v", sstable.Path(), nerr)
+			continue
 		}
+		dels = append(dels, FileMeta{Number: num})
+	}
+	if err := removeFiles(h.config.databaseDir, dels); err != nil {
+		ERROR(ctx, "Error removing files: %v", err)
 	}
 	return nil
 }
@@ -904,7 +911,7 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		return nil, nil
 	}
 
-	sst, _, err := builder.Build(ctx)
+	sst, _, _, err := builder.Build(ctx)
 	if err != nil {
 		return nil, err
 	}

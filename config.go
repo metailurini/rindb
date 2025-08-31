@@ -70,6 +70,9 @@ type Config struct {
 
 	// newFileNumberAllocatorFunc constructs a FileNumberAllocator seeded with the given start.
 	newFileNumberAllocatorFunc func(start uint64) *FileNumberAllocator
+
+	// newManifestWriterFunc allows custom ManifestWriter initialization.
+	newManifestWriterFunc func(ctx context.Context, path string) (ManifestWriter, error)
 }
 
 // Option defines a functional option type for Config.
@@ -107,6 +110,7 @@ func DefaultConfig() Config {
 		newSSTableManagerFunc:      InitSSTableManager,
 		fileNumberAllocator:        NewFileNumberAllocator(1),
 		newFileNumberAllocatorFunc: NewFileNumberAllocator,
+		newManifestWriterFunc:      NewManifestWriter,
 	}
 }
 
@@ -165,6 +169,9 @@ func (c Config) Validate() {
 	}
 	if c.newFileNumberAllocatorFunc == nil {
 		panic("newFileNumberAllocatorFunc cannot be nil")
+	}
+	if c.newManifestWriterFunc == nil {
+		panic("newManifestWriterFunc cannot be nil")
 	}
 }
 
@@ -249,4 +256,9 @@ func WithFileNumberAllocator(a *FileNumberAllocator) Option {
 // WithNewFileNumberAllocatorFunc sets the constructor for FileNumberAllocator.
 func WithNewFileNumberAllocatorFunc(f func(start uint64) *FileNumberAllocator) Option {
 	return func(c *Config) { c.newFileNumberAllocatorFunc = f }
+}
+
+// WithNewManifestWriterFunc sets the constructor for ManifestWriter.
+func WithNewManifestWriterFunc(f func(ctx context.Context, path string) (ManifestWriter, error)) Option {
+	return func(c *Config) { c.newManifestWriterFunc = f }
 }

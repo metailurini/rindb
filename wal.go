@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"sync/atomic"
@@ -23,7 +24,23 @@ type WAL struct {
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
 func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
-	id := cfg.fileNumberAllocator.Next()
+	// Attempt to reuse the highest-numbered WAL if it exists.
+	entries, err := os.ReadDir(cfg.databaseDir)
+	var maxID uint64
+	if err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if strings.HasSuffix(name, ".wal") {
+				if n, nerr := fileNum(name); nerr == nil && n > maxID {
+					maxID = n
+				}
+			}
+		}
+	}
+	id := maxID
+	if id == 0 {
+		id = cfg.fileNumberAllocator.Next()
+	}
 	wp := path.Join(cfg.databaseDir, walPath(id))
 	fs, err := OpenFS(ctx, wp)
 	if err != nil {

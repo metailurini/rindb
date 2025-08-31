@@ -266,10 +266,11 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 	return maxSeqNum, nil
 }
 
-func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, error) {
+func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, FileMeta, error) {
 	ctx, span := sstableTracer.Start(ctx, "flush")
 	start := time.Now()
 	var written int
+	var meta FileMeta
 	defer func() {
 		span.End()
 		flushLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
@@ -285,29 +286,30 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 
 	builder, err := NewSSTableBuilder(ctx, config, fs, int(mem.data.Len()))
 	if err != nil {
-		return SStable{}, fmt.Errorf("failed to create sstable builder: %w", err)
+		return SStable{}, FileMeta{}, fmt.Errorf("failed to create sstable builder: %w", err)
 	}
 	defer builder.Close(ctx)
 
 	for r := mem.data.Head().Next(); r != nil; r = r.Next() {
 		if err := builder.Add(r.Value); err != nil {
-			return SStable{}, fmt.Errorf("failed to add record to builder: %w", err)
+			return SStable{}, FileMeta{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
 	}
 
 	var sst SStable
-	sst, written, err = builder.Build(ctx)
+	sst, meta, written, err = builder.Build(ctx)
 	if err != nil {
 		written = 0
-		return SStable{}, err
+		return SStable{}, FileMeta{}, err
 	}
+	meta.Level = 0
 	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return sst, nil
+	return sst, meta, nil
 }
 
 var _ Iterator[Record] = (*sstableIterator)(nil)
