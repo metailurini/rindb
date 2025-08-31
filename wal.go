@@ -26,14 +26,16 @@ type WAL struct {
 func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 	// Attempt to reuse the highest-numbered WAL if it exists.
 	entries, err := os.ReadDir(cfg.databaseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read database directory %s: %w", cfg.databaseDir, err)
+	}
+
 	var maxID uint64
-	if err == nil {
-		for _, e := range entries {
-			name := e.Name()
-			if strings.HasSuffix(name, ".wal") {
-				if n, nerr := fileNum(name); nerr == nil && n > maxID {
-					maxID = n
-				}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasSuffix(name, ".wal") {
+			if n, nerr := fileNum(name); nerr == nil && n > maxID {
+				maxID = n
 			}
 		}
 	}
