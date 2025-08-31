@@ -22,6 +22,7 @@ type Rindb struct {
 	wal               *WAL
 	memtable          Memtable
 	ssTableManager    *SSTableManager
+	versionSet        *VersionSet
 	config            Config
 	shutdownTelemetry func(context.Context) error
 	mu                sync.RWMutex   // Mutex for thread-safe access
@@ -88,6 +89,11 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
+	vs, err := recoverVersionSet(ctx, cfg.databaseDir)
+	if err != nil {
+		return nil, err
+	}
+
 	wal, err := cfg.newWALFunc(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -106,7 +112,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 
 	// Set default is 0, while inserting new record, it will automatically increase
 	// So first record's sequence number is always 1 if database is empty
-	var maxSeqNum uint64 = 0
+	var maxSeqNum uint64 = vs.LastSequence
 
 	memMaxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
 	if err != nil {
@@ -132,6 +138,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		wal:               wal,
 		memtable:          memtable,
 		ssTableManager:    ssTableManager,
+		versionSet:        vs,
 		config:            cfg,
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,

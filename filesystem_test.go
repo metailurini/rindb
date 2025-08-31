@@ -42,6 +42,17 @@ func TestFileSystem(t *testing.T) {
 		assert.NoError(t, fs.Close())
 		assert.NoError(t, emptyFs.Close())
 	})
+
+	t.Run("Rename file", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+
+		fs := fss[0]
+		newPath := fs.Path() + "-renamed"
+
+		assert.NoError(t, fs.Rename(newPath))
+		assert.Equal(t, newPath, fs.Path())
+	})
 }
 
 func TestFileSystem_Errors(t *testing.T) {

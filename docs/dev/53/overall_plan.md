@@ -9,11 +9,11 @@ This document outlines how to integrate a MANIFEST-based versioning system into 
 ```go
 // Describes a new or updated state change.
 type VersionEdit struct {
-    ComparatorName *string
-    LastSequence   *uint64
-    NextFileNumber *uint64
-    LogNumber      *uint64
-    PrevLogNumber  *uint64
+    ComparatorName string
+    LastSequence   uint64
+    NextFileNumber uint64
+    LogNumber      uint64
+    PrevLogNumber  uint64
     AddFiles    []FileMeta
     DeleteFiles []DeletedFileMeta
 }
@@ -62,10 +62,13 @@ type ManifestReader interface {
     Close() error
 }
 
-func WriteCURRENT(dir, manifest string) error {
+func WriteCURRENT(ctx context.Context, dir, manifest string) error {
     tmp := filepath.Join(dir, "CURRENT.tmp")
-    if err := os.WriteFile(tmp, []byte(manifest+"\n"), 0o644); err != nil { return err }
-    if err := os.Rename(tmp, filepath.Join(dir, "CURRENT")); err != nil { return err }
+    fs, err := OpenFS(ctx, tmp)
+    if err != nil { return err }
+    if _, err := fs.Write([]byte(manifest+"\n")); err != nil { return err }
+    if err := fs.Sync(); err != nil { return err }
+    if err := fs.Rename(filepath.Join(dir, "CURRENT")); err != nil { return err }
     return syncDir(dir)
 }
 ```
@@ -132,7 +135,7 @@ func rotateManifest(dir string, vs *VersionSet) error {
         w.Close()
         return err
     }
-    if err := WriteCURRENT(dir, w.Path()); err != nil {
+    if err := WriteCURRENT(ctx, dir, w.Path()); err != nil {
         w.Close()
         return err
     }
@@ -161,7 +164,7 @@ func (a *FileNumberAllocator) Apply(edit VersionEdit) {
 ```go
 func InitSSTableManager(ctx context.Context, cfg Config) (*SSTableManager, error) {
     if cfg.repairMode { return loadByScan(ctx, cfg) }
-    vs, err := recoverVersionSet(cfg.databaseDir)
+    vs, err := recoverVersionSet(ctx, cfg.databaseDir)
     if err != nil { return nil, err }
     return &SSTableManager{versionSet: vs, config: cfg}, nil
 }
@@ -205,7 +208,7 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 func InitRinDB(ctx context.Context, opts ...Option) (*Rindb, error) {
     cfg := NewConfig(opts...)
 
-    vs, err := recoverVersionSet(cfg.databaseDir)
+    vs, err := recoverVersionSet(ctx, cfg.databaseDir)
     if err != nil { return nil, err }
 
     allocator := cfg.newFileNumberAllocatorFunc(vs.NextFileNumber)
@@ -283,7 +286,7 @@ func WithRepairMode(v bool) Option {
 ```go
 meta := FileMeta{Number: id, Level: 0, Smallest: s, Largest: l, SeqLo: lo, SeqHi: hi}
 last := meta.SeqHi
-edit := VersionEdit{AddFiles: []FileMeta{meta}, LastSequence: &last}
+edit := VersionEdit{AddFiles: []FileMeta{meta}, LastSequence: last}
 if err := mw.Append(edit); err != nil { return err }
 if err := mw.Sync(); err != nil { return err }
 vs.Apply(edit)

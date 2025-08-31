@@ -221,16 +221,13 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to sync WAL: %w", err)
 	}
-	if err := tmpFS.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("failed to close temp WAL: %w", err)
-	}
 
 	if err := w.Close(); err != nil {
+		_ = tmpFS.Close()
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to close WAL: %w", err)
 	}
-	if err := os.Rename(tmpPath, w.Path()); err != nil {
+	if err := tmpFS.Rename(w.Path()); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to replace WAL: %w", err)
 	}
