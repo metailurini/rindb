@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -169,6 +171,18 @@ func TestWALCrashRecovery(t *testing.T) {
 	v2, err := mem.Get(k2)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v2"), v2)
+}
+
+func TestDefaultNewWALFunc_ReadDirError(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "notadir")
+	assert.NoError(t, os.WriteFile(file, []byte(""), 0o644))
+
+	cfg := testConfig()
+	cfg.databaseDir = file
+
+	_, err := DefaultNewWALFunc(context.Background(), cfg)
+	assert.Error(t, err)
 }
 
 // TestWALCrashRecovery_PartialWrite tests WAL recovery after a crash during a partial write.
