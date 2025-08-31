@@ -1,6 +1,6 @@
 # VersionSet Read Path Plan
 
-Migrate lookup helpers to operate on `VersionSet` metadata rather than legacy linked lists. The prose-to-code ratio is roughly 3:7.
+Now that `VersionSet` tracks SSTables, migrate lookup helpers to operate on its metadata rather than legacy linked lists. The prose-to-code ratio is roughly 3:7.
 
 ## Plan
 - Iterate `VersionSet.Levels` and return file numbers overlapping a key range.

@@ -73,15 +73,27 @@ func (e VersionEdit) Apply(vs *VersionSet) error {
 		vs.ensureLevel(f.Level)
 		vs.Levels[f.Level] = append(vs.Levels[f.Level], f)
 	}
-	for _, d := range e.DeleteFiles {
-		if d.Level < len(vs.Levels) {
-			files := vs.Levels[d.Level]
-			for i, f := range files {
-				if f.Number == d.Number {
-					vs.Levels[d.Level] = append(files[:i], files[i+1:]...)
-					break
+	if len(e.DeleteFiles) > 0 {
+		deletionsByLevel := make(map[int]map[uint64]struct{})
+		for _, d := range e.DeleteFiles {
+			if _, ok := deletionsByLevel[d.Level]; !ok {
+				deletionsByLevel[d.Level] = make(map[uint64]struct{})
+			}
+			deletionsByLevel[d.Level][d.Number] = struct{}{}
+		}
+
+		for level, toDelete := range deletionsByLevel {
+			if level >= len(vs.Levels) {
+				continue
+			}
+			files := vs.Levels[level]
+			filtered := files[:0]
+			for _, f := range files {
+				if _, ok := toDelete[f.Number]; !ok {
+					filtered = append(filtered, f)
 				}
 			}
+			vs.Levels[level] = filtered
 		}
 	}
 	return nil

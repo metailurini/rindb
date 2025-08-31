@@ -1,8 +1,9 @@
 # Compactor Refactor Plan
 
-The current `SSTableManager` embeds all compaction logic.  To align with the manifest
-work and enable the `commit` workflow described in `overall_plan.md`, compaction will
-be extracted into a dedicated `Compactor` type located in `compactor.go`.
+With manifest-based versioning in place, the current `SSTableManager` still embeds all
+compaction logic. To align with this new foundation and enable the `commit`
+workflow described in `overall_plan.md`, compaction will be extracted into a
+dedicated `Compactor` type located in `compactor.go`.
 
 ## Type & Constructor
 ```go
