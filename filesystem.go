@@ -88,6 +88,25 @@ func (fs *FileSystem) Close() error {
 	return nil
 }
 
+// Rename moves the underlying file to newPath.
+// It closes the file if it's open and updates the internal path.
+func (fs *FileSystem) Rename(newPath string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file != nil {
+		if err := fs.file.Close(); err != nil {
+			return err
+		}
+		fs.file = nil
+	}
+	if err := os.Rename(fs.filePath, newPath); err != nil {
+		return err
+	}
+	fs.filePath = newPath
+	return nil
+}
+
 func (fs *FileSystem) Clean() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
