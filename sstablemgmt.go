@@ -27,6 +27,7 @@ const writeRateAlpha = 0.2
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
+	openedFsMu  sync.Mutex
 	openedFs    map[*FileSystem]struct{} // legacy tracking for compaction paths
 	openedByNum map[uint64]*SStable      // open SSTables keyed by file number
 	levels      []*LinkedList[*FileSystem]
@@ -74,7 +75,9 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 		_ = fs.Close() // Ensure file is closed on SSTable creation error
 		return nil, fmt.Errorf("failed to create sstable object for %s: %w", fs.Path(), err)
 	}
+	h.openedFsMu.Lock()
 	h.openedFs[fs] = struct{}{} // Track opened file system
+	h.openedFsMu.Unlock()
 	return &sstable, nil
 }
 
@@ -266,7 +269,9 @@ func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*File
 		return nil, err
 	}
 
+	h.openedFsMu.Lock()
 	h.openedFs[fs] = struct{}{}
+	h.openedFsMu.Unlock()
 	return fs, nil
 }
 
@@ -277,6 +282,7 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 
 	h.mu.Lock()
+	h.openedFsMu.Lock()
 	sstablesToClose := make([]*SStable, 0, len(h.openedByNum))
 	for _, s := range h.openedByNum {
 		sstablesToClose = append(sstablesToClose, s)
@@ -307,6 +313,7 @@ func (h *SSTableManager) Close(ctx context.Context) {
 		}
 	}
 	h.openedFs = make(map[*FileSystem]struct{})
+	h.openedFsMu.Unlock()
 	h.mu.Unlock()
 
 	for _, s := range sstablesToClose {
@@ -568,7 +575,9 @@ func (h *SSTableManager) closeSSTables(sstables []SStable) {
 }
 
 func (h *SSTableManager) removeOpenedFS(target *FileSystem) {
+	h.openedFsMu.Lock()
 	delete(h.openedFs, target)
+	h.openedFsMu.Unlock()
 }
 
 // openByNumber returns an opened SSTable for the given file number. The
