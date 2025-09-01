@@ -86,9 +86,9 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
             if err := h.manifest.Append(edit); err != nil { return err }
             if err := h.manifest.Sync(); err != nil { return err }
         }
-        h.mu.Lock()
-        err = edit.Apply(h.versionSet)
-        h.mu.Unlock()
+        func() {
+            h.mu.Lock(); defer h.mu.Unlock(); err = edit.Apply(h.versionSet)
+        }()
         if err != nil { return err }
     }
     return nil
