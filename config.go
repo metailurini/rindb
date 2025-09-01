@@ -81,6 +81,10 @@ type Config struct {
 
 	// newManifestWriterFunc allows custom ManifestWriter initialization.
 	newManifestWriterFunc func(ctx context.Context, path string) (ManifestWriter, error)
+
+	// manifestSizeThreshold triggers manifest rotation once the MANIFEST
+	// file grows beyond this size in bytes.
+	manifestSizeThreshold int64
 }
 
 // Option defines a functional option type for Config.
@@ -119,6 +123,7 @@ func DefaultConfig() Config {
 		fileNumberAllocator:        NewFileNumberAllocator(1),
 		newFileNumberAllocatorFunc: NewFileNumberAllocator,
 		newManifestWriterFunc:      NewManifestWriter,
+		manifestSizeThreshold:      1 << 20, // 1MiB
 		repairMode:                 false,
 	}
 }
@@ -182,6 +187,9 @@ func (c Config) Validate() {
 	if c.newManifestWriterFunc == nil {
 		panic("newManifestWriterFunc cannot be nil")
 	}
+	if c.manifestSizeThreshold <= 0 {
+		panic("manifestSizeThreshold must be greater than zero")
+	}
 }
 
 func WithConfig(cfg Config) Option {
@@ -235,6 +243,10 @@ func WithSkipListMaxLevel(maxLevel uint) Option {
 
 func WithSkipListP(p float64) Option {
 	return func(c *Config) { c.skipListP = p }
+}
+
+func WithManifestSizeThreshold(threshold int64) Option {
+	return func(c *Config) { c.manifestSizeThreshold = threshold }
 }
 
 func WithEnableTelemetry(enable bool) Option {

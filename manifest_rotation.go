@@ -1,0 +1,90 @@
+package rindb
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+// SnapshotEdit returns a VersionEdit that captures the full state of the
+// VersionSet. The edit can be written as a manifest snapshot.
+func (vs *VersionSet) SnapshotEdit() VersionEdit {
+	edit := VersionEdit{
+		ComparatorName: vs.Comparator,
+		LastSequence:   vs.LastSequence,
+		NextFileNumber: vs.NextFileNumber,
+		LogNumber:      vs.LogNumber,
+		PrevLogNumber:  vs.PrevLogNumber,
+	}
+	for _, files := range vs.Levels {
+		edit.AddFiles = append(edit.AddFiles, files...)
+	}
+	return edit
+}
+
+// rotateManifest writes a snapshot of vs to a new manifest file and updates the
+// CURRENT file to point to it. It returns an open ManifestWriter for further
+// edits and the path to the new manifest.
+func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath string) (ManifestWriter, string, error) {
+	dir := filepath.Dir(currentPath)
+	base := filepath.Base(currentPath)
+	var num int
+	if _, err := fmt.Sscanf(base, "MANIFEST-%d", &num); err != nil {
+		return nil, "", err
+	}
+	num++
+	newBase := fmt.Sprintf("MANIFEST-%06d", num)
+	newPath := filepath.Join(dir, newBase)
+
+	w, err := cfg.newManifestWriterFunc(ctx, newPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	snap := vs.SnapshotEdit()
+	if err := w.Append(snap); err != nil {
+		_ = w.Close()
+		return nil, "", err
+	}
+	if err := w.Sync(); err != nil {
+		_ = w.Close()
+		return nil, "", err
+	}
+	if err := WriteCURRENT(ctx, dir, newBase); err != nil {
+		_ = w.Close()
+		return nil, "", err
+	}
+	return w, newPath, nil
+}
+
+// maybeRotateManifest checks the current manifest size and triggers rotation if
+// it exceeds the configured threshold. It swaps r.manifest and updates related
+// fields atomically.
+func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
+	if r.manifestPath == "" {
+		return nil
+	}
+	fi, err := os.Stat(r.manifestPath)
+	if err != nil {
+		return err
+	}
+	if fi.Size() <= r.config.manifestSizeThreshold {
+		return nil
+	}
+	mw, newPath, err := rotateManifest(ctx, r.config, r.versionSet, r.manifestPath)
+	if err != nil {
+		return err
+	}
+
+	old := r.manifest
+	r.manifest = mw
+	r.manifestPath = newPath
+	r.ssTableManager.mu.Lock()
+	r.ssTableManager.manifest = mw
+	r.ssTableManager.mu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+	return nil
+}
