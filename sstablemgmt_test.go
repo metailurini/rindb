@@ -482,6 +482,28 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
+
+	t.Run("Missing SSTable is not recreated", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		key := Bytes("lost-key")
+		value := Bytes("lost-value")
+		sst := ts.createSSTable(0, map[string]string{string(key): string(value)})
+		ts.AddSSTableToLevel(0, sst)
+
+		path := sst.Path()
+		err := os.Remove(path)
+		assert.NoError(t, err)
+
+		result, err := ts.Manager.searchKey(ctx, key)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
+
+		_, statErr := os.Stat(path)
+		assert.True(t, os.IsNotExist(statErr))
+	})
 }
 
 func TestSSTableManager_CompactThreshold(t *testing.T) {

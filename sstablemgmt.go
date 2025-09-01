@@ -588,7 +588,7 @@ func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 	}
 
 	path := path.Join(h.config.databaseDir, sstPath(num))
-	fs, err := OpenFS(ctx, path)
+	fs, err := OpenExistingFS(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -752,21 +752,39 @@ func (h *SSTableManager) findLevel(num uint64) int {
 func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	maxSeq := getMaxSeq(seq...)
 
-	nums := h.GetRelevantSSTables(ctx, key, key)
-	for _, num := range nums {
-		sst, err := h.openByNumber(ctx, num)
-		if err != nil {
-			continue
+	// Compaction may remove SSTables while a lookup is in progress. If we
+	// encounter a missing file, retry the search with a fresh view of the
+	// levels to pick up the replacement SSTables. A small retry budget keeps
+	// us from looping indefinitely in pathological cases.
+	const maxRetries = 2
+
+	for retries := 0; retries <= maxRetries; retries++ {
+		nums := h.GetRelevantSSTables(ctx, key, key)
+		missing := false
+		for _, num := range nums {
+			sst, err := h.openByNumber(ctx, num)
+			if err != nil {
+				WARN(ctx, "Failed to open SSTable %d: %v", num, err)
+				if errors.Is(err, os.ErrNotExist) {
+					// SSTable was removed, likely due to a concurrent compaction.
+					missing = true
+					break
+				}
+				continue
+			}
+			val, err := sst.GetValue(ctx, key, maxSeq)
+			if err == nil {
+				return val, nil
+			}
+			if errors.Is(err, ErrTombstoneFound) {
+				return nil, ErrKeyNotFound
+			}
+			if !errors.Is(err, ErrKeyNotFound) {
+				return nil, err
+			}
 		}
-		val, err := sst.GetValue(ctx, key, maxSeq)
-		if err == nil {
-			return val, nil
-		}
-		if errors.Is(err, ErrTombstoneFound) {
+		if !missing {
 			return nil, ErrKeyNotFound
-		}
-		if !errors.Is(err, ErrKeyNotFound) {
-			return nil, err
 		}
 	}
 	return nil, ErrKeyNotFound
