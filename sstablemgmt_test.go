@@ -1289,7 +1289,7 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		ctx := context.Background()
 		cfg := testConfig()
 		cfg.databaseDir = t.TempDir()
-		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{})
+		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{}, nil)
 		assert.NoError(t, err)
 		defer sm.Close(ctx)
 
@@ -1312,7 +1312,7 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		ctx := context.Background()
 		cfg := testConfig()
 		cfg.databaseDir = t.TempDir()
-		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{})
+		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{}, nil)
 		assert.NoError(t, err)
 
 		var mu sync.Mutex
@@ -1374,8 +1374,12 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		sst2, _, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
+		ts.AddSSTableToLevel(0, &sst1)
+		ts.AddSSTableToLevel(0, &sst2)
+		ts.Manager.levels[0] = InitLinkedList[*FileSystem]()
+
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1414,7 +1418,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, true, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1456,7 +1460,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, true, 2)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, true, 2)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1500,7 +1504,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1509,7 +1513,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.Nil(t, v)
 
 		target2 := ts.newSSTableFS(1)
-		merged2, err := mergeSSTablesV2(ctx, *ts.Config, target2, []SStable{sst1, sst2, sst3}, true, math.MaxUint64)
+		merged2, _, err := mergeSSTablesV2(ctx, *ts.Config, target2, []SStable{sst1, sst2, sst3}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged2)
 	})
@@ -1520,7 +1524,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		defer ts.Cleanup()
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged)
 	})
@@ -1536,7 +1540,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS(1)
-		merged, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst}, true, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged)
 	})
@@ -1554,7 +1558,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		target := ts.newSSTableFS(1)
 		cancelCtx, cancel := context.WithCancel(context.Background())
 		cancel()
-		merged, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []SStable{sst}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []SStable{sst}, false, math.MaxUint64)
 		assert.ErrorIs(t, err, context.Canceled)
 		assert.Nil(t, merged)
 	})
@@ -1595,6 +1599,13 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2)
 		assert.Equal(t, 1, ts.Manager.levels[1].Len())
 
+		// version set should only contain the new file at level 1
+		nums := make([]uint64, 0)
+		for _, fm := range ts.Manager.versionSet.Levels[1] {
+			nums = append(nums, fm.Number)
+		}
+		assert.Len(t, nums, 1)
+
 		fs, err := ts.Manager.levels[1].Iterator().Next()
 		assert.NoError(t, err)
 		merged, err := ts.Manager.openAndLoadSSTable(ctx, fs)
@@ -1634,6 +1645,10 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		mem2.Put(newRecord(Bytes("b"), nil, 3))
 		sst2, _, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
 		assert.NoError(t, err)
+
+		ts.AddSSTableToLevel(0, &sst1)
+		ts.AddSSTableToLevel(0, &sst2)
+		ts.Manager.levels[0] = InitLinkedList[*FileSystem]()
 
 		ts.Manager.mu.Lock()
 		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})

@@ -3,8 +3,11 @@ package rindb
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +84,33 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 	assert.Equal(t, snap2.Sequence(), rin.ssTableManager.minSnapshotSeq)
 
 	assert.NoError(t, snap2.Release(ctx))
-	assert.Equal(t, rin.sequenceNumber, rin.ssTableManager.minSnapshotSeq)
+	assert.Equal(t, uint64(math.MaxUint64), rin.ssTableManager.minSnapshotSeq)
+}
+
+func TestTombstoneRemovedAfterSnapshotRelease(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(200), WithLevel0CompactionThreshold(1))
+	defer cleanup()
+
+	require.NoError(t, rin.Put(ctx, Bytes("k"), Bytes("v1")))
+	snap, err := rin.NewSnapshot(ctx)
+	require.NoError(t, err)
+	require.NoError(t, rin.Remove(ctx, Bytes("k")))
+	large := Bytes(strings.Repeat("x", 200))
+	require.NoError(t, rin.Put(ctx, Bytes("pad"), large))
+
+	require.Eventually(t, func() bool {
+		st := rin.Stats()
+		return len(st.SSTablesPerLevel) >= 2 && st.SSTablesPerLevel[0] == 0 && st.SSTablesPerLevel[1] > 0
+	}, 5*time.Second, 100*time.Millisecond)
+
+	require.NoError(t, snap.Release(ctx))
+	require.NoError(t, rin.Put(ctx, Bytes("k2"), large))
+	require.NoError(t, rin.Put(ctx, Bytes("k3"), large))
+	require.Eventually(t, func() bool {
+		nums := rin.ssTableManager.GetRelevantSSTables(ctx, Bytes("k"), Bytes("k"))
+		return len(nums) == 0
+	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func TestRindb_Snapshot(t *testing.T) {

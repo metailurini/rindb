@@ -37,6 +37,36 @@ func TestRindb_Put(t *testing.T) {
 	})
 }
 
+func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithLevel0CompactionThreshold(1), WithMaxMemtableSize(20))
+	defer cleanup()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, rin.ssTableManager.Compact(ctx))
+	}()
+
+	for i := 0; i < 20; i++ {
+		key := Bytes(fmt.Sprintf("k%d", i))
+		require.NoError(t, rin.Put(ctx, key, Bytes("v")))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock detected")
+	}
+}
+
 // TestRindb_Get tests the Get operation of Rindb.
 func TestRindb_Get(t *testing.T) {
 	ctx := context.Background()
