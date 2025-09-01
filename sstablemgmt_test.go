@@ -1141,7 +1141,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 	cfg := testConfig()
 
-	t.Run("returns L0 newest first", func(t *testing.T) {
+	t.Run("Level 0 returns all SSTables in newest-first order", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
@@ -1154,23 +1154,85 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		nOlder, _ := fileNum(older.Path())
 		nNewer, _ := fileNum(newer.Path())
 
-		nums := ts.Manager.GetRelevantSSTables(Bytes("a"), Bytes("z"))
+		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
 		assert.Equal(t, []uint64{nNewer, nOlder}, nums)
 	})
 
-	t.Run("filters higher levels by overlap", func(t *testing.T) {
+	t.Run("Level 1+ returns only overlapping SSTables in oldest-first order", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		l1a := ts.createSSTable(1, map[string]string{"b": "1", "c": "2"})
-		l1b := ts.createSSTable(1, map[string]string{"e": "1"})
-		ts.AddSSTableToLevel(1, l1a)
-		ts.AddSSTableToLevel(1, l1b)
+		older := ts.createSSTable(1, map[string]string{"b": "1"})
+		newer := ts.createSSTable(1, map[string]string{"c": "2"})
+		ts.AddSSTableToLevel(1, older)
+		ts.AddSSTableToLevel(1, newer)
 
-		n1a, _ := fileNum(l1a.Path())
-		nums := ts.Manager.GetRelevantSSTables(Bytes("b"), Bytes("d"))
-		assert.Equal(t, []uint64{n1a}, nums)
+		nOlder, _ := fileNum(older.Path())
+		nNewer, _ := fileNum(newer.Path())
+
+		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("b"), Bytes("d"))
+		assert.Equal(t, []uint64{nOlder, nNewer}, nums)
+	})
+
+	t.Run("No relevant SSTables found", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		sst := ts.createSSTable(1, map[string]string{"x": "1"})
+		ts.AddSSTableToLevel(1, sst)
+
+		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("b"))
+		assert.Len(t, nums, 0)
+	})
+
+	t.Run("Empty SSTableManager", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.versionSet = nil
+		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		assert.Nil(t, nums)
+	})
+
+	t.Run("Error opening SSTable", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		sst := ts.createSSTable(1, map[string]string{"b": "1"})
+		ts.AddSSTableToLevel(1, sst)
+		assert.NoError(t, os.Remove(sst.Path()))
+
+		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		assert.Len(t, nums, 0)
+	})
+
+	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		// Level 0
+		l0a := ts.createSSTable(0, map[string]string{"a": "1"}) // older
+		l0b := ts.createSSTable(0, map[string]string{"b": "2"}) // newer
+		ts.AddSSTableToLevel(0, l0a)
+		ts.AddSSTableToLevel(0, l0b)
+
+		// Level 1
+		l1Overlap := ts.createSSTable(1, map[string]string{"b": "1", "c": "2"})
+		l1Non := ts.createSSTable(1, map[string]string{"x": "1"})
+		ts.AddSSTableToLevel(1, l1Overlap)
+		ts.AddSSTableToLevel(1, l1Non)
+
+		nL0b, _ := fileNum(l0b.Path())
+		nL0a, _ := fileNum(l0a.Path())
+		nL1, _ := fileNum(l1Overlap.Path())
+
+		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("d"))
+		assert.Equal(t, []uint64{nL0b, nL0a, nL1}, nums)
 	})
 }
 

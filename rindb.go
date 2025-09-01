@@ -267,36 +267,33 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	iterators := []Iterator[Record]{r.memtable.IRange(start, end, maxSeq)}
 
-	nums := r.ssTableManager.GetRelevantSSTables(start, end)
+	nums := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
 	var opened []*SStable
+
+	cleanupOpened := func() {
+		for _, o := range opened {
+			_ = o.Close()
+		}
+	}
+
 	for _, n := range nums {
 		sst, err := r.ssTableManager.openByNumber(ctx, n)
 		if err != nil {
-			for _, o := range opened {
-				_ = o.Close()
-			}
+			cleanupOpened()
 			return nil, err
 		}
 		opened = append(opened, sst)
 		rangeIter, err := sst.IRange(start, end, maxSeq)
 		if err != nil {
-			for _, o := range opened {
-				_ = o.Close()
-			}
+			cleanupOpened()
 			return nil, err
 		}
 		iterators = append(iterators, rangeIter)
 	}
 
-	cleanup := func() {
-		for _, sst := range opened {
-			_ = sst.Close()
-		}
-	}
-
-	mergeIter, err := NewMergingIterator(iterators, cleanup)
+	mergeIter, err := NewMergingIterator(iterators, cleanupOpened)
 	if err != nil {
-		cleanup()
+		cleanupOpened()
 		return nil, err
 	}
 

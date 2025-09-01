@@ -9,7 +9,7 @@ Now that `VersionSet` tracks SSTables, migrate lookup helpers to operate on its 
 
 ```go
 // GetRelevantSSTables gathers file numbers whose ranges overlap [start, end].
-func (h *SSTableManager) GetRelevantSSTables(start, end InternalKey) []uint64 {
+func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, start, end InternalKey) []uint64 {
     h.mu.RLock()
     defer h.mu.RUnlock()
     var out []uint64
@@ -25,7 +25,7 @@ func (h *SSTableManager) GetRelevantSSTables(start, end InternalKey) []uint64 {
 
 // searchKey walks the candidates and stops at the first match.
 func (h *SSTableManager) searchKey(ctx context.Context, key InternalKey) ([]byte, error) {
-    for _, num := range h.GetRelevantSSTables(key, key) {
+    for _, num := range h.GetRelevantSSTables(ctx, key, key) {
         fs := h.openByNumber(num)
         if v, ok := fs.Lookup(key); ok {
             return v, nil
