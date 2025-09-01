@@ -893,14 +893,9 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		if seq <= minSeq {
 			if rec.GetType() == TypeDeletion && bottommost && seq < minSeq {
 				skipRest = true
-				continue
+				continue // GC tombstone only at bottommost when older than snapshots
 			}
 			skipRest = true
-		}
-
-		if rec.GetType() == TypeDeletion && bottommost && seq < minSeq {
-			skipRest = true
-			continue // GC tombstone only at bottommost when older than snapshots
 		}
 
 		if err := builder.Add(rec); err != nil {
