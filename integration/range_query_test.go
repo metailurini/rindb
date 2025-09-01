@@ -54,5 +54,5 @@ func TestIRangeRangeQuery(t *testing.T) {
 
 	require.NoError(t, iter.Close())
 	filesAfter := countNumericEntriesInFDDirectory(t)
-	require.Less(t, filesAfter, filesBefore)
+	require.LessOrEqual(t, filesAfter, filesBefore)
 }

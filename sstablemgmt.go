@@ -31,6 +31,7 @@ type SSTableManager struct {
 	openedByNum map[uint64]*SStable      // open SSTables keyed by file number
 	levels      []*LinkedList[*FileSystem]
 	versionSet  *VersionSet
+	manifest    ManifestWriter
 	config      Config
 	mu          sync.RWMutex
 
@@ -77,11 +78,12 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 	return &sstable, nil
 }
 
-func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet) (*SSTableManager, error) {
+func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
 	h := &SSTableManager{
 		openedFs:          make(map[*FileSystem]struct{}),
 		openedByNum:       make(map[uint64]*SStable),
 		versionSet:        vs,
+		manifest:          mw,
 		config:            config,
 		stopIOLoadSampler: make(chan struct{}),
 		now:               time.Now,
@@ -616,7 +618,7 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 		}
 	}
 
-	merged, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost, h.minSnapshotSeq)
+	merged, meta, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost, h.minSnapshotSeq)
 	// close and remove merged sstables even if there is an error
 	h.closeSSTables(pickedUpSSTable)
 	if err != nil || merged == nil {
@@ -640,7 +642,10 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	}
 	h.levels[newLevelNumb].PushBack(newLevelSSTable)
 
-	var dels []FileMeta
+	var (
+		dels     []FileMeta
+		delMetas []DeletedFileMeta
+	)
 	for _, sstable := range pickedUpSSTable {
 		num, nerr := fileNum(sstable.Path())
 		if nerr != nil {
@@ -648,10 +653,33 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 			continue
 		}
 		dels = append(dels, FileMeta{Number: num})
+		level := h.findLevel(num)
+		if level >= 0 {
+			delMetas = append(delMetas, DeletedFileMeta{Level: level, Number: num})
+		}
 	}
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
 		ERROR(ctx, "Error removing files: %v", err)
 	}
+
+	meta.Level = newLevelNumb
+	edit := VersionEdit{
+		AddFiles:       []FileMeta{meta},
+		DeleteFiles:    delMetas,
+		NextFileNumber: h.config.fileNumberAllocator.Peek(),
+	}
+	if h.manifest != nil {
+		if err := h.manifest.Append(edit); err != nil {
+			return err
+		}
+		if err := h.manifest.Sync(); err != nil {
+			return err
+		}
+	}
+	if err := edit.Apply(h.versionSet); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -704,6 +732,20 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}
 	getRelevantSSTables.Add(ctx, int64(len(out)))
 	return out
+}
+
+func (h *SSTableManager) findLevel(num uint64) int {
+	if h.versionSet == nil {
+		return -1
+	}
+	for lvl, files := range h.versionSet.Levels {
+		for _, f := range files {
+			if f.Number == num {
+				return lvl
+			}
+		}
+	}
+	return -1
 }
 
 func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -789,23 +831,23 @@ func getKeyRange(sstables []SStable) (Bytes, Bytes) {
 	return minKey, maxKey
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, err error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta FileMeta, err error) {
 	if len(sources) == 0 {
-		return nil, nil
+		return nil, FileMeta{}, nil
 	}
 
 	iterators := make([]Iterator[Record], 0, len(sources))
 	for _, sstable := range sources {
 		iter, err := sstable.Iterator()
 		if err != nil {
-			return nil, err
+			return nil, FileMeta{}, err
 		}
 		iterators = append(iterators, iter)
 	}
 
 	mergeIter, err := NewMergingIterator(iterators, nil)
 	if err != nil {
-		return nil, err
+		return nil, FileMeta{}, err
 	}
 	defer func() {
 		if cerr := mergeIter.Close(); cerr != nil {
@@ -820,7 +862,7 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 
 	builder, err := NewSSTableBuilder(ctx, config, target, expected)
 	if err != nil {
-		return nil, err
+		return nil, FileMeta{}, err
 	}
 	defer builder.Close(ctx)
 
@@ -828,43 +870,53 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		wrote      int
 		lastKey    Bytes
 		lastKeySet bool
-		lastSeq    uint64
+		skipRest   bool
 	)
 	for mergeIter.HasNext() {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, FileMeta{}, err
 		}
 		rec, err := mergeIter.Next()
 		if err != nil {
-			return nil, err
+			return nil, FileMeta{}, err
 		}
 		key := rec.GetKey()
 		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
 			lastKey = key.Clone()
 			lastKeySet = true
-		} else if lastSeq <= minSeq {
+			skipRest = false
+		} else if skipRest {
 			continue
 		}
-		lastSeq = rec.GetSequenceNumber()
 
-		if rec.GetType() == TypeDeletion && bottommost && rec.GetSequenceNumber() < minSeq {
+		seq := rec.GetSequenceNumber()
+		if seq <= minSeq {
+			if rec.GetType() == TypeDeletion && bottommost && seq < minSeq {
+				skipRest = true
+				continue
+			}
+			skipRest = true
+		}
+
+		if rec.GetType() == TypeDeletion && bottommost && seq < minSeq {
+			skipRest = true
 			continue // GC tombstone only at bottommost when older than snapshots
 		}
 
 		if err := builder.Add(rec); err != nil {
-			return nil, err
+			return nil, FileMeta{}, err
 		}
 		wrote++
 	}
 
 	if wrote == 0 {
 		// Nothing to write → no SST produced.
-		return nil, nil
+		return nil, FileMeta{}, nil
 	}
 
-	sst, _, _, err := builder.Build(ctx)
+	sst, meta, _, err := builder.Build(ctx)
 	if err != nil {
-		return nil, err
+		return nil, FileMeta{}, err
 	}
-	return &sst, nil
+	return &sst, meta, nil
 }

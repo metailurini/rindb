@@ -97,8 +97,8 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	tempDir := t.TempDir()
 	finalCfg.databaseDir = tempDir
 
-	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *VersionSet) (*SSTableManager, error) {
-		return InitSSTableManager(ctx, cfg, vs)
+	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
+		return InitSSTableManager(ctx, cfg, vs, mw)
 	}
 
 	db, err := InitRinDB(ctx, WithConfig(finalCfg))

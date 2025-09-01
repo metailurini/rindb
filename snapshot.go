@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"math"
 	"sort"
 	"sync"
 )
@@ -81,7 +82,11 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 
 	r.memtable.Cleanup(cutoff)
 
-	r.ssTableManager.setMinSnapshotSeq(cutoff)
+	if len(r.activeSnapshots) == 0 {
+		r.ssTableManager.setMinSnapshotSeq(math.MaxUint64)
+	} else {
+		r.ssTableManager.setMinSnapshotSeq(cutoff)
+	}
 
 	if len(r.activeSnapshots) == 0 && r.memtable.ByteSize() > 0 {
 		// Memtable has unflushed data that is only in the WAL.
@@ -134,6 +139,9 @@ func (r *Rindb) release(ctx context.Context, snap *Snapshot) error {
 	})
 	if idx < len(r.activeSnapshots) && r.activeSnapshots[idx] == snap.sequence {
 		r.activeSnapshots = append(r.activeSnapshots[:idx], r.activeSnapshots[idx+1:]...)
+	}
+	if len(r.activeSnapshots) == 0 {
+		r.ssTableManager.setMinSnapshotSeq(math.MaxUint64)
 	}
 	return r.cleanupObsoleteLocked(ctx, r.sequenceNumber)
 }

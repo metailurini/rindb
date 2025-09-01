@@ -142,7 +142,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	}
 	maxSeqNum = max(maxSeqNum, memMaxSeqNum)
 
-	ssTableManager, err := cfg.newSSTableManagerFunc(ctx, cfg, vs)
+	ssTableManager, err := cfg.newSSTableManagerFunc(ctx, cfg, vs, mw)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
@@ -325,21 +325,19 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	if r.closed {
+		r.mu.Unlock()
 		return ErrDatabaseClosed
 	}
 
 	r.sequenceNumber++
 	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber, Type: TypeValue}
 	if err := r.wal.Append(ctx, record); err != nil {
+		r.mu.Unlock()
 		return err
 	}
 	r.memtable.Put(record) // This now updates the internal size estimate
-	// Feed metrics used by the SSTable manager to compute write throughput
-	// for dynamic compaction decisions.
-	r.ssTableManager.recordWrite()
 
 	memSize := r.memtable.ByteSize()
 	// Check estimated byte size and flush if needed
@@ -422,6 +420,13 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			r.mu.Unlock()
 		}(compactionCtx)
 	}
+
+	r.mu.Unlock()
+
+	// Feed metrics used by the SSTable manager to compute write throughput
+	// for dynamic compaction decisions. Lock ordering: sstableManager.mu before
+	// r.mu, so recordWrite is invoked after releasing r.mu.
+	r.ssTableManager.recordWrite()
 
 	return nil
 }
