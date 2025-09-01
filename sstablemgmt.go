@@ -579,6 +579,12 @@ func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 	}
 	h.mu.RUnlock()
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if sst, ok := h.openedByNum[num]; ok {
+		return sst, nil
+	}
+
 	path := path.Join(h.config.databaseDir, sstPath(num))
 	fs, err := OpenFS(ctx, path)
 	if err != nil {
@@ -589,9 +595,7 @@ func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 		_ = fs.Close()
 		return nil, err
 	}
-	h.mu.Lock()
 	h.openedByNum[num] = &sst
-	h.mu.Unlock()
 	return &sst, nil
 }
 
@@ -654,7 +658,15 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 // GetRelevantSSTables gathers file numbers whose ranges overlap [startKey, endKey].
 // Level 0 files are returned in newest-first order while higher levels retain
 // their existing ordering.
-func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) []uint64 {
+func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) []uint64 {
+	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.GetRelevantSSTables")
+	start := time.Now()
+	defer func() {
+		span.End()
+		getRelevantLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
+		getRelevantCalls.Add(ctx, 1)
+	}()
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -690,13 +702,14 @@ func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) []uint64 {
 			}
 		}
 	}
+	getRelevantSSTables.Add(ctx, int64(len(out)))
 	return out
 }
 
 func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	maxSeq := getMaxSeq(seq...)
 
-	nums := h.GetRelevantSSTables(key, key)
+	nums := h.GetRelevantSSTables(ctx, key, key)
 	for _, num := range nums {
 		sst, err := h.openByNumber(ctx, num)
 		if err != nil {
