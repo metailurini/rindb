@@ -64,15 +64,10 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	defaultCfg := DefaultConfig() // Get default values
 
 	if cfg == nil {
-		// If no config provided, use the default one with the temp dir
 		finalCfg = defaultCfg
 	} else {
-		// If a config is provided, copy it and override the databaseDir
-		finalCfg = *cfg // Copy the provided config
+		finalCfg = *cfg
 
-		// Ensure essential default values are applied if the provided config missed them
-		// (e.g., if a user created a Config struct manually without using NewConfig)
-		// Check against zero values and assign defaults if necessary.
 		if finalCfg.maxMemtableSize == 0 {
 			finalCfg.maxMemtableSize = defaultCfg.maxMemtableSize
 		}
@@ -102,12 +97,16 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	tempDir := t.TempDir()
 	finalCfg.databaseDir = tempDir
 
-	manager, err := InitSSTableManager(ctx, finalCfg)
+	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *VersionSet) (*SSTableManager, error) {
+		return InitSSTableManager(ctx, cfg, vs)
+	}
+
+	db, err := InitRinDB(ctx, WithConfig(finalCfg))
 	assert.NoError(t, err)
 
+	manager := db.ssTableManager
+
 	// Ensure at least 3 levels exist for common test requirements.
-	// This loop correctly handles cases where manager.levels might be initialized
-	// with some levels already loaded from disk.
 	minLevels := 3
 	if len(manager.levels) < minLevels {
 		needed := minLevels - len(manager.levels)
@@ -115,19 +114,11 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 			manager.levels = append(manager.levels, InitLinkedList[*FileSystem]())
 		}
 	}
-	// Ensure existing levels up to minLevels are not nil
 	for i := 0; i < minLevels && i < len(manager.levels); i++ {
 		if manager.levels[i] == nil {
 			manager.levels[i] = InitLinkedList[*FileSystem]()
 		}
 	}
-
-	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config) (*SSTableManager, error) {
-		return manager, nil
-	}
-
-	db, err := InitRinDB(ctx, WithConfig(finalCfg))
-	assert.NoError(t, err)
 
 	cleanup := func() {
 		assert.NoError(t, db.Close(), "Failed to close RinDB")
@@ -197,6 +188,17 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
 	fs := sstable.FileSystem
 	ts.Levels[level].PushBack(fs)
+
+	if ts.Manager.versionSet == nil {
+		ts.Manager.versionSet = &VersionSet{}
+	}
+	ts.Manager.versionSet.ensureLevel(level)
+
+	num, err := fileNum(fs.Path())
+	assert.NoError(ts.T, err)
+	small, large := sstable.GetKeyRange()
+	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}}
+	ts.Manager.versionSet.Levels[level] = append(ts.Manager.versionSet.Levels[level], meta)
 }
 
 // createDummyFile creates a dummy file of specified size in MB for testing compaction.
