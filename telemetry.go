@@ -24,13 +24,10 @@ var (
 	// SSTable manager metrics
 	sstableMgmtMeter = otel.Meter("rindb/sstablemgmt")
 
-	addSSTableLatency   metric.Float64Histogram
-	addSSTableCalls     metric.Int64Counter
-	compactLatency      metric.Float64Histogram
-	compactCalls        metric.Int64Counter
-	getRelevantLatency  metric.Float64Histogram
-	getRelevantCalls    metric.Int64Counter
-	getRelevantSSTables metric.Int64Counter
+	addSSTableLatency metric.Float64Histogram
+	addSSTableCalls   metric.Int64Counter
+	compactLatency    metric.Float64Histogram
+	compactCalls      metric.Int64Counter
 
 	// WAL metrics
 	walMeter = otel.Meter("rindb/wal")
@@ -70,9 +67,6 @@ func init() {
 	addSSTableCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.add.calls"))
 	compactLatency = must(sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.compact.latency", metric.WithUnit("ms")))
 	compactCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.compact.calls"))
-	getRelevantLatency = must(sstableMgmtMeter.Float64Histogram("rindb.sstablemgmt.get_relevant.latency", metric.WithUnit("ms")))
-	getRelevantCalls = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.calls"))
-	getRelevantSSTables = must(sstableMgmtMeter.Int64Counter("rindb.sstablemgmt.get_relevant.sstables"))
 
 	walLoadDuration = must(walMeter.Float64Histogram("rindb.wal.load.duration", metric.WithUnit("ms")))
 	walAppendDuration = must(walMeter.Float64Histogram("rindb.wal.append.duration", metric.WithUnit("ms")))

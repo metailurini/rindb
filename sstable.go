@@ -102,7 +102,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	offset, err := s.SparseIndex.GetOffset(key)
 	if err != nil {
-		return nil, err
+		offset = 0
 	}
 
 	reader := newOffsetReader(s.FileSystem, offset)
@@ -128,7 +128,11 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
 		bytesRead += CalOnDiskSize(record)
-		if record.GetKey().Compare(key) != CmpEqual {
+		cmp := record.GetKey().Compare(key)
+		if cmp == CmpLess {
+			continue
+		}
+		if cmp != CmpEqual {
 			return nil, ErrKeyNotFound
 		}
 		if record.GetSequenceNumber() <= maxSeq {

@@ -27,10 +27,12 @@ const writeRateAlpha = 0.2
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
-	openedFs map[*FileSystem]struct{} // Set of *FileSystem that are currently opened
-	levels   []*LinkedList[*FileSystem]
-	config   Config
-	mu       sync.RWMutex
+	openedFs    map[*FileSystem]struct{} // legacy tracking for compaction paths
+	openedByNum map[uint64]*SStable      // open SSTables keyed by file number
+	levels      []*LinkedList[*FileSystem]
+	versionSet  *VersionSet
+	config      Config
+	mu          sync.RWMutex
 
 	// minSnapshotSeq is the smallest sequence number of any active
 	// snapshot. When no snapshots are active it is set to
@@ -75,9 +77,11 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 	return &sstable, nil
 }
 
-func InitSSTableManager(ctx context.Context, config Config) (*SSTableManager, error) {
+func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet) (*SSTableManager, error) {
 	h := &SSTableManager{
 		openedFs:          make(map[*FileSystem]struct{}),
+		openedByNum:       make(map[uint64]*SStable),
+		versionSet:        vs,
 		config:            config,
 		stopIOLoadSampler: make(chan struct{}),
 		now:               time.Now,
@@ -271,6 +275,11 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 
 	h.mu.Lock()
+	sstablesToClose := make([]*SStable, 0, len(h.openedByNum))
+	for _, s := range h.openedByNum {
+		sstablesToClose = append(sstablesToClose, s)
+	}
+	h.openedByNum = make(map[uint64]*SStable)
 	filesToClose := make([]*FileSystem, 0, len(h.openedFs))
 	for fs := range h.openedFs {
 		filesToClose = append(filesToClose, fs)
@@ -298,6 +307,11 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	h.openedFs = make(map[*FileSystem]struct{})
 	h.mu.Unlock()
 
+	for _, s := range sstablesToClose {
+		if err := s.Close(); err != nil {
+			WARN(ctx, "Error closing sstable %s: %v", s.Path(), err)
+		}
+	}
 	for _, fs := range filesToClose {
 		if !fs.IsOpened() {
 			WARN(ctx, "File %s is already closed", fs.Path())
@@ -555,6 +569,32 @@ func (h *SSTableManager) removeOpenedFS(target *FileSystem) {
 	delete(h.openedFs, target)
 }
 
+// openByNumber returns an opened SSTable for the given file number. The
+// SSTable is cached so repeated lookups reuse the same handle.
+func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable, error) {
+	h.mu.RLock()
+	if sst, ok := h.openedByNum[num]; ok {
+		h.mu.RUnlock()
+		return sst, nil
+	}
+	h.mu.RUnlock()
+
+	path := path.Join(h.config.databaseDir, sstPath(num))
+	fs, err := OpenFS(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	sst, err := NewSSTable(ctx, h.config, fs)
+	if err != nil {
+		_ = fs.Close()
+		return nil, err
+	}
+	h.mu.Lock()
+	h.openedByNum[num] = &sst
+	h.mu.Unlock()
+	return &sst, nil
+}
+
 // mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
 // Assumes the caller holds the necessary lock (e.g., h.mu.Lock()).
 func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pickedUpSSTable []SStable) error {
@@ -611,169 +651,67 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	return nil
 }
 
-// GetRelevantSSTables finds SSTables that might contain keys within the given range [startKey, endKey].
-// For Level 0, all SSTables are considered relevant.
-// For Level 1 and higher, SSTables are checked for overlap with the given key range.
-// The returned LinkedList contains *SSTable objects, which are opened and ready for use.
-// The SSTables in Level 0 are appended to the list, maintaining newest-first order.
-// while SSTables from higher levels are added to the back.
-func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) (*LinkedList[*SStable], error) {
-	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.GetRelevantSSTables")
-	start := time.Now()
-	defer func() {
-		span.End()
-		getRelevantLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
-		getRelevantCalls.Add(ctx, 1)
-	}()
-
+// GetRelevantSSTables gathers file numbers whose ranges overlap [startKey, endKey].
+// Level 0 files are returned in newest-first order while higher levels retain
+// their existing ordering.
+func (h *SSTableManager) GetRelevantSSTables(startKey, endKey Bytes) []uint64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	relevantSSTables := InitLinkedList[*SStable]()
+	if h.versionSet == nil {
+		return nil
+	}
 
-	for levelNumb, level := range h.levels {
-		if level == nil || level.Len() == 0 {
+	var out []uint64
+	for lvl, files := range h.versionSet.Levels {
+		if len(files) == 0 {
 			continue
 		}
-
-		// Level 0: All SSTables are considered relevant.
-		// Iterate from newest to oldest (bottom to top) to prioritize newer data.
-		if levelNumb == 0 {
-			iterator := level.IteratorFromBottom()
-			fs := iterator.Value()
-			for fs != nil {
-				sstable, err := h.openAndLoadSSTable(ctx, fs)
-				if err != nil {
-					return nil, fmt.Errorf("failed to open and load sstable %s: %w", fs.Path(), err)
-				}
-
-				relevantSSTables.PushBack(sstable) // Add to back to maintain newest-first order for L0
-
-				if !iterator.HasPrev() {
-					break
-				}
-				fs, err = iterator.Prev()
-				if err != nil {
-					return nil, fmt.Errorf("failed to get previous sstable in level %d: %w", levelNumb, err)
+		if lvl == 0 {
+			for i := len(files) - 1; i >= 0; i-- {
+				f := files[i]
+				if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
+					p := path.Join(h.config.databaseDir, sstPath(f.Number))
+					info, err := os.Stat(p)
+					if err == nil && info.Size() > 0 {
+						out = append(out, f.Number)
+					}
 				}
 			}
-		} else {
-			// Levels 1+: Check for overlap with the given key range.
-			// Iterate from oldest to newest (top to bottom) for higher levels.
-			iterator := level.Iterator()
-			for iterator.HasNext() {
-				fs, err := iterator.Next()
-				if err != nil {
-					return nil, fmt.Errorf("failed to get next sstable in level %d: %w", levelNumb, err)
-				}
-				sstable, err := h.openAndLoadSSTable(ctx, fs)
-				if err != nil {
-					return nil, fmt.Errorf("failed to open and load sstable %s: %w", fs.Path(), err)
-				}
-
-				if sstable.Overlaps(startKey, endKey) {
-					relevantSSTables.PushBack(sstable) // Add to back for higher levels
-				} else {
-					_ = fs.Close() // Close if not relevant
-					h.removeOpenedFS(fs)
+			continue
+		}
+		for _, f := range files {
+			if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
+				p := path.Join(h.config.databaseDir, sstPath(f.Number))
+				info, err := os.Stat(p)
+				if err == nil && info.Size() > 0 {
+					out = append(out, f.Number)
 				}
 			}
 		}
 	}
-
-	getRelevantSSTables.Add(ctx, int64(relevantSSTables.Len()))
-	return relevantSSTables, nil
+	return out
 }
 
 func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
 	maxSeq := getMaxSeq(seq...)
 
-	var latestValue Bytes
-	var found bool
-
-	// In an LSM-tree, data is organized into levels, where lower levels (e.g., level 0) contain newer data,
-	// and higher levels (e.g., level 1, 2, etc.) contain older, compacted data. When searching for a key,
-	// we must prioritize the most recent data, as it reflects the latest updates or deletions (e.g., tombstones).
-	// Within each level, SSTables are also ordered by recency, especially in level 0 where SSTables may overlap.
-	// Iterating from the bottom (most recent SSTable) to the top (oldest SSTable) ensures we find the latest
-	// version of the key first. Once a key is found in a level, we can stop searching that level, as newer
-	// levels take precedence, and within a level, the most recent SSTable's value is authoritative.
-	// This bottom-up traversal aligns with LSM's principle of prioritizing recency in a write-heavy system.
-	for levelNumb := range h.levels {
-		if h.levels[levelNumb] == nil {
-			// No more levels to search
-			break
+	nums := h.GetRelevantSSTables(key, key)
+	for _, num := range nums {
+		sst, err := h.openByNumber(ctx, num)
+		if err != nil {
+			continue
 		}
-
-		iterator := h.levels[levelNumb].IteratorFromBottom()
-		fs := iterator.Value()
-		for fs != nil {
-			sstable, err := h.openAndLoadSSTable(ctx, fs)
-			if err != nil {
-				return nil, err
-			}
-			if _, getOffsetErr := sstable.SparseIndex.GetOffset(key); getOffsetErr != nil {
-				closeErr := fs.Close()
-				h.removeOpenedFS(fs)
-				if errors.Is(getOffsetErr, ErrKeyNotFound) {
-					if closeErr != nil {
-						return nil, fmt.Errorf("key not found in sparse index, but failed to close sstable: %w", closeErr)
-					}
-				} else {
-					return nil, errors.Join(getOffsetErr, closeErr)
-				}
-			} else {
-				value, getErr := sstable.GetValue(ctx, key, maxSeq)
-				closeErr := fs.Close()
-				h.removeOpenedFS(fs)
-
-				if getErr == nil {
-					latestValue = value
-					found = true
-					if closeErr != nil {
-						return nil, fmt.Errorf("value found but failed to close sstable: %w", closeErr)
-					}
-					break // Exit the loop for this level as we've found the key.
-				}
-
-				// If a tombstone is found, it's a definitive "not found" for this key.
-				// Combine with closeErr if it occurred.
-				if errors.Is(getErr, ErrTombstoneFound) {
-					return nil, errors.Join(ErrKeyNotFound, closeErr)
-				}
-
-				// For other "key not found" errors, continue searching.
-				// However, if a closeErr occurred, we must return it.
-				if errors.Is(getErr, ErrKeyNotFound) {
-					if closeErr != nil {
-						return nil, fmt.Errorf("key not found in sstable, but failed to close: %w", closeErr)
-					}
-					// Otherwise, continue to the next sstable.
-				} else {
-					// A different error occurred during GetValue. Return it, combined with any closeErr.
-					return nil, errors.Join(getErr, closeErr)
-				}
-			}
-
-			if !iterator.HasPrev() {
-				break
-			}
-
-			fs, err = iterator.Prev()
-			if err != nil {
-				return nil, err
-			}
+		val, err := sst.GetValue(ctx, key, maxSeq)
+		if err == nil {
+			return val, nil
 		}
-		if found {
-			break
+		if errors.Is(err, ErrTombstoneFound) {
+			return nil, ErrKeyNotFound
 		}
-	}
-
-	if found {
-		return latestValue, nil
+		if !errors.Is(err, ErrKeyNotFound) {
+			return nil, err
+		}
 	}
 	return nil, ErrKeyNotFound
 }

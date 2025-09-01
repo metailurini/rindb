@@ -93,13 +93,14 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	iter, err := ts.RinDB.IRange(ctx, Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
-	if iter.HasNext() {
-		_, err = iter.Next()
-		assert.NoError(t, err)
-	}
-	assert.True(t, sst1.IsOpened())
+	num, _ := fileNum(sst1.Path())
+	ts.Manager.mu.RLock()
+	opened := ts.Manager.openedByNum[num]
+	ts.Manager.mu.RUnlock()
+	assert.NotNil(t, opened)
+	assert.True(t, opened.IsOpened())
 	assert.NoError(t, iter.Close())
-	assert.False(t, sst1.IsOpened())
+	assert.False(t, opened.IsOpened())
 }
 
 func TestRangeIteratorPrepare(t *testing.T) {
