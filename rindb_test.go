@@ -355,25 +355,27 @@ func TestConcurrentGetPut(t *testing.T) {
 // TestRindb_Put_FlushMemtableOnSizeLimit tests that the memtable is flushed
 // when its estimated byte size exceeds the configured limit during a Put operation.
 func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
-	t.Skip("flaky with version set migration")
 	ctx := context.Background()
-	// Configure a small maxMemtableSize (in bytes) to trigger the flush easily.
-	// The estimated size is calculated as len(key) + len(value) + 16 bytes overhead per entry.
-	// key1 ("key1", 4 bytes) + value1 ("value1-loooooooooong", 20 bytes) + 16 = 40 bytes
-	// key2 ("key2", 4 bytes) + value2 ("value2-loooooooooong", 20 bytes) + 16 = 40 bytes
-	// Total estimated size after key1 and key2 = 40 + 40 = 80 bytes.
-	// key3 ("key3", 4 bytes) + value3 ("value3-loooooooooong", 20 bytes) + 16 = 40 bytes
-	// Total estimated size after key3 = 80 + 40 = 120 bytes.
-	// Set maxMemtableSize to 80. The memtable will reach its limit after key2 is added.
-	// The Put operation for key3 should then trigger the flush.
-	smallMemtableOpts := []Option{WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(80)}
+
+	// Each memtable entry adds len(key) + len(value) bytes plus metadata
+	// from the skiplist node and internal key suffix.
+	entryOverhead := slNodeOverhead + internalKeySuffixLen
+	key1, val1 := Bytes("key1"), Bytes("value1-loooooooooong")
+	key2, val2 := Bytes("key2"), Bytes("value2-loooooooooong")
+	key3, val3 := Bytes("key3"), Bytes("value3-loooooooooong")
+	entrySize := len(key1) + len(val1) + entryOverhead
+
+	// Configure a maxMemtableSize slightly above two entries so the third
+	// Put exceeds the limit and triggers a flush.
+	maxMemtableSize := uint(entrySize*2 + 1)
+	smallMemtableOpts := []Option{WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(maxMemtableSize)}
 	rin, cleanup := initRinDBWithCleanup(t, smallMemtableOpts...)
 	defer cleanup()
 
 	// Add data that will exceed the small memtable size limit
-	err := rin.Put(ctx, Bytes("key1"), Bytes("value1-loooooooooong"))
+	err := rin.Put(ctx, key1, val1)
 	assert.NoError(t, err)
-	err = rin.Put(ctx, Bytes("key2"), Bytes("value2-loooooooooong"))
+	err = rin.Put(ctx, key2, val2)
 	assert.NoError(t, err)
 
 	// Check size before the Put that should trigger the flush
@@ -381,7 +383,7 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	assert.LessOrEqual(t, uint(sizeBeforeFlush), rin.config.maxMemtableSize, "Size should be below threshold before triggering put")
 
 	// This Put should trigger the flush
-	err = rin.Put(ctx, Bytes("key3"), Bytes("value3-loooooooooong"))
+	err = rin.Put(ctx, key3, val3)
 	assert.NoError(t, err)
 
 	// Assertions after the flush should have occurred
@@ -393,23 +395,21 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	//    instead of asserting on a specific level.
 	rin.ssTableManager.mu.RLock() // Lock needed to safely access levels
 	total := 0
-	for _, lvl := range rin.ssTableManager.levels {
-		if lvl != nil {
-			total += lvl.Len()
-		}
+	for _, lvl := range rin.ssTableManager.versionSet.Levels {
+		total += len(lvl)
 	}
 	rin.ssTableManager.mu.RUnlock()
 	assert.GreaterOrEqual(t, total, 1, "There should be at least one SSTable after flush")
 
 	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
 	// We can Get the keys back to ensure they were persisted correctly
-	val1, err := rin.Get(ctx, Bytes("key1"))
+	got1, err := rin.Get(ctx, key1)
 	assert.NoError(t, err)
-	assert.Equal(t, Bytes("value1-loooooooooong"), val1)
+	assert.Equal(t, val1, got1)
 
-	val3, err := rin.Get(ctx, Bytes("key3"))
+	got3, err := rin.Get(ctx, key3)
 	assert.NoError(t, err)
-	assert.Equal(t, Bytes("value3-loooooooooong"), val3)
+	assert.Equal(t, val3, got3)
 }
 
 // TestInitRinDB_MaxSequenceNumber tests the sequence number initialization logic.
