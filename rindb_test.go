@@ -393,12 +393,13 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	// 2. At least one SSTable should have been created on disk.
 	//    Compaction may move flushed SSTables to higher levels, so we count across all levels
 	//    instead of asserting on a specific level.
-	rin.ssTableManager.mu.RLock() // Lock needed to safely access levels
+	//    versionSet modifications are guarded by rin.mu, so use the same lock here.
+	rin.mu.RLock()
 	total := 0
-	for _, lvl := range rin.ssTableManager.versionSet.Levels {
+	for _, lvl := range rin.versionSet.Levels {
 		total += len(lvl)
 	}
-	rin.ssTableManager.mu.RUnlock()
+	rin.mu.RUnlock()
 	assert.GreaterOrEqual(t, total, 1, "There should be at least one SSTable after flush")
 
 	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
