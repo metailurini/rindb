@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,5 +152,34 @@ func TestFileSystem_CursorPos(t *testing.T) {
 		position, err := fs.CursorPos()
 		assert.NoError(t, err)
 		assert.Equal(t, int64(5), position)
+	})
+}
+
+func TestOpenExistingFS(t *testing.T) {
+	t.Run("missing file returns error and remains absent", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "missing.sst")
+
+		fs, err := OpenExistingFS(ctx, filePath)
+		assert.Error(t, err)
+		assert.Nil(t, fs)
+
+		_, statErr := os.Stat(filePath)
+		assert.True(t, os.IsNotExist(statErr))
+	})
+
+	t.Run("opens existing file", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "existing.sst")
+		f, err := os.Create(filePath)
+		assert.NoError(t, err)
+		assert.NoError(t, f.Close())
+
+		fs, err := OpenExistingFS(ctx, filePath)
+		assert.NoError(t, err)
+		assert.NotNil(t, fs)
+		assert.NoError(t, fs.Close())
 	})
 }
