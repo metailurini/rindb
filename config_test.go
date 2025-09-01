@@ -18,6 +18,7 @@ func TestDefaultConfig(t *testing.T) {
 		{"level0CompactionThreshold", cfg.level0CompactionThreshold, 2},
 		{"baseCompactionSizeMB", cfg.baseCompactionSizeMB, 10},
 		{"levelSizeMultiplier", cfg.levelSizeMultiplier, 10},
+		{"repairMode", cfg.repairMode, false},
 		{"bloomFalsePositiveRate", cfg.bloomFalsePositiveRate, 0.01},
 		{"skipListDefaultLevel", cfg.skipListDefaultLevel, uint(2)},
 		{"skipListMaxLevel", cfg.skipListMaxLevel, uint(32)},
@@ -49,6 +50,15 @@ func TestNewConfigWithOptions(t *testing.T) {
 			verify: func(t *testing.T, cfg Config) {
 				if cfg.databaseDir != "/custom/path" {
 					t.Errorf("databaseDir = %v, want %v", cfg.databaseDir, "/custom/path")
+				}
+			},
+		},
+		{
+			name: "WithRepairMode",
+			opts: []Option{WithRepairMode(true)},
+			verify: func(t *testing.T, cfg Config) {
+				if !cfg.repairMode {
+					t.Errorf("repairMode = %v, want %v", cfg.repairMode, true)
 				}
 			},
 		},

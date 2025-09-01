@@ -63,6 +63,48 @@ func TestSSTableManager_LoadLevels(t *testing.T) {
 	})
 }
 
+func TestInitSSTableManagerRepairMode(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// Create two SSTable files on disk.
+	createDummyFile(t, dir, sstPath(1), 1)
+	createDummyFile(t, dir, sstPath(2), 1)
+
+	vs := &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}}
+
+	cfg := testConfig()
+	cfg.databaseDir = dir
+
+	t.Run("normal startup uses manifest", func(t *testing.T) {
+		sm, err := InitSSTableManager(ctx, cfg, vs, nil)
+		assert.NoError(t, err)
+		defer sm.Close(ctx)
+
+		if assert.Len(t, sm.levels, 1) {
+			iter := sm.levels[0].Iterator()
+			var names []string
+			for iter.HasNext() {
+				fs, err := iter.Next()
+				assert.NoError(t, err)
+				names = append(names, path.Base(fs.Path()))
+			}
+			assert.Equal(t, []string{sstPath(1)}, names)
+		}
+	})
+
+	t.Run("repair mode scans directory", func(t *testing.T) {
+		cfg.repairMode = true
+		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{}, nil)
+		assert.NoError(t, err)
+		defer sm.Close(ctx)
+
+		if assert.Len(t, sm.levels, 1) {
+			assert.Equal(t, 2, sm.levels[0].Len())
+		}
+	})
+}
+
 func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 	cfg := testConfig()
 
