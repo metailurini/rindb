@@ -26,6 +26,8 @@ func InitSSTableManager(ctx context.Context, cfg Config, vs *VersionSet, mw Mani
     if cfg.repairMode {
         vs = &VersionSet{}
         // scan cfg.databaseDir and populate vs.Levels with FileMeta for each *.sst
+        // open each table and read its metadata (key ranges, seq nums, file size)
+        // to build a proper FileMeta entry for recovery
     }
     return &SSTableManager{
         openedFs:    make(map[*FileSystem]struct{}),
@@ -52,7 +54,7 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
         if err := h.manifest.Append(edit); err != nil { return err }
         if err := h.manifest.Sync(); err != nil { return err }
     }
-    h.mu.Lock()
+    h.mu.Lock() // lock only to update in-memory versionSet
     defer h.mu.Unlock()
     return edit.Apply(h.versionSet)
 }
@@ -61,11 +63,16 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
 ## Compaction Flow
 ```go
 func (h *SSTableManager) Compact(ctx context.Context) error {
-    h.mu.Lock()
-    defer h.mu.Unlock()
-    for lvl, files := range h.versionSet.Levels {
-        if !h.shouldCompact(ctx, lvl, files) { continue }
+    for lvl := range h.versionSet.Levels {
+        h.mu.RLock()
+        files := h.versionSet.Levels[lvl]
+        if !h.shouldCompact(ctx, lvl, files) {
+            h.mu.RUnlock()
+            continue
+        }
         picked := h.pickFiles(ctx, lvl, files)
+        h.mu.RUnlock()
+
         overlaps, err := h.findOverlaps(ctx, lvl+1, picked)
         if err != nil { return err }
         metas, err := h.merge(ctx, lvl+1, append(picked, overlaps...))
@@ -75,7 +82,14 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
             DeleteFiles: metasOf(append(picked, overlaps...)),
             NextFileNumber: h.config.fileNumberAllocator.Peek(),
         }
-        if err := h.commit(edit); err != nil { return err }
+        if h.manifest != nil {
+            if err := h.manifest.Append(edit); err != nil { return err }
+            if err := h.manifest.Sync(); err != nil { return err }
+        }
+        h.mu.Lock()
+        err = edit.Apply(h.versionSet)
+        h.mu.Unlock()
+        if err != nil { return err }
     }
     return nil
 }
@@ -84,29 +98,16 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, level int, files []F
 func (h *SSTableManager) pickFiles(ctx context.Context, level int, files []FileMeta) []FileMeta
 func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error)
 func (h *SSTableManager) merge(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error)
-
-func (h *SSTableManager) commit(edit VersionEdit) error {
-    if h.manifest != nil {
-        if err := h.manifest.Append(edit); err != nil { return err }
-        if err := h.manifest.Sync(); err != nil { return err }
-    }
-    return edit.Apply(h.versionSet)
-}
 ```
 Helpers resolve `FileMeta.Number` to a `FileSystem` lazily; no `levels` linked lists remain.
 
 ## Sequence Number Scan
 ```go
-func getMaxSequenceNumberFromSSTables(ctx context.Context, mgr *SSTableManager) (uint64, error) {
-    var maxSeq uint64
-    for _, f := range mgr.versionSet.Levels[0] {
-        sst, err := mgr.openByNumber(ctx, f.Number)
-        if err != nil { return 0, err }
-        seq, err := sst.MaxSequenceNumber()
-        if err != nil { return 0, err }
-        maxSeq = max(maxSeq, seq)
-    }
-    return maxSeq, nil
+func getMaxSequenceNumber(ctx context.Context, vs *VersionSet, wal *WAL) (uint64, error) {
+    maxSeq := vs.LastSequence
+    walSeq, err := wal.MaxSequenceNumber()
+    if err != nil { return 0, err }
+    return max(maxSeq, walSeq), nil
 }
 ```
 
@@ -153,8 +154,15 @@ func (ts *testRindbSetup) AddSSTable(meta FileMeta) {
 }
 
 func (ts *testRindbSetup) createSSTable(level int, kv map[string]string) (FileMeta, *SStable) {
-    fs, _ := ts.Manager.NewSSTableFS(context.Background(), level)
-    sst, meta, _ := flush(context.Background(), *ts.Config, populateMemtable(*ts.Config, /* kv */), fs)
+    fs, err := ts.Manager.NewSSTableFS(context.Background(), level)
+    require.NoError(ts.T, err)
+
+    pairs := make([][2]Bytes, 0, len(kv))
+    for k, v := range kv {
+        pairs = append(pairs, [2]Bytes{Bytes(k), Bytes(v)})
+    }
+    sst, meta, err := flush(context.Background(), *ts.Config, populateMemtable(*ts.Config, pairs...), fs)
+    require.NoError(ts.T, err)
     meta.Level = level
     return meta, &sst
 }
