@@ -100,7 +100,14 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 		defer sm.Close(ctx)
 
 		if assert.Len(t, sm.levels, 1) {
-			assert.Equal(t, 2, sm.levels[0].Len())
+			iter := sm.levels[0].Iterator()
+			var names []string
+			for iter.HasNext() {
+				fs, err := iter.Next()
+				assert.NoError(t, err)
+				names = append(names, path.Base(fs.Path()))
+			}
+			assert.Equal(t, []string{sstPath(1), sstPath(2)}, names)
 		}
 	})
 }

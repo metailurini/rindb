@@ -111,7 +111,10 @@ func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw M
 		if err := h.LoadLevels(config.databaseDir); err != nil {
 			return nil, err
 		}
-	} else if vs != nil {
+	} else {
+		if vs == nil {
+			return nil, errors.New("rindb: version set cannot be nil in non-repair mode")
+		}
 		levels := make([]*LinkedList[*FileSystem], len(vs.Levels))
 		for lvl, files := range vs.Levels {
 			if len(files) == 0 {
