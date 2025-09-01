@@ -25,6 +25,7 @@ type Rindb struct {
 	ssTableManager    *SSTableManager
 	versionSet        *VersionSet
 	manifest          ManifestWriter
+	manifestPath      string
 	config            Config
 	shutdownTelemetry func(context.Context) error
 	mu                sync.RWMutex   // Mutex for thread-safe access
@@ -156,16 +157,21 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	maxSeqNum = max(maxSeqNum, sstMaxSeqNum)
 
 	INFO(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
-	return &Rindb{
+	rin := &Rindb{
 		wal:               wal,
 		memtable:          memtable,
 		ssTableManager:    ssTableManager,
 		versionSet:        vs,
 		manifest:          mw,
+		manifestPath:      manifestPath,
 		config:            cfg,
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,
-	}, nil
+	}
+	if err := rin.maybeRotateManifest(ctx); err != nil {
+		return nil, err
+	}
+	return rin, nil
 }
 
 // Stats returns current statistics of the database.
@@ -382,6 +388,9 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			return err
 		}
 		if err := edit.Apply(r.versionSet); err != nil {
+			return err
+		}
+		if err := r.maybeRotateManifest(ctx); err != nil {
 			return err
 		}
 
