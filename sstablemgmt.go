@@ -658,9 +658,6 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 			delMetas = append(delMetas, DeletedFileMeta{Level: level, Number: num})
 		}
 	}
-	if err := removeFiles(h.config.databaseDir, dels); err != nil {
-		ERROR(ctx, "Error removing files: %v", err)
-	}
 
 	meta.Level = newLevelNumb
 	edit := VersionEdit{
@@ -678,6 +675,10 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	}
 	if err := edit.Apply(h.versionSet); err != nil {
 		return err
+	}
+
+	if err := removeFiles(h.config.databaseDir, dels); err != nil {
+		ERROR(ctx, "Error removing files: %v", err)
 	}
 
 	return nil
