@@ -15,6 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type failingManifestWriter struct{}
+
+func (f failingManifestWriter) Append(VersionEdit) error { return fmt.Errorf("append fail") }
+func (f failingManifestWriter) Sync() error              { return nil }
+func (f failingManifestWriter) Close() error             { return nil }
+
 func TestSSTableManager_LoadLevels(t *testing.T) {
 	cfg := testConfig()
 	t.Run("LoadLevels validates file names", func(t *testing.T) {
@@ -1627,6 +1633,34 @@ func TestSSTableManager_mergeSSTables(t *testing.T) {
 		assert.Error(t, err)
 		_, err = os.Stat(sst2.Path())
 		assert.Error(t, err)
+	})
+
+	t.Run("retains sources on manifest failure", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		mem1 := InitMemtable(*ts.Config)
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		sst1, _, err := flush(ctx, *ts.Config, mem1, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		mem2 := InitMemtable(*ts.Config)
+		mem2.Put(newRecord(Bytes("b"), Bytes("2"), 2))
+		sst2, _, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
+		assert.NoError(t, err)
+
+		ts.Manager.manifest = failingManifestWriter{}
+
+		ts.Manager.mu.Lock()
+		err = ts.Manager.mergeSSTables(ctx, 1, []SStable{sst1, sst2})
+		ts.Manager.mu.Unlock()
+		assert.Error(t, err)
+
+		_, err = os.Stat(sst1.Path())
+		assert.NoError(t, err)
+		_, err = os.Stat(sst2.Path())
+		assert.NoError(t, err)
 	})
 
 	t.Run("keeps tombstone with active snapshot", func(t *testing.T) {
