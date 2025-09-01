@@ -18,6 +18,10 @@ type Config struct {
 	// databaseDir specifies the directory where WAL and SSTables are stored
 	databaseDir string
 
+	// repairMode forces a full directory scan of SSTables during startup,
+	// bypassing the manifest's VersionSet.
+	repairMode bool
+
 	// maxMemtableSize triggers memtable flush to SSTable when this number of entries is reached
 	maxMemtableSize uint
 
@@ -115,6 +119,7 @@ func DefaultConfig() Config {
 		fileNumberAllocator:        NewFileNumberAllocator(1),
 		newFileNumberAllocatorFunc: NewFileNumberAllocator,
 		newManifestWriterFunc:      NewManifestWriter,
+		repairMode:                 false,
 	}
 }
 
@@ -186,6 +191,10 @@ func WithConfig(cfg Config) Option {
 // Option functions
 func WithDatabaseDir(dir string) Option {
 	return func(c *Config) { c.databaseDir = dir }
+}
+
+func WithRepairMode(v bool) Option {
+	return func(c *Config) { c.repairMode = v }
 }
 
 func WithMaxMemtableSize(size uint) Option {

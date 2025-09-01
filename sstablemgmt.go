@@ -107,8 +107,24 @@ func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw M
 		},
 	}
 
-	if err := h.LoadLevels(config.databaseDir); err != nil {
-		return nil, err
+	if config.repairMode {
+		if err := h.LoadLevels(config.databaseDir); err != nil {
+			return nil, err
+		}
+	} else if vs != nil {
+		levels := make([]*LinkedList[*FileSystem], len(vs.Levels))
+		for lvl, files := range vs.Levels {
+			if len(files) == 0 {
+				continue
+			}
+			ll := InitLinkedList[*FileSystem]()
+			for _, f := range files {
+				fs := &FileSystem{filePath: path.Join(config.databaseDir, sstPath(f.Number))}
+				ll.PushBack(fs)
+			}
+			levels[lvl] = ll
+		}
+		h.levels = levels
 	}
 
 	h.ioSamplerWG.Add(1)
