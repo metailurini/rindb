@@ -12,7 +12,7 @@ type NewWALFunc func(ctx context.Context, cfg Config) (*WAL, error)
 // The VersionSet parameter provides metadata about existing SSTables. Callers
 // should pass the same instance used elsewhere in the database so the manager
 // can operate on consistent state.
-type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *VersionSet) (*SSTableManager, error)
+type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error)
 
 type Config struct {
 	// databaseDir specifies the directory where WAL and SSTables are stored
