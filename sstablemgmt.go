@@ -86,53 +86,69 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 	return &sstable, nil
 }
 
+// buildVersionSetFromDisk scans the database directory for existing SSTable
+// files and constructs a VersionSet based on their metadata. Only files with
+// the `.sst` extension and valid numeric file numbers are considered. Each
+// discovered SSTable is opened to determine its key range and maximum sequence
+// number. The returned VersionSet contains a single level populated with the
+// collected metadata.
+func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*VersionSet, error) {
+	var metas []FileMeta
+	err := filepath.WalkDir(cfg.databaseDir, func(p string, d iofs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(p) != ".sst" {
+			return nil
+		}
+		num, err := fileNum(p)
+		if err != nil {
+			return err
+		}
+		fs, err := OpenExistingFS(ctx, p)
+		if err != nil {
+			return err
+		}
+		sst, err := NewSSTable(ctx, cfg, fs)
+		if err != nil {
+			_ = fs.Close()
+			return err
+		}
+		lo, hi := sst.GetKeyRange()
+		seqHi, err := sst.MaxSequenceNumber()
+		closeErr := sst.Close()
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		metas = append(metas, FileMeta{
+			Number:   num,
+			Level:    0,
+			Smallest: InternalKey{UserKey: lo},
+			Largest:  InternalKey{UserKey: hi},
+			SeqHi:    seqHi,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &VersionSet{Levels: [][]FileMeta{metas}}, nil
+}
+
 func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
 	if vs == nil && !config.repairMode {
 		return nil, errors.New("rindb: version set cannot be nil in non-repair mode")
 	}
 
 	if config.repairMode {
-		vs = &VersionSet{}
-		var metas []FileMeta
-		err := filepath.WalkDir(config.databaseDir, func(p string, d iofs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if filepath.Ext(p) != ".sst" {
-				return nil
-			}
-			num, err := fileNum(p)
-			if err != nil {
-				return err
-			}
-			fs, err := OpenExistingFS(ctx, p)
-			if err != nil {
-				return err
-			}
-			sst, err := NewSSTable(ctx, config, fs)
-			if err != nil {
-				_ = fs.Close()
-				return err
-			}
-			lo, hi := sst.GetKeyRange()
-			seqHi, err := sst.MaxSequenceNumber()
-			_ = sst.Close()
-			if err != nil {
-				return err
-			}
-			metas = append(metas, FileMeta{
-				Number:   num,
-				Level:    0,
-				Smallest: InternalKey{UserKey: lo},
-				Largest:  InternalKey{UserKey: hi},
-				SeqHi:    seqHi,
-			})
-			return nil
-		})
+		var err error
+		vs, err = buildVersionSetFromDisk(ctx, config)
 		if err != nil {
 			return nil, err
 		}
-		vs.Levels = [][]FileMeta{metas}
 	}
 
 	h := &SSTableManager{

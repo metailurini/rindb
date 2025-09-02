@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +107,76 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 			}
 			assert.ElementsMatch(t, []uint64{1, 2}, nums)
 		}
+	})
+}
+
+func TestBuildVersionSetFromDisk(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	t.Run("collects metadata from sstable files", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg.databaseDir = dir
+
+		// Create two valid SSTables.
+		mem1 := InitMemtable(cfg)
+		mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+		fs1, err := OpenFS(ctx, path.Join(dir, sstPath(1)))
+		require.NoError(t, err)
+		_, _, err = flush(ctx, cfg, mem1, fs1)
+		require.NoError(t, err)
+		require.NoError(t, fs1.Close())
+
+		mem2 := InitMemtable(cfg)
+		mem2.Put(newRecord(Bytes("b"), Bytes("2"), 1))
+		fs2, err := OpenFS(ctx, path.Join(dir, sstPath(2)))
+		require.NoError(t, err)
+		_, _, err = flush(ctx, cfg, mem2, fs2)
+		require.NoError(t, err)
+		require.NoError(t, fs2.Close())
+
+		// Add a non-sstable file to ensure it is ignored.
+		nonSSTPath := filepath.Join(dir, "ignore.txt")
+		require.NoError(t, os.WriteFile(nonSSTPath, []byte("junk"), 0o644))
+
+		vs, err := buildVersionSetFromDisk(ctx, cfg)
+		require.NoError(t, err)
+		require.Len(t, vs.Levels, 1)
+		var nums []uint64
+		for _, fm := range vs.Levels[0] {
+			nums = append(nums, fm.Number)
+		}
+		assert.ElementsMatch(t, []uint64{1, 2}, nums)
+	})
+
+	t.Run("empty directory", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg.databaseDir = dir
+
+		vs, err := buildVersionSetFromDisk(ctx, cfg)
+		require.NoError(t, err)
+		require.Len(t, vs.Levels, 1)
+		assert.Len(t, vs.Levels[0], 0)
+	})
+
+	t.Run("invalid sstable filename", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg.databaseDir = dir
+
+		badPath := filepath.Join(dir, "bad.sst")
+		require.NoError(t, os.WriteFile(badPath, []byte("junk"), 0o644))
+		_, err := buildVersionSetFromDisk(ctx, cfg)
+		assert.Error(t, err)
+	})
+
+	t.Run("malformed sstable file", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg.databaseDir = dir
+
+		badContent := filepath.Join(dir, sstPath(3))
+		require.NoError(t, os.WriteFile(badContent, []byte("garbage"), 0o644))
+		_, err := buildVersionSetFromDisk(ctx, cfg)
+		assert.Error(t, err)
 	})
 }
 
