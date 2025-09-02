@@ -72,15 +72,12 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 		assert.NoError(t, err)
 		defer sm.Close(ctx)
 
-		if assert.Len(t, sm.levels, 1) {
-			iter := sm.levels[0].Iterator()
-			var names []string
-			for iter.HasNext() {
-				fs, err := iter.Next()
-				assert.NoError(t, err)
-				names = append(names, path.Base(fs.Path()))
+		if assert.Len(t, sm.versionSet.Levels, 1) {
+			var nums []uint64
+			for _, fm := range sm.versionSet.Levels[0] {
+				nums = append(nums, fm.Number)
 			}
-			assert.Equal(t, []string{sstPath(1)}, names)
+			assert.Equal(t, []uint64{1}, nums)
 		}
 	})
 
@@ -89,17 +86,6 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 		sm, err := InitSSTableManager(ctx, cfg, nil, nil)
 		assert.NoError(t, err)
 		defer sm.Close(ctx)
-
-		if assert.Len(t, sm.levels, 1) {
-			iter := sm.levels[0].Iterator()
-			var names []string
-			for iter.HasNext() {
-				fs, err := iter.Next()
-				assert.NoError(t, err)
-				names = append(names, path.Base(fs.Path()))
-			}
-			assert.Equal(t, []string{sstPath(1), sstPath(2)}, names)
-		}
 
 		if assert.Len(t, sm.versionSet.Levels, 1) {
 			var nums []uint64
@@ -211,27 +197,22 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		}, 20)
 		ts.AddSSTableToLevel(0, sstable3)
 
-		// Verify initial state: Level 0 has 3 files
-		assert.Equal(t, 3, ts.Manager.levels[0].Len(), "Level 0 should have 3 SSTables before compaction")
+		assert.Equal(t, 3, len(ts.Manager.versionSet.Levels[0]))
 
-		// Trigger compaction (Level 0 -> Level 1)
 		err := ts.Manager.Compact(ctx)
-		assert.NoError(t, err, "Compaction failed")
+		assert.NoError(t, err)
 
-		// Verify state after compaction
-		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
-		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Manager should have at least 2 levels after compaction")
-		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist")
-		assert.Equal(t, 1, ts.Manager.levels[1].Len(), "Level 1 should have exactly one merged SSTable")
+		assert.Equal(t, 0, len(ts.Manager.versionSet.Levels[0]))
+		if assert.GreaterOrEqual(t, len(ts.Manager.versionSet.Levels), 2) {
+			assert.Equal(t, 1, len(ts.Manager.versionSet.Levels[1]))
+		}
 
-		// Retrieve the merged SSTable from Level 1
-		mergedFs, err := ts.Manager.levels[1].Iterator().Next()
-		assert.NoError(t, err, "Failed to get merged FS from Level 1")
-		err = mergedFs.Open(ctx) // Ensure it's open if closed previously
-		assert.NoError(t, err, "Failed to open merged FS")
-
-		mergedSSTable, err := NewSSTable(ctx, cfg, mergedFs)
-		assert.NoError(t, err, "Failed to create SStable object from merged FS")
+		meta := ts.Manager.versionSet.Levels[1][0]
+		fs, err := OpenExistingFS(ctx, path.Join(ts.Manager.config.databaseDir, sstPath(meta.Number)))
+		assert.NoError(t, err)
+		defer func() { _ = fs.Close() }()
+		mergedSSTable, err := NewSSTable(ctx, cfg, fs)
+		assert.NoError(t, err)
 
 		// Verify the content of the merged SSTable
 		assert.Equal(t, 5, len(mergedSSTable.SparseIndex), "Merged SSTable sparse index length mismatch")
@@ -258,13 +239,12 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		// Ensure levels are initialized but empty (as done by NewTestRindbSetup)
 		assert.NotNil(t, ts.Manager, "Manager should not be nil")
-		assert.NotNil(t, ts.Manager.levels, "Manager levels slice should not be nil")
-		// Setup ensures at least 3 levels exist and are non-nil lists
-		assert.GreaterOrEqual(t, len(ts.Manager.levels), 3, "Manager should have at least 3 levels")
-		assert.NotNil(t, ts.Manager.levels[0], "Manager level 0 list should not be nil")
-		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty initially")
+		if assert.NotNil(t, ts.Manager.versionSet, "Version set should not be nil") {
+			if assert.GreaterOrEqual(t, len(ts.Manager.versionSet.Levels), 1) {
+				assert.Len(t, ts.Manager.versionSet.Levels[0], 0)
+			}
+		}
 
 		// Search for a random key in an empty manager
 		key := randStringBytes(10)
@@ -328,7 +308,6 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		ts.Manager.levels = nil
 		ts.Manager.versionSet.Levels = nil
 
 		result, err := ts.Manager.searchKey(ctx, Bytes("any-key"))
@@ -424,10 +403,10 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 		assert.True(t, ts.Manager.shouldCompact(ctx, 0, ts.Manager.versionSet.Levels[0]))
 		assert.NoError(t, ts.Manager.Compact(ctx))
-		assert.Equal(t, 0, ts.Manager.levels[0].Len(), "Level 0 should be empty after compaction")
-		assert.GreaterOrEqual(t, len(ts.Manager.levels), 2, "Should have created level 1")
-		assert.NotNil(t, ts.Manager.levels[1], "Level 1 list should exist")
-		assert.Equal(t, 1, ts.Manager.levels[1].Len(), "Level 1 should have merged SSTable")
+		assert.Equal(t, 0, len(ts.Manager.versionSet.Levels[0]))
+		if assert.GreaterOrEqual(t, len(ts.Manager.versionSet.Levels), 2) {
+			assert.Equal(t, 1, len(ts.Manager.versionSet.Levels[1]))
+		}
 	})
 
 	t.Run("levels below threshold dont compact", func(t *testing.T) {
@@ -439,21 +418,23 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 		// --- Test Level 0 ---
 		level0FileCount := threshold - 1
-		initialLevel0Files := make([]*FileSystem, level0FileCount)
+		initialLevel0Nums := make([]uint64, 0, level0FileCount)
 		for i := 0; i < level0FileCount; i++ {
 			sstable := ts.createSSTable(0, map[string]string{fmt.Sprintf("l0-key%d", i): "value"})
 			ts.AddSSTableToLevel(0, sstable)
-			initialLevel0Files[i] = sstable.FileSystem // Keep track for assertion
+			num, _ := fileNum(sstable.Path())
+			initialLevel0Nums = append(initialLevel0Nums, num)
 		}
-		assert.Equal(t, level0FileCount, ts.Manager.levels[0].Len(), "Pre-check: Level 0 should have %d files", level0FileCount)
+		assert.Equal(t, level0FileCount, len(ts.Manager.versionSet.Levels[0]))
 
 		// --- Test Level 1 ---
 		level1FileCount := 1
-		initialLevel1Files := make([]*FileSystem, level1FileCount)
+		initialLevel1Nums := make([]uint64, level1FileCount)
 		sstable1 := ts.createSSTable(1, map[string]string{"l1-key": "small-value"})
 		ts.AddSSTableToLevel(1, sstable1)
-		initialLevel1Files[0] = sstable1.FileSystem
-		assert.Equal(t, level1FileCount, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d file", level1FileCount)
+		num1, _ := fileNum(sstable1.Path())
+		initialLevel1Nums[0] = num1
+		assert.Equal(t, level1FileCount, len(ts.Manager.versionSet.Levels[1]))
 
 		// --- Act ---
 		err := ts.Manager.Compact(ctx)
@@ -461,29 +442,21 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 
 		// --- Assert ---
 		// Level 0 should be unchanged
-		assert.Equal(t, level0FileCount, ts.Manager.levels[0].Len(), "Level 0 count should remain %d after compact", level0FileCount)
-		currentLevel0Files := make([]*FileSystem, 0, ts.Manager.levels[0].Len())
-		iter0 := ts.Manager.levels[0].Iterator()
-		for iter0.HasNext() {
-			f, err := iter0.Next()
-			assert.NoError(t, err)
-			currentLevel0Files = append(currentLevel0Files, f)
+		assert.Equal(t, level0FileCount, len(ts.Manager.versionSet.Levels[0]))
+		currentLevel0Nums := make([]uint64, 0, len(ts.Manager.versionSet.Levels[0]))
+		for _, fm := range ts.Manager.versionSet.Levels[0] {
+			currentLevel0Nums = append(currentLevel0Nums, fm.Number)
 		}
-		assert.ElementsMatch(t, initialLevel0Files, currentLevel0Files, "Level 0 files should be the same instances")
+		assert.ElementsMatch(t, initialLevel0Nums, currentLevel0Nums)
 
-		// Level 1 should be unchanged
-		assert.Equal(t, level1FileCount, ts.Manager.levels[1].Len(), "Level 1 count should remain %d after compact", level1FileCount)
-		currentLevel1Files := make([]*FileSystem, 0, ts.Manager.levels[1].Len())
-		iter1 := ts.Manager.levels[1].Iterator()
-		for iter1.HasNext() {
-			f, err := iter1.Next()
-			assert.NoError(t, err)
-			currentLevel1Files = append(currentLevel1Files, f)
+		assert.Equal(t, level1FileCount, len(ts.Manager.versionSet.Levels[1]))
+		currentLevel1Nums := make([]uint64, 0, len(ts.Manager.versionSet.Levels[1]))
+		for _, fm := range ts.Manager.versionSet.Levels[1] {
+			currentLevel1Nums = append(currentLevel1Nums, fm.Number)
 		}
-		assert.ElementsMatch(t, initialLevel1Files, currentLevel1Files, "Level 1 files should be the same instances")
+		assert.ElementsMatch(t, initialLevel1Nums, currentLevel1Nums)
 
-		// No higher levels should have been created beyond the initial setup (usually 3 levels in setup)
-		assert.LessOrEqual(t, len(ts.Manager.levels), 3, "No new levels beyond initial setup should be created")
+		assert.LessOrEqual(t, len(ts.Manager.versionSet.Levels), 3)
 	})
 
 	t.Run("level 1 size above threshold triggers compaction (lowered threshold)", func(t *testing.T) {
@@ -528,21 +501,18 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			totalSize, float64(totalSize)/(1024*1024),
 			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
-		// Sanity check: Ensure total size exceeds the *lowered* threshold
 		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
-		assert.Equal(t, numFiles, ts.Manager.levels[1].Len(), "Pre-check: Level 1 should have %d files", numFiles)
+		assert.Equal(t, numFiles, len(ts.Manager.versionSet.Levels[1]))
 
 		INFO(ctx, "Calling Compact()...")
 		err := ts.Manager.Compact(ctx)
 		assert.NoError(t, err)
 		INFO(ctx, "Compact() finished.")
 
-		// Assert:
-		// 1. Level 1 should now be empty.
-		assert.Equal(t, 0, ts.Manager.levels[1].Len(), "Level 1 should be empty after compaction")
-		assert.GreaterOrEqual(t, len(ts.Manager.levels), 3, "Should have created level 2")
-		assert.NotNil(t, ts.Manager.levels[2], "Level 2 list should exist")
-		assert.Equal(t, 1, ts.Manager.levels[2].Len(), "Level 2 should have 1 merged SSTable")
+		assert.Equal(t, 0, len(ts.Manager.versionSet.Levels[1]))
+		if assert.GreaterOrEqual(t, len(ts.Manager.versionSet.Levels), 3) {
+			assert.Equal(t, 1, len(ts.Manager.versionSet.Levels[2]))
+		}
 
 		// 2. Level 2 should exist and contain exactly one merged SSTable.
 		// 3. Check if the original Level 1 files were removed.
@@ -550,14 +520,10 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			assertFileNotExists(t, p)
 		}
 
-		// 4. (Optional) Verify the content/size of the merged Level 2 SSTable
-		iter2 := ts.Manager.levels[2].Iterator()
-		mergedFs, err := iter2.Next()
-		assert.NoError(t, err)
-		mergedInfo, err := os.Stat(mergedFs.Path())
+		meta := ts.Manager.versionSet.Levels[2][0]
+		mergedInfo, err := os.Stat(path.Join(ts.Manager.config.databaseDir, sstPath(meta.Number)))
 		assert.NoError(t, err)
 		INFO(ctx, "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
-		// Check if size is roughly the sum of originals (minus overhead/duplicates, should be close)
 		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
 }
@@ -691,7 +657,6 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 				diskSampler:    func() (uint64, error) { return ioVal, nil },
 				minSnapshotSeq: math.MaxUint64,
 			}
-			sm.levels[0].PushBack(&FileSystem{filePath: "dummy"})
 
 			for i := 0; i < 100; i++ {
 				sm.recordWrite()
@@ -893,7 +858,6 @@ func Test_mergeSSTablesV2(t *testing.T) {
 
 		ts.AddSSTableToLevel(0, &sst1)
 		ts.AddSSTableToLevel(0, &sst2)
-		ts.Manager.levels[0] = InitLinkedList[*FileSystem]()
 
 		target := ts.newSSTableFS(1)
 		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false, math.MaxUint64)
@@ -1096,17 +1060,12 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, l0a.Close())
 		require.NoError(t, l0b.Close())
 
-		ts.Manager.levels = ts.Manager.levels[:1]
 		ts.Manager.versionSet.Levels = ts.Manager.versionSet.Levels[:1]
 
 		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err := ts.Manager.mergeIntoLevel(ctx, 1, picked)
 		require.NoError(t, err)
 
-		require.Len(t, ts.Manager.levels, 2)
-		require.NotNil(t, ts.Manager.levels[1])
-		assert.Equal(t, 0, ts.Manager.levels[0].Len())
-		assert.Equal(t, 1, ts.Manager.levels[1].Len())
 		require.Len(t, ts.Manager.versionSet.Levels, 2)
 		assert.Empty(t, ts.Manager.versionSet.Levels[0])
 		assert.Len(t, ts.Manager.versionSet.Levels[1], 1)
@@ -1335,17 +1294,15 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		require.NoError(t, src.Close())
 		srcPath := src.FileSystem.Path()
 
-		ts.Manager.levels = ts.Manager.levels[:1]
 		ts.Manager.versionSet.Levels = ts.Manager.versionSet.Levels[:1]
 
 		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err := ts.Manager.mergeIntoLevel(ctx, 1, inputs)
 		require.NoError(t, err)
 
-		require.Len(t, ts.Manager.levels, 2)
-		assert.NotNil(t, ts.Manager.levels[1])
-		assert.Equal(t, 0, ts.Manager.levels[0].Len())
-		assert.Equal(t, 1, ts.Manager.levels[1].Len())
+		require.Len(t, ts.Manager.versionSet.Levels, 2)
+		assert.Empty(t, ts.Manager.versionSet.Levels[0])
+		assert.Len(t, ts.Manager.versionSet.Levels[1], 1)
 
 		_, err = os.Stat(srcPath)
 		assert.ErrorIs(t, err, os.ErrNotExist)
@@ -1389,8 +1346,8 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
 		require.NoError(t, err)
 
-		iter := ts.Manager.levels[1].Iterator()
-		fsMerged, err := iter.Next()
+		meta := ts.Manager.versionSet.Levels[1][0]
+		fsMerged, err := OpenExistingFS(ctx, path.Join(ts.Manager.config.databaseDir, sstPath(meta.Number)))
 		require.NoError(t, err)
 		merged, err := NewSSTable(ctx, cfg, fsMerged)
 		require.NoError(t, err)
@@ -1403,13 +1360,11 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		beforeLevels := len(ts.Manager.levels)
 		beforeVS := len(ts.Manager.versionSet.Levels)
 
 		err := ts.Manager.mergeIntoLevel(ctx, 1, nil)
 		require.NoError(t, err)
 
-		assert.Equal(t, beforeLevels, len(ts.Manager.levels))
 		assert.Equal(t, beforeVS, len(ts.Manager.versionSet.Levels))
 	})
 }
