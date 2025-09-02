@@ -511,6 +511,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, rin.manifest.Append(edit))
 		assert.NoError(t, rin.manifest.Sync())
 		assert.NoError(t, edit.Apply(rin.versionSet))
+		rin.config.fileNumberAllocator.Apply(edit)
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
 		wp := path.Join(rin.config.databaseDir, walPath(1))

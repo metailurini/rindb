@@ -704,6 +704,7 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 	if err := edit.Apply(h.versionSet); err != nil {
 		return err
 	}
+	h.config.fileNumberAllocator.Apply(edit)
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
 		ERROR(ctx, "Error removing files: %v", err)

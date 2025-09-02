@@ -130,8 +130,9 @@ func syncDir(dir string) error {
 	return d.Sync()
 }
 
-// recoverVersionSet rebuilds the VersionSet by replaying the MANIFEST.
-func recoverVersionSet(ctx context.Context, dir string) (*VersionSet, string, error) {
+// recoverVersionSet rebuilds the VersionSet by replaying the MANIFEST and
+// updates the allocator with any NextFileNumber entries.
+func recoverVersionSet(ctx context.Context, dir string, a *FileNumberAllocator) (*VersionSet, string, error) {
 	vs := &VersionSet{}
 	curr := filepath.Join(dir, "CURRENT")
 	data, err := os.ReadFile(curr)
@@ -158,6 +159,9 @@ func recoverVersionSet(ctx context.Context, dir string) (*VersionSet, string, er
 		}
 		if err := edit.Apply(vs); err != nil {
 			return nil, "", err
+		}
+		if a != nil {
+			a.Apply(edit)
 		}
 	}
 	return vs, manifestPath, nil
