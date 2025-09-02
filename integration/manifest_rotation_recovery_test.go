@@ -27,8 +27,8 @@ func TestManifestRotationRecovery(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	puts := 11
-	for i := 0; i < puts; i++ {
+	const numPuts = 11
+	for i := 0; i < numPuts; i++ {
 		key := rindb.Bytes(fmt.Sprintf("k%02d", i))
 		require.NoError(t, db.Put(ctx, key, rindb.Bytes("v")))
 	}
@@ -42,5 +42,5 @@ func TestManifestRotationRecovery(t *testing.T) {
 	vs, manifestPath, err := rindb.RecoverVersionSet(ctx, dir)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(dir, mf), manifestPath)
-	require.Len(t, vs.Levels[0], puts)
+	require.Len(t, vs.Levels[0], numPuts)
 }
