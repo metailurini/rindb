@@ -141,7 +141,7 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		// Case 3: Level 0 exists but is empty
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
 		if ts.Manager.versionSet != nil {
-			ts.Manager.versionSet.Levels = [][]FileMeta{{}}
+			ts.Manager.versionSet.Levels = [][]FileMeta{[]FileMeta{}}
 		}
 		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
