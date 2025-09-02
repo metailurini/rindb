@@ -6,13 +6,12 @@ import (
 	"math"
 	"os"
 	"path"
-	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type failingManifestWriter struct{}
@@ -21,60 +20,50 @@ func (f failingManifestWriter) Append(VersionEdit) error { return fmt.Errorf("ap
 func (f failingManifestWriter) Sync() error              { return nil }
 func (f failingManifestWriter) Close() error             { return nil }
 
-func TestSSTableManager_LoadLevels(t *testing.T) {
+func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	cfg := testConfig()
-	t.Run("LoadLevels validates file names", func(t *testing.T) {
-		ctx := context.Background()
-		ts := newTestRindbSetup(t, ctx, &cfg)
-		defer ts.Cleanup()
-		assert.NoError(t, ts.Manager.Compact(ctx))
-		for _, level := range ts.Manager.levels {
-			iterator := level.Iterator()
-			for iterator.HasNext() {
-				fs, err := iterator.Next()
-				assert.NoError(t, err)
-				fileName := path.Base(fs.Path())
-				assert.True(t, strings.HasSuffix(fileName, ".sst"),
-					"expected filename '%s' to end with '.sst'", fileName)
-				base := strings.TrimSuffix(fileName, ".sst")
-				_, err = strconv.ParseUint(base, 10, 64)
-				assert.NoError(t, err)
-			}
-		}
-	})
+	ctx := context.Background()
+	ts := newTestRindbSetup(t, ctx, &cfg)
+	defer ts.Cleanup()
 
-	t.Run("Key in older SSTable requires Prev() iteration", func(t *testing.T) {
-		ctx := context.Background()
-		ts := newTestRindbSetup(t, ctx, &cfg)
-		defer ts.Cleanup()
+	// Create SSTables
+	older := ts.createSSTable(0, map[string]string{"targetKey": "targetVal"})
+	newer := ts.createSSTable(0, map[string]string{"otherKey": "otherVal"})
 
-		// Create SSTables
-		older := ts.createSSTable(0, map[string]string{"targetKey": "targetVal"})
-		newer := ts.createSSTable(0, map[string]string{"otherKey": "otherVal"})
+	// Add to level 0 (older first, then newer)
+	ts.AddSSTableToLevel(0, older)
+	ts.AddSSTableToLevel(0, newer)
 
-		// Add to level 0 (older first, then newer)
-		ts.AddSSTableToLevel(0, older)
-		ts.AddSSTableToLevel(0, newer)
-
-		// Verify search finds the key in older SSTable
-		result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("targetVal"), result)
-	})
+	// Verify search finds the key in older SSTable
+	result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"))
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("targetVal"), result)
 }
 
 func TestInitSSTableManagerRepairMode(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-
-	// Create two SSTable files on disk.
-	createDummyFile(t, dir, sstPath(1), 1)
-	createDummyFile(t, dir, sstPath(2), 1)
-
-	vs := &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}}
-
 	cfg := testConfig()
 	cfg.databaseDir = dir
+
+	// Create two valid SSTable files on disk.
+	mem1 := InitMemtable(cfg)
+	mem1.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+	fs1, err := OpenFS(ctx, path.Join(dir, sstPath(1)))
+	require.NoError(t, err)
+	_, _, err = flush(ctx, cfg, mem1, fs1)
+	require.NoError(t, err)
+	require.NoError(t, fs1.Close())
+
+	mem2 := InitMemtable(cfg)
+	mem2.Put(newRecord(Bytes("b"), Bytes("2"), 1))
+	fs2, err := OpenFS(ctx, path.Join(dir, sstPath(2)))
+	require.NoError(t, err)
+	_, _, err = flush(ctx, cfg, mem2, fs2)
+	require.NoError(t, err)
+	require.NoError(t, fs2.Close())
+
+	vs := &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}}
 
 	t.Run("normal startup uses manifest", func(t *testing.T) {
 		sm, err := InitSSTableManager(ctx, cfg, vs, nil)
@@ -95,7 +84,7 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 
 	t.Run("repair mode scans directory", func(t *testing.T) {
 		cfg.repairMode = true
-		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{}, nil)
+		sm, err := InitSSTableManager(ctx, cfg, nil, nil)
 		assert.NoError(t, err)
 		defer sm.Close(ctx)
 
@@ -108,6 +97,14 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 				names = append(names, path.Base(fs.Path()))
 			}
 			assert.Equal(t, []string{sstPath(1), sstPath(2)}, names)
+		}
+
+		if assert.Len(t, sm.versionSet.Levels, 1) {
+			var nums []uint64
+			for _, fm := range sm.versionSet.Levels[0] {
+				nums = append(nums, fm.Number)
+			}
+			assert.ElementsMatch(t, []uint64{1, 2}, nums)
 		}
 	})
 }

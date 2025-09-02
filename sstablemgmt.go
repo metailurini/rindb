@@ -7,11 +7,11 @@ import (
 	"math"
 	"os"
 	"path"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	iofs "io/fs"
+	"path/filepath"
 
 	"github.com/shirou/gopsutil/v3/disk"
 )
@@ -87,6 +87,54 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 }
 
 func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
+	if vs == nil && !config.repairMode {
+		return nil, errors.New("rindb: version set cannot be nil in non-repair mode")
+	}
+
+	if config.repairMode {
+		vs = &VersionSet{}
+		var metas []FileMeta
+		err := filepath.WalkDir(config.databaseDir, func(p string, d iofs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if filepath.Ext(p) != ".sst" {
+				return nil
+			}
+			num, err := fileNum(p)
+			if err != nil {
+				return err
+			}
+			fs, err := OpenExistingFS(ctx, p)
+			if err != nil {
+				return err
+			}
+			sst, err := NewSSTable(ctx, config, fs)
+			if err != nil {
+				_ = fs.Close()
+				return err
+			}
+			lo, hi := sst.GetKeyRange()
+			seqHi, err := sst.MaxSequenceNumber()
+			_ = sst.Close()
+			if err != nil {
+				return err
+			}
+			metas = append(metas, FileMeta{
+				Number:   num,
+				Level:    0,
+				Smallest: InternalKey{UserKey: lo},
+				Largest:  InternalKey{UserKey: hi},
+				SeqHi:    seqHi,
+			})
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		vs.Levels = [][]FileMeta{metas}
+	}
+
 	h := &SSTableManager{
 		openedFs:          make(map[uint64]*FileSystem),
 		openedByNum:       make(map[uint64]*SStable),
@@ -112,14 +160,7 @@ func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw M
 		},
 	}
 
-	if config.repairMode {
-		if err := h.LoadLevels(config.databaseDir); err != nil {
-			return nil, err
-		}
-	} else {
-		if vs == nil {
-			return nil, errors.New("rindb: version set cannot be nil in non-repair mode")
-		}
+	if vs != nil {
 		levels := make([]*LinkedList[*FileSystem], len(vs.Levels))
 		for lvl, files := range vs.Levels {
 			if len(files) == 0 {
@@ -252,36 +293,6 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, levelNumb int, fs *File
 	// Add the new SSTable to the end of the level list
 	h.levels[levelNumb].PushBack(fs)
 	INFO(ctx, "Registered new SSTable %s at level %d", fs.Path(), levelNumb)
-	return nil
-}
-
-func (h *SSTableManager) LoadLevels(dir string) error {
-	dirEntries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-
-	sort.Slice(dirEntries, func(i, j int) bool {
-		return dirEntries[i].Name() < dirEntries[j].Name()
-	})
-
-	levels := make([]*LinkedList[*FileSystem], 1)
-	for _, dirEntry := range dirEntries {
-		fileName := dirEntry.Name()
-		if !strings.HasSuffix(fileName, ".sst") {
-			continue
-		}
-		base := strings.TrimSuffix(fileName, ".sst")
-		if _, err := strconv.ParseUint(base, 10, 64); err != nil {
-			return fmt.Errorf("invalid sstable name: %s", fileName)
-		}
-		filePath := path.Join(dir, fileName)
-		if levels[0] == nil {
-			levels[0] = InitLinkedList[*FileSystem]()
-		}
-		levels[0].PushBack(&FileSystem{filePath: filePath})
-	}
-	h.levels = levels
 	return nil
 }
 
