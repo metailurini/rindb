@@ -115,7 +115,6 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	if vs.NextFileNumber == 0 {
 		vs.NextFileNumber = 1
 	}
-	cfg.fileNumberAllocator.Set(vs.NextFileNumber)
 
 	wal, err := cfg.newWALFunc(ctx, cfg)
 	if err != nil {
