@@ -8,8 +8,6 @@ so that `VersionSet` becomes the sole source of truth.
 ```go
 // levels field deleted; versionSet drives all metadata.
 type SSTableManager struct {
-    openedFsMu  sync.Mutex
-    openedFs    map[uint64]*FileSystem
     openedByNum map[uint64]*SStable
 
     versionSet *VersionSet
@@ -53,11 +51,10 @@ func InitSSTableManager(ctx context.Context, cfg Config, vs *VersionSet, mw Mani
         vs.Levels = [][]FileMeta{metas}
     }
     return &SSTableManager{
-        openedFs:    make(map[uint64]*FileSystem),
-        openedByNum: make(map[uint64]*SStable),
-        versionSet:  vs,
-        manifest:    mw,
-        config:      cfg,
+        openedByNum:       make(map[uint64]*SStable),
+        versionSet:        vs,
+        manifest:          mw,
+        config:            cfg,
         stopIOLoadSampler: make(chan struct{}),
         now:               time.Now,
         minSnapshotSeq:    math.MaxUint64,
@@ -72,10 +69,11 @@ into a slice and assigned to `vs.Levels` (all files start in Level 0), mirrorin
 
 ## SSTable Registration
 ```go
-func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
+func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta, lastSeq uint64) error {
     edit := VersionEdit{
         AddFiles:       []FileMeta{meta},
         NextFileNumber: h.config.fileNumberAllocator.Peek(),
+        LastSequence:   lastSeq,
     }
     if h.manifest != nil {
         if err := h.manifest.Append(edit); err != nil { return err }
@@ -91,9 +89,7 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
 }
 ```
 
-AddSSTable first appends a `VersionEdit` to the manifest so the on-disk log matches memory even if the process crashes. The mutex
-only guards the in-memory `versionSet` mutation and allocator update; readers proceed concurrently. `NextFileNumber` keeps the allocator in sync with
-files registered in the manifest.
+AddSSTable first appends a `VersionEdit` to the manifest so the on-disk log matches memory even if the process crashes. The edit carries the caller's `lastSeq`, persisting the new `LastSequence` alongside file registration. The mutex only guards the in-memory `versionSet` mutation and allocator update; readers proceed concurrently. `NextFileNumber` keeps the allocator in sync with files registered in the manifest.
 
 ## Compaction Flow
 ```go
@@ -295,7 +291,7 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 }
 
 func (ts *testRindbSetup) AddSSTable(meta FileMeta) {
-    require.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta))
+    require.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta, meta.SeqHi))
 }
 
 func (ts *testRindbSetup) createSSTable(level int, kv map[string]string) (FileMeta, *SStable) {
@@ -328,7 +324,7 @@ these helpers and the `SSTableManager`. The helper carries the opened database v
    - Remove the legacy `LoadLevels` function and update all call sites.
 
 3. **Introduce manifest-backed SSTable registration.**
-   - Add `AddSSTable(ctx, meta FileMeta)` which appends a `VersionEdit` to the manifest, syncs it, then updates `versionSet` and the file-number allocator under lock.
+   - Add `AddSSTable(ctx, meta FileMeta, lastSeq uint64)` which appends a `VersionEdit` to the manifest with `LastSequence`, syncs it, then updates `versionSet` and the file-number allocator under lock.
 
 4. **Overhaul compaction logic.**
    - Replace `compactLevel0`, `compactHigherLevel`, `findOverlappingSSTables`, and `removeOverlappingFromLevel` with a version-set driven pipeline that picks compaction candidates, locates overlaps, merges them, and applies the resulting `VersionEdit`.

@@ -26,9 +26,7 @@ const writeRateAlpha = 0.2
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
-	openedFsMu  sync.Mutex
-	openedFs    map[uint64]*FileSystem // legacy tracking for compaction paths
-	openedByNum map[uint64]*SStable    // open SSTables keyed by file number
+	openedByNum map[uint64]*SStable // open SSTables keyed by file number
 	versionSet  *VersionSet
 	manifest    ManifestWriter
 	config      Config
@@ -61,8 +59,7 @@ type SSTableManager struct {
 	diskSampler func() (uint64, error)
 }
 
-// openAndLoadSSTable opens a FileSystem, creates an SSTable object from it,
-// and adds the FileSystem to the manager's list of opened file systems.
+// openAndLoadSSTable opens a FileSystem and creates an SSTable object from it.
 // It returns the created *SSTable or an error.
 func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem) (*SStable, error) {
 	if err := fs.Open(ctx); err != nil {
@@ -73,14 +70,6 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 		_ = fs.Close() // Ensure file is closed on SSTable creation error
 		return nil, fmt.Errorf("failed to create sstable object for %s: %w", fs.Path(), err)
 	}
-	num, err := fileNum(fs.Path())
-	if err != nil {
-		_ = fs.Close()
-		return nil, fmt.Errorf("invalid sstable path %s: %w", fs.Path(), err)
-	}
-	h.openedFsMu.Lock()
-	h.openedFs[num] = fs // Track opened file system
-	h.openedFsMu.Unlock()
 	return &sstable, nil
 }
 
@@ -155,7 +144,6 @@ func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw M
 	}
 
 	h := &SSTableManager{
-		openedFs:          make(map[uint64]*FileSystem),
 		openedByNum:       make(map[uint64]*SStable),
 		versionSet:        vs,
 		manifest:          mw,
@@ -274,7 +262,7 @@ func (h *SSTableManager) dynamicTriggerHit() bool {
 
 // AddSSTable registers a new SSTable's metadata, persists it to the manifest,
 // and updates the in-memory VersionSet.
-func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
+func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta, lastSeq uint64) error {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
 	start := time.Now()
 	defer func() {
@@ -286,6 +274,7 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
 	edit := VersionEdit{
 		AddFiles:       []FileMeta{meta},
 		NextFileNumber: h.config.fileNumberAllocator.Peek(),
+		LastSequence:   lastSeq,
 	}
 	if h.manifest != nil {
 		if err := h.manifest.Append(edit); err != nil {
@@ -314,10 +303,6 @@ func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*File
 	if err != nil {
 		return nil, err
 	}
-
-	h.openedFsMu.Lock()
-	h.openedFs[id] = fs
-	h.openedFsMu.Unlock()
 	return fs, nil
 }
 
@@ -328,34 +313,16 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 
 	h.mu.Lock()
-	h.openedFsMu.Lock()
 	sstablesToClose := make([]*SStable, 0, len(h.openedByNum))
 	for _, s := range h.openedByNum {
 		sstablesToClose = append(sstablesToClose, s)
 	}
 	h.openedByNum = make(map[uint64]*SStable)
-	filesToClose := make([]*FileSystem, 0, len(h.openedFs))
-	for _, fs := range h.openedFs {
-		filesToClose = append(filesToClose, fs)
-	}
-	h.openedFs = make(map[uint64]*FileSystem)
-	h.openedFsMu.Unlock()
 	h.mu.Unlock()
 
 	for _, s := range sstablesToClose {
 		if err := s.Close(); err != nil {
 			WARN(ctx, "Error closing sstable %s: %v", s.Path(), err)
-		}
-	}
-	for _, fs := range filesToClose {
-		if !fs.IsOpened() {
-			WARN(ctx, "File %s is already closed", fs.Path())
-			continue
-		}
-		if err := fs.Close(); err != nil {
-			ERROR(ctx, "Error closing file %s: %v", fs.Path(), err)
-		} else {
-			INFO(ctx, "Closed %s successfully", fs.Path())
 		}
 	}
 }
@@ -509,9 +476,6 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 	h.closeSSTables(ctx, sources)
 	if err != nil || merged == nil {
 		_ = newFS.Close()
-		if rmErr := h.removeOpenedFS(newFS); rmErr != nil {
-			WARN(ctx, "Failed to remove opened file %s: %v", newFS.Path(), rmErr)
-		}
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
 			ERROR(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
 		}
@@ -553,23 +517,8 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 
 func (h *SSTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
 	for i := range sstables {
-		fs := sstables[i].FileSystem
 		_ = sstables[i].Close()
-		if err := h.removeOpenedFS(fs); err != nil {
-			WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), err)
-		}
 	}
-}
-
-func (h *SSTableManager) removeOpenedFS(target *FileSystem) error {
-	num, err := fileNum(target.Path())
-	if err != nil {
-		return err
-	}
-	h.openedFsMu.Lock()
-	delete(h.openedFs, num)
-	h.openedFsMu.Unlock()
-	return nil
 }
 
 // openByNumber returns an opened SSTable for the given file number. The

@@ -658,7 +658,6 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			ioVal := uint64(0)
 
 			sm := &SSTableManager{
-				openedFs:       make(map[uint64]*FileSystem),
 				versionSet:     &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}},
 				config:         cfg,
 				now:            func() time.Time { return current },
@@ -1485,10 +1484,6 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())
 
-		ts.Manager.openedFsMu.Lock()
-		ts.Manager.openedFs = make(map[uint64]*FileSystem)
-		ts.Manager.openedFsMu.Unlock()
-
 		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
 		require.NoError(t, err)
@@ -1500,10 +1495,6 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 
 		err = ts.Manager.mergeIntoLevel(ctx, 1, append(overlaps, picked...))
 		assert.Error(t, err)
-
-		ts.Manager.openedFsMu.Lock()
-		defer ts.Manager.openedFsMu.Unlock()
-		assert.Empty(t, ts.Manager.openedFs)
 	})
 
 	t.Run("Empty sources", func(t *testing.T) {

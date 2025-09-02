@@ -288,7 +288,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	assert.NoError(t, err)
 	small, large := sst.GetKeyRange()
 	meta := FileMeta{Number: num, Level: 0, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size())}
-	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta))
+	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
 	err = rin.Put(ctx, Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(ctx, Bytes("k1"))
@@ -505,13 +505,8 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem.Put(newRecord(Bytes("sk2"), Bytes("sv2"), 60))
 		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
 		assert.NoError(t, fs.Close())
-		assert.NoError(t, rin.ssTableManager.removeOpenedFS(fs))
-		edit := VersionEdit{LastSequence: meta.SeqHi}
-		assert.NoError(t, rin.manifest.Append(edit))
-		assert.NoError(t, rin.manifest.Sync())
-		assert.NoError(t, edit.Apply(rin.versionSet))
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
 		wp := path.Join(rin.config.databaseDir, walPath(1))
@@ -549,13 +544,8 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 70))
 		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
 		assert.NoError(t, fs.Close())
-		assert.NoError(t, rin.ssTableManager.removeOpenedFS(fs))
-		edit := VersionEdit{LastSequence: meta.SeqHi}
-		assert.NoError(t, rin.manifest.Append(edit))
-		assert.NoError(t, rin.manifest.Sync())
-		assert.NoError(t, edit.Apply(rin.versionSet))
 
 		// Create a WAL with the same highest sequence number
 		// The database directory is already created by initRinDBWithCleanup

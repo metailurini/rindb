@@ -187,11 +187,9 @@ func InitSSTableManager(ctx context.Context, cfg Config) (*SSTableManager, error
 - Replace the current level list with a `VersionSet` reference.
 ```go
 type SSTableManager struct {
-    openedFs map[uint64]*FileSystem
--   levels   []*LinkedList[*FileSystem]
     config   Config
     mu       sync.RWMutex
-+   versionSet *VersionSet // replaces levels as the source of truth
+    versionSet *VersionSet // replaces levels as the source of truth
     // ...
 }
 ```

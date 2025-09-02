@@ -36,5 +36,5 @@ func (h *SSTableManager) searchKey(ctx context.Context, key InternalKey) ([]byte
 ```
 
 ## Follow Ups
-- `removeOpenedFS` switches to `map[uint64]*FileSystem`.
+- Legacy `openedFs` tracking has been removed; callers close file systems directly.
 - Tests seed `VersionSet` fixtures and assert lookups by file number.
