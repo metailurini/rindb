@@ -27,13 +27,15 @@ func InitSSTableManager(ctx context.Context, cfg Config, vs *VersionSet, mw Mani
         vs = &VersionSet{}
         entries := map[int][]FileMeta{}
         err := filepath.WalkDir(cfg.databaseDir, func(path string, d fs.DirEntry, err error) error {
+            if err != nil { return err }
             if filepath.Ext(path) != ".sst" { return nil }
             fs, err := OpenFileSystem(path)
             if err != nil { return err }
+            defer fs.Close()
             meta, err := loadFileMeta(fs) // reads size and key/seq ranges
             if err != nil { return err }
             entries[meta.Level] = append(entries[meta.Level], meta)
-            return fs.Close()
+            return nil
         })
         if err != nil { return nil, err }
         vs.Levels = entries
@@ -112,21 +114,32 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 }
 
 func (h *SSTableManager) shouldCompact(ctx context.Context, level int, files []FileMeta) bool {
-    limit := h.config.Levels[level].MaxFileCount
-    return len(files) > limit
+    if len(files) == 0 { return false }
+    if h.dynamicTriggerHit() { return true }
+    if level == 0 {
+        return len(files) >= h.config.level0CompactionThreshold
+    }
+    var total uint64
+    for _, f := range files { total += f.Size }
+    mult := h.config.levelSizeMultiplier
+    if mult < 1 { mult = 1 }
+    threshold := uint64(float64(h.config.baseCompactionSizeMB) * math.Pow(float64(mult), float64(level)) * 1024 * 1024)
+    return total >= threshold
 }
 
 func (h *SSTableManager) pickFiles(ctx context.Context, level int, files []FileMeta) []FileMeta {
-    sort.Slice(files, func(i, j int) bool { return files[i].Size < files[j].Size })
-    need := h.config.Levels[level].TargetFileCount
-    if len(files) < need { return files }
-    return append([]FileMeta(nil), files[:need]...)
+    if level == 0 {
+        return append([]FileMeta(nil), files...)
+    }
+    return []FileMeta{files[0]}
 }
 
 func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error) {
+    if level >= len(h.versionSet.Levels) { return nil, nil }
+    min, max := keyRange(inputs) // compute combined key span
     var overlaps []FileMeta
     for _, fm := range h.versionSet.Levels[level] {
-        if overlapsRange(inputs, fm) { // overlapsRange compares key ranges
+        if fm.Smallest.Compare(max) <= 0 && fm.Largest.Compare(min) >= 0 {
             overlaps = append(overlaps, fm)
         }
     }
@@ -134,14 +147,31 @@ func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []F
 }
 
 func (h *SSTableManager) merge(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error) {
+    tbls := make([]SStable, 0, len(inputs))
+    for _, fm := range inputs {
+        sst, err := h.openByNumber(ctx, fm.Number)
+        if err != nil {
+            h.closeSSTables(tbls)
+            return nil, err
+        }
+        tbls = append(tbls, *sst)
+    }
     out, err := h.NewSSTableFS(ctx, level)
-    if err != nil { return nil, err }
-    // merge logic elided; write to `out` and build meta
-    meta := FileMeta{Number: out.FileNumber(), Level: level}
+    if err != nil {
+        h.closeSSTables(tbls)
+        return nil, err
+    }
+    _, meta, err := mergeSSTablesV2(ctx, h.config, out, tbls, level == len(h.versionSet.Levels)-1, h.minSnapshotSeq)
+    h.closeSSTables(tbls)
+    if err != nil {
+        _ = out.Close()
+        return nil, err
+    }
+    meta.Level = level
     return []FileMeta{meta}, out.Close()
 }
 ```
-Helpers resolve `FileMeta.Number` to a `FileSystem` lazily; no `levels` linked lists remain. Legacy helpers `compactLevel0`, `compactHigherLevel`, `findOverlappingSSTables`, and `removeOverlappingFromLevel` are removed. `shouldCompact` compares the file count against configured limits. `pickFiles` favors smaller tables, `findOverlaps` scans the next level for intersecting ranges, and `merge` writes the new table for the destination level.
+Helpers resolve `FileMeta.Number` to a `FileSystem` lazily; no `levels` linked lists remain. Legacy helpers `compactLevel0`, `compactHigherLevel`, `findOverlappingSSTables`, and `removeOverlappingFromLevel` are removed. `shouldCompact` mirrors current thresholds—Level 0 triggers on file count while higher levels use cumulative size. `pickFiles` takes all Level 0 files or the first file of higher levels, `findOverlaps` compares key spans in the next level, and `merge` opens each SSTable by file number before writing the merged output.
 
 ## Sequence Number Scan
 ```go
