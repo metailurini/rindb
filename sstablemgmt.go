@@ -28,9 +28,9 @@ const writeRateAlpha = 0.2
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
 	openedFsMu  sync.Mutex
-	openedFs    map[uint64]*FileSystem // legacy tracking for compaction paths
-	openedByNum map[uint64]*SStable    // open SSTables keyed by file number
-	levels      []*LinkedList[*FileSystem]
+	openedFs    map[uint64]*FileSystem     // legacy tracking for compaction paths
+	openedByNum map[uint64]*SStable        // open SSTables keyed by file number
+	levels      []*LinkedList[*FileSystem] // temporary shim; metadata lives in versionSet
 	versionSet  *VersionSet
 	manifest    ManifestWriter
 	config      Config
@@ -846,32 +846,27 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 // that tracks global sequence number metadata across all levels.
 func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTableManager) (uint64, error) {
 	var maxSeqNum uint64
-	if len(ssTableManager.levels) > 0 && ssTableManager.levels[0] != nil {
-		level0 := ssTableManager.levels[0]
-		levelIterator := level0.Iterator()
-		for levelIterator.HasNext() {
-			fs, err := levelIterator.Next()
-			if err != nil {
-				return 0, err
-			}
-			sstable, err := ssTableManager.openAndLoadSSTable(ctx, fs)
-			if err != nil {
-				return 0, err
-			}
-			sstSeqNum, err := sstable.MaxSequenceNumber()
-			if err != nil {
-				return 0, err
-			}
+	if ssTableManager.versionSet == nil || len(ssTableManager.versionSet.Levels) == 0 {
+		return 0, nil
+	}
+	for _, meta := range ssTableManager.versionSet.Levels[0] {
+		fs := &FileSystem{filePath: path.Join(ssTableManager.config.databaseDir, sstPath(meta.Number))}
+		sstable, err := ssTableManager.openAndLoadSSTable(ctx, fs)
+		if err != nil {
+			return 0, err
+		}
+		sstSeqNum, err := sstable.MaxSequenceNumber()
+		if err != nil {
+			return 0, err
+		}
+		maxSeqNum = max(maxSeqNum, sstSeqNum)
 
-			maxSeqNum = max(maxSeqNum, sstSeqNum)
-
-			closeErr := fs.Close()
-			if rmErr := ssTableManager.removeOpenedFS(fs); rmErr != nil {
-				WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), rmErr)
-			}
-			if closeErr != nil {
-				return 0, closeErr
-			}
+		closeErr := fs.Close()
+		if rmErr := ssTableManager.removeOpenedFS(fs); rmErr != nil {
+			WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), rmErr)
+		}
+		if closeErr != nil {
+			return 0, closeErr
 		}
 	}
 	return maxSeqNum, nil
