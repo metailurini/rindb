@@ -313,9 +313,9 @@ func (ts *testRindbSetup) createSSTable(level int, kv map[string]string) (FileMe
 }
 ```
 Tests in `sstablemgmt_test.go` and helpers in `utils_test.go` seed files via `AddSSTable` and assert against
-`Manager.versionSet.Levels`. Other tests such as `rindb_test.go` and `range_test.go` interact with the `VersionSet`
-directly. The helper carries the opened database via `RinDB`, builds SSTables through `createSSTable`, registers them,
-and lets tests verify placement through the public API only.
+`Manager.versionSet.Levels`. Other tests such as `rindb_test.go` and `range_test.go` access the `VersionSet` through
+these helpers and the `SSTableManager`. The helper carries the opened database via `RinDB`, builds SSTables through
+`createSSTable`, registers them, and lets tests verify placement through the public API only.
 
 ## Implementation Tasks
 
