@@ -39,7 +39,8 @@ func TestManifestRotationRecovery(t *testing.T) {
 	mf := strings.TrimSpace(string(data))
 	require.NotEqual(t, "MANIFEST-000001", mf)
 
-	vs, manifestPath, err := rindb.RecoverVersionSet(ctx, dir)
+	alloc := rindb.NewFileNumberAllocator(1)
+	vs, manifestPath, err := rindb.RecoverVersionSet(ctx, dir, alloc)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(dir, mf), manifestPath)
 	require.Len(t, vs.Levels[0], numPuts)
