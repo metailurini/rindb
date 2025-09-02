@@ -408,9 +408,9 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 }
 
-func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level *LinkedList[*FileSystem]) bool {
-	if level == nil || level.Len() == 0 {
-		return false // Cannot compact an empty or non-existent level
+func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files []FileMeta) bool {
+	if len(files) == 0 {
+		return false
 	}
 
 	if h.dynamicTriggerHit() {
@@ -418,40 +418,27 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, level
 	}
 
 	if levelNumb == 0 {
-		// Use the config value for L0 threshold
-		return level.Len() >= h.config.level0CompactionThreshold
+		return len(files) >= h.config.level0CompactionThreshold
 	}
 
-	// Calculate total size in Bytes for higher levels
-	var totalSizeBytes int64 // Use int64 to avoid overflow
-	iter := level.Iterator()
-	for iter.HasNext() {
-		fs, err := iter.Next() // Use Next, no need to PickNext here
+	var totalSize int64
+	for _, f := range files {
+		p := path.Join(h.config.databaseDir, sstPath(f.Number))
+		info, err := os.Stat(p)
 		if err != nil {
-			ERROR(ctx, "Error iterating level %d for size check: %v", levelNumb, err)
-			continue // Skip problematic entries
+			ERROR(ctx, "Error stating file %s: %v", p, err)
+			continue
 		}
-		info, err := os.Stat(fs.filePath)
-		if err != nil {
-			// Log error if file cannot be stated, might indicate an issue
-			ERROR(ctx, "Error stating file %s for size check: %v", fs.filePath, err)
-			continue // Skip files we can't stat
-		}
-		totalSizeBytes += info.Size()
+		totalSize += info.Size()
 	}
 
-	// Calculate the threshold for this level using config values
-	// Ensure multiplier is at least 1 to avoid issues with Pow(0) or negative powers
 	multiplier := h.config.levelSizeMultiplier
 	if multiplier < 1 {
-		WARN(ctx, "levelSizeMultiplier is %d, using 1 instead for threshold calculation.", multiplier)
-		multiplier = 1 // Prevent multiplier < 1
+		WARN(ctx, "levelSizeMultiplier is %d, using 1 instead", multiplier)
+		multiplier = 1
 	}
-	// Use float64 for Pow, then convert threshold to int64 bytes for comparison
-	levelThresholdBytes := int64(h.config.baseCompactionSizeMB) * int64(math.Pow(float64(multiplier), float64(levelNumb))) * 1024 * 1024
-
-	// Compare total bytes with threshold bytes
-	return totalSizeBytes >= levelThresholdBytes
+	threshold := int64(h.config.baseCompactionSizeMB) * int64(math.Pow(float64(multiplier), float64(levelNumb))) * 1024 * 1024
+	return totalSize >= threshold
 }
 
 func (h *SSTableManager) Compact(ctx context.Context) error {
@@ -465,180 +452,166 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	INFO(ctx, "Starting compaction check across %d levels", len(h.levels))
 
-	var err error
-	compactionOccurred := false // Track if any compaction actually happened
-	for levelNumb := 0; levelNumb < len(h.levels); levelNumb++ {
-		if h.levels[levelNumb] == nil {
-			continue
-		}
-		level := h.levels[levelNumb]
-
-		if !h.shouldCompact(ctx, levelNumb, level) {
-			INFO(ctx, "Level %d (size/count: %d) does not meet compaction threshold, skipping.", levelNumb, level.Len())
-			continue
-		}
-
-		INFO(ctx, "Level %d (size/count: %d) requires compaction.", levelNumb, level.Len())
-		newLevelNumb := levelNumb + 1
-
-		if levelNumb == 0 {
-			// Level 0: Merge all SSTables into L1
-			err = h.compactLevel0(ctx, level, newLevelNumb)
-			if err != nil {
-				ERROR(ctx, "Error compacting Level 0: %v", err)
-				return err
-			}
-		} else {
-			// Higher levels: Pick one SSTable and merge with overlapping L1+ SSTables
-			err = h.compactHigherLevel(ctx, level, newLevelNumb)
-			if err != nil {
-				ERROR(ctx, "Error compacting Level %d: %v", levelNumb, err)
-				return err
-			}
-		}
-		// If compaction happened for this level, set the flag
-		if err == nil { // Assuming err is nil if compaction was successful or skipped appropriately
-			compactionOccurred = true // Or set based on actual merge/compact calls succeeding
-		}
+	if h.versionSet == nil {
+		return nil
 	}
 
-	if compactionOccurred {
-		INFO(ctx, "Compaction process completed.")
-	} else {
-		INFO(ctx, "No levels required compaction.")
+	INFO(ctx, "Starting compaction check across %d levels", len(h.versionSet.Levels))
+
+	for lvl, files := range h.versionSet.Levels {
+		if !h.shouldCompact(ctx, lvl, files) {
+			continue
+		}
+		picked := h.pickFiles(ctx, lvl, files)
+		if len(picked) == 0 {
+			continue
+		}
+		overlaps, err := h.findOverlaps(ctx, lvl+1, picked)
+		if err != nil {
+			return err
+		}
+		if err := h.mergeIntoLevel(ctx, lvl+1, append(overlaps, picked...)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (h *SSTableManager) compactLevel0(ctx context.Context, level *LinkedList[*FileSystem], newLevelNumb int) error {
-	var sstablesToMerge []SStable
-	iter := level.Iterator()
-	for iter.HasNext() {
-		fs, err := iter.PickNext()
-		if err != nil {
-			return err
-		}
-		sstable, err := h.openAndLoadSSTable(ctx, fs)
-		if err != nil {
-			return err
-		}
-		sstablesToMerge = append(sstablesToMerge, *sstable)
-	}
-
-	// Find overlapping SSTables in the next level
-	overlappingSSTables, err := h.findOverlappingSSTables(ctx, newLevelNumb, sstablesToMerge)
-	if err != nil {
-		return err
-	}
-
-	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
-	if err := h.mergeSSTables(ctx, newLevelNumb, sstablesToMerge); err != nil {
-		return err
-	}
-
-	return h.removeOverlappingFromLevel(h.levels[newLevelNumb], overlappingSSTables)
+func (h *SSTableManager) pickFiles(ctx context.Context, level int, files []FileMeta) []FileMeta {
+	out := make([]FileMeta, len(files))
+	copy(out, files)
+	return out
 }
 
-func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedList[*FileSystem], newLevelNumb int) error {
-	// Pick *all* SSTables from the source level to compact
-	var sstablesToMerge []SStable
-	iter := level.Iterator()
-	for iter.HasNext() {
-		fs, err := iter.PickNext() // Removes from the source level list
-		if err != nil {
-			// Attempt to close any already opened SSTables before returning error
-			h.closeSSTables(ctx, sstablesToMerge)
-			return fmt.Errorf("error picking next SSTable from level: %w", err)
+func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error) {
+	if h.versionSet == nil || level >= len(h.versionSet.Levels) {
+		return nil, nil
+	}
+	files := h.versionSet.Levels[level]
+	if len(files) == 0 {
+		return nil, nil
+	}
+	minKey := inputs[0].Smallest.UserKey
+	maxKey := inputs[0].Largest.UserKey
+	for _, f := range inputs[1:] {
+		if f.Smallest.UserKey.Compare(minKey) < 0 {
+			minKey = f.Smallest.UserKey
 		}
-		sstable, err := h.openAndLoadSSTable(ctx, fs)
-		if err != nil {
-			// Attempt to close any already opened SSTables before returning error
-			h.closeSSTables(ctx, sstablesToMerge)
-			return fmt.Errorf("error creating SStable object for %s: %w", fs.Path(), err)
+		if f.Largest.UserKey.Compare(maxKey) > 0 {
+			maxKey = f.Largest.UserKey
 		}
-		sstablesToMerge = append(sstablesToMerge, *sstable)
 	}
-
-	if len(sstablesToMerge) == 0 {
-		WARN(ctx, "compactHigherLevel called on an empty or already processed level.")
-		return nil // Nothing to merge
+	var over []FileMeta
+	for _, f := range files {
+		if maxKey.Compare(f.Smallest.UserKey) >= 0 && minKey.Compare(f.Largest.UserKey) <= 0 {
+			over = append(over, f)
+		}
 	}
-
-	// Find overlapping SSTables in the next level based on the combined range of source SSTables
-	overlappingSSTables, err := h.findOverlappingSSTables(ctx, newLevelNumb, sstablesToMerge)
-	if err != nil {
-		return err
-	}
-
-	sstablesToMerge = append(overlappingSSTables, sstablesToMerge...)
-	err = h.mergeSSTables(ctx, newLevelNumb, sstablesToMerge)
-	if err != nil {
-		return err
-	}
-
-	return h.removeOverlappingFromLevel(h.levels[newLevelNumb], overlappingSSTables)
+	return over, nil
 }
 
-func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb int, sources []SStable) ([]SStable, error) {
-	if levelNumb >= len(h.levels) || h.levels[levelNumb] == nil {
-		return nil, nil // No overlapping SSTables if the level doesn’t exist
+func (h *SSTableManager) removeFromLevel(level int, num uint64) {
+	if level >= len(h.levels) || h.levels[level] == nil {
+		return
 	}
-
-	// Get key range of sources
-	minKey, maxKey := getKeyRange(sources)
-	var overlapping []SStable
-	iter := h.levels[levelNumb].Iterator()
-	for iter.HasNext() {
-		fs, err := iter.Next()
+	target := path.Join(h.config.databaseDir, sstPath(num))
+	it := h.levels[level].Iterator()
+	for it.HasNext() {
+		fs, err := it.Next()
 		if err != nil {
-			h.closeSSTables(ctx, overlapping)
-			return nil, err
+			return
 		}
-		sstable, err := h.openAndLoadSSTable(ctx, fs)
-		if err != nil {
-			h.closeSSTables(ctx, overlapping)
-			return nil, err
-		}
-		if sstable.Overlaps(minKey, maxKey) {
-			overlapping = append(overlapping, *sstable)
-		} else {
-			_ = fs.Close() // Close if not overlapping
-			if err := h.removeOpenedFS(fs); err != nil {
-				WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), err)
-			}
+		if fs.Path() == target {
+			_ = it.RemoveCurrent()
+			return
 		}
 	}
-	return overlapping, nil
 }
 
-// removeOverlappingFromLevel deletes the given overlapping SSTables from the level's linked list.
-// It constructs a set of paths for O(1) lookups and iterates the level once, yielding O(N+M)
-// complexity instead of O(N*M) with nested loops.
-func (h *SSTableManager) removeOverlappingFromLevel(level *LinkedList[*FileSystem], overlapping []SStable) error {
-	if len(overlapping) == 0 || level == nil {
+func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []FileMeta) error {
+	if len(inputs) == 0 {
 		return nil
 	}
 
-	pathsToRemove := make(map[string]struct{}, len(overlapping))
-	for _, sst := range overlapping {
-		pathsToRemove[sst.Path()] = struct{}{}
-	}
-
-	iter := level.Iterator()
-	for iter.HasNext() {
-		fs, err := iter.Next()
+	var sources []SStable
+	for _, fm := range inputs {
+		fs := &FileSystem{filePath: path.Join(h.config.databaseDir, sstPath(fm.Number))}
+		sst, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
+			h.closeSSTables(ctx, sources)
 			return err
 		}
-		if _, ok := pathsToRemove[fs.Path()]; ok {
-			if err := iter.RemoveCurrent(); err != nil {
-				return err
+		sources = append(sources, *sst)
+	}
+
+	newFS, err := h.NewSSTableFS(ctx, dst)
+	if err != nil {
+		h.closeSSTables(ctx, sources)
+		return err
+	}
+
+	bottom := true
+	if h.versionSet != nil {
+		for i := dst + 1; i < len(h.versionSet.Levels); i++ {
+			if len(h.versionSet.Levels[i]) > 0 {
+				bottom = false
+				break
 			}
 		}
 	}
 
+	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, sources, bottom, h.minSnapshotSeq)
+	h.closeSSTables(ctx, sources)
+	if err != nil || merged == nil {
+		_ = newFS.Close()
+		if rmErr := h.removeOpenedFS(newFS); rmErr != nil {
+			WARN(ctx, "Failed to remove opened file %s: %v", newFS.Path(), rmErr)
+		}
+		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
+			ERROR(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
+		}
+		return err
+	}
+
+	for len(h.levels) <= dst {
+		h.levels = append(h.levels, nil)
+	}
+	if h.levels[dst] == nil {
+		h.levels[dst] = InitLinkedList[*FileSystem]()
+	}
+	h.levels[dst].PushBack(newFS)
+
+	var (
+		dels     []FileMeta
+		delMetas []DeletedFileMeta
+	)
+	for _, fm := range inputs {
+		dels = append(dels, FileMeta{Number: fm.Number})
+		delMetas = append(delMetas, DeletedFileMeta{Level: fm.Level, Number: fm.Number})
+		h.removeFromLevel(fm.Level, fm.Number)
+	}
+
+	meta.Level = dst
+	edit := VersionEdit{AddFiles: []FileMeta{meta}, DeleteFiles: delMetas, NextFileNumber: h.config.fileNumberAllocator.Peek()}
+	if h.manifest != nil {
+		if err := h.manifest.Append(edit); err != nil {
+			return err
+		}
+		if err := h.manifest.Sync(); err != nil {
+			return err
+		}
+	}
+	if h.versionSet != nil {
+		if err := edit.Apply(h.versionSet); err != nil {
+			return err
+		}
+	}
+	h.config.fileNumberAllocator.Apply(edit)
+
+	if err := removeFiles(h.config.databaseDir, dels); err != nil {
+		ERROR(ctx, "Error removing files: %v", err)
+	}
 	return nil
 }
 
@@ -693,92 +666,6 @@ func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 	return &sst, nil
 }
 
-// mergeSSTables merges a list of SSTables into a new SSTable at the specified level.
-// Assumes the caller holds the necessary lock (e.g., h.mu.Lock()).
-func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pickedUpSSTable []SStable) error {
-	newLevelSSTable, err := h.NewSSTableFS(ctx, newLevelNumb)
-	if err != nil {
-		return err
-	}
-
-	// determine if the target level is the bottommost non-empty level
-	bottommost := true
-	for i := newLevelNumb + 1; i < len(h.levels); i++ {
-		if h.levels[i] != nil && h.levels[i].Len() > 0 {
-			bottommost = false
-			break
-		}
-	}
-
-	merged, meta, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost, h.minSnapshotSeq)
-	// close and remove merged sstables even if there is an error
-	h.closeSSTables(ctx, pickedUpSSTable)
-	if err != nil || merged == nil {
-		_ = newLevelSSTable.Close()
-		if rmErr := h.removeOpenedFS(newLevelSSTable); rmErr != nil {
-			WARN(ctx, "Failed to remove opened file %s: %v", newLevelSSTable.Path(), rmErr)
-		}
-		if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil {
-			if err == nil {
-				ERROR(ctx, "Error removing empty file %s: %v", newLevelSSTable.Path(), rmErr)
-			} else {
-				WARN(ctx, "Failed to remove target file %s after merge error: %v", newLevelSSTable.Path(), rmErr)
-			}
-		}
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if len(h.levels) == newLevelNumb {
-		h.levels = append(h.levels, InitLinkedList[*FileSystem]())
-	}
-	h.levels[newLevelNumb].PushBack(newLevelSSTable)
-
-	var (
-		dels     []FileMeta
-		delMetas []DeletedFileMeta
-	)
-	for _, sstable := range pickedUpSSTable {
-		num, nerr := fileNum(sstable.Path())
-		if nerr != nil {
-			ERROR(ctx, "Error parsing file number for %s: %v", sstable.Path(), nerr)
-			continue
-		}
-		dels = append(dels, FileMeta{Number: num})
-		level := h.findLevel(num)
-		if level >= 0 {
-			delMetas = append(delMetas, DeletedFileMeta{Level: level, Number: num})
-		}
-	}
-
-	meta.Level = newLevelNumb
-	edit := VersionEdit{
-		AddFiles:       []FileMeta{meta},
-		DeleteFiles:    delMetas,
-		NextFileNumber: h.config.fileNumberAllocator.Peek(),
-	}
-	if h.manifest != nil {
-		if err := h.manifest.Append(edit); err != nil {
-			return err
-		}
-		if err := h.manifest.Sync(); err != nil {
-			return err
-		}
-	}
-	if err := edit.Apply(h.versionSet); err != nil {
-		return err
-	}
-	h.config.fileNumberAllocator.Apply(edit)
-
-	if err := removeFiles(h.config.databaseDir, dels); err != nil {
-		ERROR(ctx, "Error removing files: %v", err)
-	}
-
-	return nil
-}
-
 // GetRelevantSSTables gathers file numbers whose ranges overlap [startKey, endKey].
 // Level 0 files are returned in newest-first order while higher levels retain
 // their existing ordering.
@@ -828,20 +715,6 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}
 	getRelevantSSTables.Add(ctx, int64(len(out)))
 	return out
-}
-
-func (h *SSTableManager) findLevel(num uint64) int {
-	if h.versionSet == nil {
-		return -1
-	}
-	for lvl, files := range h.versionSet.Levels {
-		for _, f := range files {
-			if f.Number == num {
-				return lvl
-			}
-		}
-	}
-	return -1
 }
 
 func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -915,31 +788,6 @@ func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTab
 		}
 	}
 	return maxSeqNum, nil
-}
-
-func getKeyRange(sstables []SStable) (Bytes, Bytes) {
-	var (
-		minKey, maxKey Bytes
-		initialized    bool
-	)
-	for _, sst := range sstables {
-		sstMin, sstMax := sst.GetKeyRange()
-		if sstMin == nil || sstMax == nil {
-			continue
-		}
-		if !initialized {
-			minKey, maxKey = sstMin, sstMax
-			initialized = true
-			continue
-		}
-		if minKey.Compare(sstMin) > 0 {
-			minKey = sstMin
-		}
-		if maxKey.Compare(sstMax) < 0 {
-			maxKey = sstMax
-		}
-	}
-	return minKey, maxKey
 }
 
 func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta FileMeta, err error) {
