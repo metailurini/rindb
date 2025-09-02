@@ -92,7 +92,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
-	vs, manifestPath, err := recoverVersionSet(ctx, cfg.databaseDir)
+	vs, manifestPath, err := RecoverVersionSet(ctx, cfg.databaseDir)
 	if err != nil {
 		return nil, err
 	}
