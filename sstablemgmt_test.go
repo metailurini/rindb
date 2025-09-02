@@ -1083,3 +1083,123 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.Nil(t, merged)
 	})
 }
+
+func TestSSTableManager_compactLevel0(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	t.Run("compacts level 0 into new level when next level missing", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0a := ts.createSSTable(0, map[string]string{"a": "1"})
+		l0b := ts.createSSTable(0, map[string]string{"b": "2"})
+		ts.AddSSTableToLevel(0, l0a)
+		ts.AddSSTableToLevel(0, l0b)
+		require.NoError(t, l0a.Close())
+		require.NoError(t, l0b.Close())
+
+		ts.Manager.levels = ts.Manager.levels[:1]
+		ts.Manager.versionSet.Levels = ts.Manager.versionSet.Levels[:1]
+
+		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err := ts.Manager.mergeIntoLevel(ctx, 1, picked)
+		require.NoError(t, err)
+
+		require.Len(t, ts.Manager.levels, 2)
+		require.NotNil(t, ts.Manager.levels[1])
+		assert.Equal(t, 0, ts.Manager.levels[0].Len())
+		assert.Equal(t, 1, ts.Manager.levels[1].Len())
+		require.Len(t, ts.Manager.versionSet.Levels, 2)
+		assert.Empty(t, ts.Manager.versionSet.Levels[0])
+		assert.Len(t, ts.Manager.versionSet.Levels[1], 1)
+	})
+
+	t.Run("compacts level 0 and merges overlapping SSTables from level 1", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0 := ts.createSSTable(0, map[string]string{"b": "1"})
+		ts.AddSSTableToLevel(0, l0)
+		overlap := ts.createSSTable(1, map[string]string{"b": "old"})
+		ts.AddSSTableToLevel(1, overlap)
+		non := ts.createSSTable(1, map[string]string{"z": "1"})
+		ts.AddSSTableToLevel(1, non)
+		require.NoError(t, l0.Close())
+		require.NoError(t, overlap.Close())
+		require.NoError(t, non.Close())
+
+		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
+		require.NoError(t, err)
+		inputs := append(overlaps, picked...)
+		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
+		require.NoError(t, err)
+
+		assert.Empty(t, ts.Manager.versionSet.Levels[0])
+		require.Len(t, ts.Manager.versionSet.Levels[1], 2)
+		numNon, _ := fileNum(non.FileSystem.Path())
+		numOverlap, _ := fileNum(overlap.FileSystem.Path())
+		var nums []uint64
+		for _, fm := range ts.Manager.versionSet.Levels[1] {
+			nums = append(nums, fm.Number)
+		}
+		assert.Contains(t, nums, numNon)
+		assert.NotContains(t, nums, numOverlap)
+	})
+
+	t.Run("returns error when a level 0 SSTable cannot be opened", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
+		ts.AddSSTableToLevel(0, l0)
+		require.NoError(t, l0.Close())
+		require.NoError(t, os.Remove(l0.FileSystem.Path()))
+		require.NoError(t, os.Mkdir(l0.FileSystem.Path(), 0o700))
+		defer os.Remove(l0.FileSystem.Path())
+
+		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err := ts.Manager.mergeIntoLevel(ctx, 1, picked)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns error when overlapping SSTable cannot be opened", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
+		ts.AddSSTableToLevel(0, l0)
+		overlap := ts.createSSTable(1, map[string]string{"a": "old"})
+		ts.AddSSTableToLevel(1, overlap)
+		require.NoError(t, l0.Close())
+		require.NoError(t, overlap.Close())
+		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
+		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
+		defer os.Remove(overlap.FileSystem.Path())
+
+		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
+		require.NoError(t, err)
+		inputs := append(overlaps, picked...)
+		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns error when new SSTable cannot be created", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
+		ts.AddSSTableToLevel(0, l0)
+		require.NoError(t, l0.Close())
+
+		next := ts.Manager.config.fileNumberAllocator.Peek()
+		err := os.Mkdir(path.Join(ts.Config.databaseDir, sstPath(next)), 0o700)
+		require.NoError(t, err)
+		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err = ts.Manager.mergeIntoLevel(ctx, 1, picked)
+		assert.Error(t, err)
+		_ = os.Remove(path.Join(ts.Config.databaseDir, sstPath(next)))
+	})
+}
