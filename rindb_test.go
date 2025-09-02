@@ -287,8 +287,10 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	info, err := os.Stat(fs.Path())
 	assert.NoError(t, err)
 	small, large := sst.GetKeyRange()
-	meta := FileMeta{Number: num, Level: 0, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size())}
-	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
+	seqHi, err := sst.MaxSequenceNumber()
+	assert.NoError(t, err)
+	meta := FileMeta{Number: num, Level: 0, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
+	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, seqHi))
 	err = rin.Put(ctx, Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(ctx, Bytes("k1"))

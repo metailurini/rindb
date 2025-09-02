@@ -271,6 +271,10 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta, lastSeq 
 		addSSTableCalls.Add(ctx, 1)
 	}()
 
+	if lastSeq == 0 {
+		return fmt.Errorf("lastSeq must be greater than zero")
+	}
+
 	edit := VersionEdit{
 		AddFiles:       []FileMeta{meta},
 		NextFileNumber: h.config.fileNumberAllocator.Peek(),
@@ -517,7 +521,9 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 
 func (h *SSTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
 	for i := range sstables {
-		_ = sstables[i].Close()
+		if err := sstables[i].Close(); err != nil {
+			WARN(ctx, "Error closing sstable %s: %v", sstables[i].Path(), err)
+		}
 	}
 }
 
