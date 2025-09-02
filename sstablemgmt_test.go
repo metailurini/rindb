@@ -804,6 +804,98 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 	}
 }
 
+func TestSSTableManager_shouldCompact(t *testing.T) {
+	ctx := context.Background()
+	mb := uint64(1 << 20)
+
+	t.Run("Level0 below threshold", func(t *testing.T) {
+		cfg := NewConfig(WithLevel0CompactionThreshold(4))
+		sm := &SSTableManager{config: cfg}
+		files := make([]FileMeta, 3)
+		assert.False(t, sm.shouldCompact(ctx, 0, files))
+	})
+
+	t.Run("Level0 at threshold", func(t *testing.T) {
+		cfg := NewConfig(WithLevel0CompactionThreshold(4))
+		sm := &SSTableManager{config: cfg}
+		files := make([]FileMeta, 4)
+		assert.True(t, sm.shouldCompact(ctx, 0, files))
+	})
+
+	t.Run("Level0 above threshold", func(t *testing.T) {
+		cfg := NewConfig(WithLevel0CompactionThreshold(4))
+		sm := &SSTableManager{config: cfg}
+		files := make([]FileMeta, 5)
+		assert.True(t, sm.shouldCompact(ctx, 0, files))
+	})
+
+	t.Run("Level1 below threshold (1MB base, 2x mult)", func(t *testing.T) {
+		cfg := NewConfig(
+			WithBaseCompactionSizeMB(1),
+			WithLevelSizeMultiplier(2),
+		)
+		sm := &SSTableManager{config: cfg}
+		files := []FileMeta{{Size: mb}}
+		assert.False(t, sm.shouldCompact(ctx, 1, files))
+	})
+
+	t.Run("Level1 at threshold (1MB base, 2x mult)", func(t *testing.T) {
+		cfg := NewConfig(
+			WithBaseCompactionSizeMB(1),
+			WithLevelSizeMultiplier(2),
+		)
+		sm := &SSTableManager{config: cfg}
+		files := []FileMeta{{Size: 2 * mb}}
+		assert.True(t, sm.shouldCompact(ctx, 1, files))
+	})
+
+	t.Run("Level1 above threshold (1MB base, 2x mult)", func(t *testing.T) {
+		cfg := NewConfig(
+			WithBaseCompactionSizeMB(1),
+			WithLevelSizeMultiplier(2),
+		)
+		sm := &SSTableManager{config: cfg}
+		files := []FileMeta{{Size: 2*mb + 1}}
+		assert.True(t, sm.shouldCompact(ctx, 1, files))
+	})
+
+	t.Run("Level2 below threshold (1MB base, 2x mult)", func(t *testing.T) {
+		cfg := NewConfig(
+			WithBaseCompactionSizeMB(1),
+			WithLevelSizeMultiplier(2),
+		)
+		sm := &SSTableManager{config: cfg}
+		files := []FileMeta{{Size: 3 * mb}}
+		assert.False(t, sm.shouldCompact(ctx, 2, files))
+	})
+
+	t.Run("Level2 at threshold (1MB base, 2x mult)", func(t *testing.T) {
+		cfg := NewConfig(
+			WithBaseCompactionSizeMB(1),
+			WithLevelSizeMultiplier(2),
+		)
+		sm := &SSTableManager{config: cfg}
+		files := []FileMeta{{Size: 4 * mb}}
+		assert.True(t, sm.shouldCompact(ctx, 2, files))
+	})
+
+	t.Run("Level2 above threshold (1MB base, 2x mult)", func(t *testing.T) {
+		cfg := NewConfig(
+			WithBaseCompactionSizeMB(1),
+			WithLevelSizeMultiplier(2),
+		)
+		sm := &SSTableManager{config: cfg}
+		files := []FileMeta{{Size: 4*mb + 1}}
+		assert.True(t, sm.shouldCompact(ctx, 2, files))
+	})
+
+	t.Run("empty level", func(t *testing.T) {
+		cfg := NewConfig()
+		sm := &SSTableManager{config: cfg}
+		assert.False(t, sm.shouldCompact(ctx, 0, nil))
+	})
+}
+
 func TestSSTableManager_IOLoadSampler(t *testing.T) {
 	t.Run("records io load", func(t *testing.T) {
 		ctx := context.Background()
