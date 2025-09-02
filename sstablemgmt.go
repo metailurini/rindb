@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	iofs "io/fs"
 	"math"
 	"os"
 	"path"
+	"path/filepath"
 	"sync"
 	"time"
-
-	iofs "io/fs"
-	"path/filepath"
 
 	"github.com/shirou/gopsutil/v3/disk"
 )
