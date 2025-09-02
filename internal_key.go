@@ -22,9 +22,6 @@ const (
 // Order is by user key ascending, sequence descending, type ascending.
 func (k InternalKey) Compare(other any) int {
 	o := other.(InternalKey)
-	if cmp := bytes.Compare(k.UserKey, o.UserKey); cmp != 0 {
-		return cmp
-	}
 	return cmp.Or(bytes.Compare(k.UserKey, o.UserKey),
 		cmp.Compare(o.Seq, k.Seq),
 		cmp.Compare(k.Type, o.Type),
