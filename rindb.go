@@ -352,31 +352,16 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			return fmt.Errorf("failed to flush memtable: %w", err)
 		}
 
-		if err := r.ssTableManager.AddSSTable(ctx, meta); err != nil {
+		if err := r.ssTableManager.AddSSTable(ctx, meta, r.sequenceNumber); err != nil {
 			_ = fs.Close()
 			ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
 		}
-		// Close and deregister the writable FileSystem now that metadata is persisted.
+		// Close the writable FileSystem now that metadata is persisted.
 		if err := fs.Close(); err != nil {
 			WARN(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
 		}
-		if err := r.ssTableManager.removeOpenedFS(fs); err != nil {
-			WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), err)
-		}
 
-		edit := VersionEdit{LastSequence: r.sequenceNumber}
-		if err := r.manifest.Append(edit); err != nil {
-			ERROR(ctx, "Failed to append manifest edit: %v", err)
-			return err
-		}
-		if err := r.manifest.Sync(); err != nil {
-			ERROR(ctx, "Failed to sync manifest: %v", err)
-			return err
-		}
-		if err := edit.Apply(r.versionSet); err != nil {
-			return err
-		}
 		if err := r.maybeRotateManifest(ctx); err != nil {
 			return err
 		}
