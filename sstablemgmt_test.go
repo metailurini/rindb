@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -14,6 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type failingManifest struct{}
+
+func (failingManifest) Append(VersionEdit) error { return errors.New("append fail") }
+func (failingManifest) Sync() error              { return nil }
+func (failingManifest) Close() error             { return nil }
 
 func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	cfg := testConfig()
@@ -1414,6 +1421,98 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		err = ts.Manager.mergeIntoLevel(ctx, 2, picked)
 		assert.Error(t, err)
 		_ = os.Remove(path.Join(ts.Config.databaseDir, sstPath(next)))
+	})
+}
+
+func TestSSTableManager_mergeIntoLevel(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	t.Run("creates new level and removes sources", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		src := ts.createSSTable(0, map[string]string{"a": "1"})
+		ts.AddSSTableToLevel(0, src)
+		require.NoError(t, src.Close())
+		srcPath := src.FileSystem.Path()
+
+		ts.Manager.levels = ts.Manager.levels[:1]
+		ts.Manager.versionSet.Levels = ts.Manager.versionSet.Levels[:1]
+
+		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err := ts.Manager.mergeIntoLevel(ctx, 1, inputs)
+		require.NoError(t, err)
+
+		require.Len(t, ts.Manager.levels, 2)
+		assert.NotNil(t, ts.Manager.levels[1])
+		assert.Equal(t, 0, ts.Manager.levels[0].Len())
+		assert.Equal(t, 1, ts.Manager.levels[1].Len())
+
+		_, err = os.Stat(srcPath)
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
+
+	t.Run("retains sources on manifest failure", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		src := ts.createSSTable(0, map[string]string{"a": "1"})
+		ts.AddSSTableToLevel(0, src)
+		require.NoError(t, src.Close())
+		srcPath := src.FileSystem.Path()
+
+		ts.Manager.manifest = failingManifest{}
+
+		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err := ts.Manager.mergeIntoLevel(ctx, 1, inputs)
+		assert.Error(t, err)
+
+		require.Len(t, ts.Manager.versionSet.Levels[0], 1)
+		_, err = os.Stat(srcPath)
+		assert.NoError(t, err)
+	})
+
+	t.Run("keeps tombstone with active snapshot", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		fs := ts.newSSTableFS(0)
+		mem := InitMemtable(*ts.Config)
+		mem.Put(newRecord(Bytes("a"), nil, 1))
+		sst, _, err := flush(ctx, *ts.Config, mem, fs)
+		require.NoError(t, err)
+		ts.AddSSTableToLevel(0, &sst)
+		require.NoError(t, sst.Close())
+
+		ts.Manager.minSnapshotSeq = 1
+
+		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
+		require.NoError(t, err)
+
+		iter := ts.Manager.levels[1].Iterator()
+		fsMerged, err := iter.Next()
+		require.NoError(t, err)
+		merged, err := NewSSTable(ctx, cfg, fsMerged)
+		require.NoError(t, err)
+
+		_, err = merged.GetValue(ctx, Bytes("a"))
+		assert.ErrorIs(t, err, ErrTombstoneFound)
+	})
+
+	t.Run("no-op on empty sources", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		beforeLevels := len(ts.Manager.levels)
+		beforeVS := len(ts.Manager.versionSet.Levels)
+
+		err := ts.Manager.mergeIntoLevel(ctx, 1, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, beforeLevels, len(ts.Manager.levels))
+		assert.Equal(t, beforeVS, len(ts.Manager.versionSet.Levels))
 	})
 }
 
