@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRangeIterator(t *testing.T) {
@@ -93,7 +94,8 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	iter, err := ts.RinDB.IRange(ctx, Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
-	num, _ := fileNum(sst1.Path())
+	num, err := fileNum(sst1.Path())
+	require.NoError(t, err)
 	ts.Manager.mu.RLock()
 	opened := ts.Manager.openedByNum[num]
 	ts.Manager.mu.RUnlock()
