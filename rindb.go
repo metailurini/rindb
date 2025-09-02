@@ -367,17 +367,20 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			return fmt.Errorf("failed to flush memtable: %w", err)
 		}
 
-		// Register the new SSTable with ssTableManager
-		if err := r.ssTableManager.AddSSTable(ctx, 0, fs); err != nil {
+		if err := r.ssTableManager.AddSSTable(ctx, meta); err != nil {
+			_ = fs.Close()
 			ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
 		}
-
-		edit := VersionEdit{
-			AddFiles:       []FileMeta{meta},
-			LastSequence:   r.sequenceNumber,
-			NextFileNumber: r.config.fileNumberAllocator.Peek(),
+		// Close and deregister the writable FileSystem now that metadata is persisted.
+		if err := fs.Close(); err != nil {
+			WARN(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
 		}
+		if err := r.ssTableManager.removeOpenedFS(fs); err != nil {
+			WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), err)
+		}
+
+		edit := VersionEdit{LastSequence: r.sequenceNumber}
 		if err := r.manifest.Append(edit); err != nil {
 			ERROR(ctx, "Failed to append manifest edit: %v", err)
 			return err
@@ -389,7 +392,6 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		if err := edit.Apply(r.versionSet); err != nil {
 			return err
 		}
-		r.config.fileNumberAllocator.Apply(edit)
 		if err := r.maybeRotateManifest(ctx); err != nil {
 			return err
 		}
