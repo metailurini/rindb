@@ -313,9 +313,9 @@ func (ts *testRindbSetup) createSSTable(level int, kv map[string]string) (FileMe
 }
 ```
 Tests in `sstablemgmt_test.go` and helpers in `utils_test.go` seed files via `AddSSTable` and assert against
-`Manager.versionSet.Levels`. Other tests such as `rindb_test.go` and `range_test.go` drop `AddSSTableToLevel` and direct
-`manager.levels` access. The helper carries the opened database via `RinDB`, builds SSTables through `createSSTable`, registers
-them, and lets tests verify placement through the public API only.
+`Manager.versionSet.Levels`. Other tests such as `rindb_test.go` and `range_test.go` interact with the `VersionSet`
+directly. The helper carries the opened database via `RinDB`, builds SSTables through `createSSTable`, registers them,
+and lets tests verify placement through the public API only.
 
 ## Implementation Tasks
 
@@ -348,5 +348,5 @@ them, and lets tests verify placement through the public API only.
 
 8. **Clean up obsolete code and docs.**
    - Remove the `levels` linked lists once no code depends on them, making `VersionSet` the single source of metadata.
-   - Delete unused methods and comments tied to `levels` (e.g., `AddSSTableToLevel`).
+   - Delete unused methods and comments tied to `levels`.
    - Refresh documentation to reflect `VersionSet` as the sole metadata source.

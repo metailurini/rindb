@@ -33,8 +33,8 @@ func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	newer := ts.createSSTable(0, map[string]string{"otherKey": "otherVal"})
 
 	// Add to level 0 (older first, then newer)
-	ts.AddSSTableToLevel(0, older)
-	ts.AddSSTableToLevel(0, newer)
+	ts.AddSSTable(0, older)
+	ts.AddSSTable(0, newer)
 
 	// Verify search finds the key in older SSTable
 	result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"))
@@ -183,19 +183,19 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 			"2": "3", // Will be tombstoned by sstable2
 			"3": "4",
 		}, 1)
-		ts.AddSSTableToLevel(0, sstable1)
+		ts.AddSSTable(0, sstable1)
 
 		sstable2 := ts.createSSTableWithSequence(0, map[string]string{
 			"1": "3", // Overrides sstable1
 			"2": "",  // Tombstone overrides sstable1
 			"4": "5",
 		}, 10)
-		ts.AddSSTableToLevel(0, sstable2)
+		ts.AddSSTable(0, sstable2)
 
 		sstable3 := ts.createSSTableWithSequence(0, map[string]string{
 			"5": "6",
 		}, 20)
-		ts.AddSSTableToLevel(0, sstable3)
+		ts.AddSSTable(0, sstable3)
 
 		assert.Equal(t, 3, len(ts.Manager.versionSet.Levels[0]))
 
@@ -263,7 +263,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		key := Bytes("level0-key")
 		value := Bytes("level0-value")
 		sst := ts.createSSTable(0, map[string]string{string(key): string(value)})
-		ts.AddSSTableToLevel(0, sst)
+		ts.AddSSTable(0, sst)
 
 		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
@@ -278,11 +278,11 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		key := randStringBytes(10)
 		oldValue := Bytes("old-value")
 		sst1 := ts.createSSTable(1, map[string]string{string(key): string(oldValue)})
-		ts.AddSSTableToLevel(1, sst1)
+		ts.AddSSTable(1, sst1)
 
 		newValue := Bytes("new-value")
 		sst0 := ts.createSSTable(0, map[string]string{string(key): string(newValue)})
-		ts.AddSSTableToLevel(0, sst0)
+		ts.AddSSTable(0, sst0)
 
 		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
@@ -295,7 +295,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		defer ts.Cleanup()
 
 		sst := ts.createSSTable(0, map[string]string{"some-key": "some-value"})
-		ts.AddSSTableToLevel(0, sst)
+		ts.AddSSTable(0, sst)
 
 		missingKey := randStringBytes(10)
 		result, err := ts.Manager.searchKey(ctx, missingKey)
@@ -323,7 +323,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		key := Bytes("single-key")
 		value := Bytes("single-value")
 		sst := ts.createSSTable(0, map[string]string{string(key): string(value)})
-		ts.AddSSTableToLevel(0, sst)
+		ts.AddSSTable(0, sst)
 
 		result, err := ts.Manager.searchKey(ctx, key)
 		assert.NoError(t, err)
@@ -338,11 +338,11 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		key := Bytes("tombstone-key")
 		value := Bytes("original-value")
 		sst1 := ts.createSSTable(1, map[string]string{string(key): string(value)})
-		ts.AddSSTableToLevel(1, sst1)
+		ts.AddSSTable(1, sst1)
 
 		fs0 := ts.newSSTableFS(0)
 		sst0 := createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
-		ts.AddSSTableToLevel(0, &sst0)
+		ts.AddSSTable(0, &sst0)
 
 		result, err := ts.Manager.searchKey(ctx, key)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -355,7 +355,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		defer ts.Cleanup()
 
 		sst := ts.createSSTable(0, map[string]string{"present-key": "present-value"})
-		ts.AddSSTableToLevel(0, sst)
+		ts.AddSSTable(0, sst)
 
 		result, err := ts.Manager.searchKey(ctx, Bytes("absent-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
@@ -370,7 +370,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		key := Bytes("lost-key")
 		value := Bytes("lost-value")
 		sst := ts.createSSTable(0, map[string]string{string(key): string(value)})
-		ts.AddSSTableToLevel(0, sst)
+		ts.AddSSTable(0, sst)
 
 		path := sst.Path()
 		err := os.Remove(path)
@@ -398,7 +398,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 				fmt.Sprintf("key%d", i): "value",
 			})
 			sstable := ts.createSSTable(0, map[string]string{fmt.Sprintf("key%d", i): "value"})
-			ts.AddSSTableToLevel(0, sstable) // Add the created sstable's FS to the level
+			ts.AddSSTable(0, sstable) // Register the created SSTable
 		}
 
 		assert.True(t, ts.Manager.shouldCompact(ctx, 0, ts.Manager.versionSet.Levels[0]))
@@ -421,7 +421,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		initialLevel0Nums := make([]uint64, 0, level0FileCount)
 		for i := 0; i < level0FileCount; i++ {
 			sstable := ts.createSSTable(0, map[string]string{fmt.Sprintf("l0-key%d", i): "value"})
-			ts.AddSSTableToLevel(0, sstable)
+			ts.AddSSTable(0, sstable)
 			num, err := fileNum(sstable.Path())
 			require.NoError(t, err)
 			initialLevel0Nums = append(initialLevel0Nums, num)
@@ -432,7 +432,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		level1FileCount := 1
 		initialLevel1Nums := make([]uint64, level1FileCount)
 		sstable1 := ts.createSSTable(1, map[string]string{"l1-key": "small-value"})
-		ts.AddSSTableToLevel(1, sstable1)
+		ts.AddSSTable(1, sstable1)
 		num1, err := fileNum(sstable1.Path())
 		require.NoError(t, err)
 		initialLevel1Nums[0] = num1
@@ -488,7 +488,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 				kvs[string(p[0])] = string(p[1])
 			}
 			sstable := ts.createSSTable(1, kvs) // Create in level 1
-			ts.AddSSTableToLevel(1, sstable)
+			ts.AddSSTable(1, sstable)
 
 			level1Paths[i] = sstable.Path()
 			info, statErr := os.Stat(sstable.Path())
@@ -540,8 +540,8 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 
 		older := ts.createSSTable(0, map[string]string{"a": "1"})
 		newer := ts.createSSTable(0, map[string]string{"b": "2"})
-		ts.AddSSTableToLevel(0, older)
-		ts.AddSSTableToLevel(0, newer)
+		ts.AddSSTable(0, older)
+		ts.AddSSTable(0, newer)
 
 		nOlder, err := fileNum(older.Path())
 		require.NoError(t, err)
@@ -559,8 +559,8 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 
 		older := ts.createSSTable(1, map[string]string{"b": "1"})
 		newer := ts.createSSTable(1, map[string]string{"c": "2"})
-		ts.AddSSTableToLevel(1, older)
-		ts.AddSSTableToLevel(1, newer)
+		ts.AddSSTable(1, older)
+		ts.AddSSTable(1, newer)
 
 		nOlder, err := fileNum(older.Path())
 		require.NoError(t, err)
@@ -577,7 +577,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		sst := ts.createSSTable(1, map[string]string{"x": "1"})
-		ts.AddSSTableToLevel(1, sst)
+		ts.AddSSTable(1, sst)
 
 		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("b"))
 		assert.Len(t, nums, 0)
@@ -599,7 +599,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		sst := ts.createSSTable(1, map[string]string{"b": "1"})
-		ts.AddSSTableToLevel(1, sst)
+		ts.AddSSTable(1, sst)
 		assert.NoError(t, os.Remove(sst.Path()))
 
 		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
@@ -614,14 +614,14 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		// Level 0
 		l0a := ts.createSSTable(0, map[string]string{"a": "1"}) // older
 		l0b := ts.createSSTable(0, map[string]string{"b": "2"}) // newer
-		ts.AddSSTableToLevel(0, l0a)
-		ts.AddSSTableToLevel(0, l0b)
+		ts.AddSSTable(0, l0a)
+		ts.AddSSTable(0, l0b)
 
 		// Level 1
 		l1Overlap := ts.createSSTable(1, map[string]string{"b": "1", "c": "2"})
 		l1Non := ts.createSSTable(1, map[string]string{"x": "1"})
-		ts.AddSSTableToLevel(1, l1Overlap)
-		ts.AddSSTableToLevel(1, l1Non)
+		ts.AddSSTable(1, l1Overlap)
+		ts.AddSSTable(1, l1Non)
 
 		nL0b, err := fileNum(l0b.Path())
 		require.NoError(t, err)
@@ -659,7 +659,6 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 
 			sm := &SSTableManager{
 				openedFs:       make(map[uint64]*FileSystem),
-				levels:         []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
 				versionSet:     &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}},
 				config:         cfg,
 				now:            func() time.Time { return current },
@@ -865,8 +864,8 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		sst2, _, err := flush(ctx, *ts.Config, mem2, ts.newSSTableFS(0))
 		assert.NoError(t, err)
 
-		ts.AddSSTableToLevel(0, &sst1)
-		ts.AddSSTableToLevel(0, &sst2)
+		ts.AddSSTable(0, &sst1)
+		ts.AddSSTable(0, &sst2)
 
 		target := ts.newSSTableFS(1)
 		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false, math.MaxUint64)
@@ -1064,8 +1063,8 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 
 		l0a := ts.createSSTable(0, map[string]string{"a": "1"})
 		l0b := ts.createSSTable(0, map[string]string{"b": "2"})
-		ts.AddSSTableToLevel(0, l0a)
-		ts.AddSSTableToLevel(0, l0b)
+		ts.AddSSTable(0, l0a)
+		ts.AddSSTable(0, l0b)
 		require.NoError(t, l0a.Close())
 		require.NoError(t, l0b.Close())
 
@@ -1085,11 +1084,11 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		defer ts.Cleanup()
 
 		l0 := ts.createSSTable(0, map[string]string{"b": "1"})
-		ts.AddSSTableToLevel(0, l0)
+		ts.AddSSTable(0, l0)
 		overlap := ts.createSSTable(1, map[string]string{"b": "old"})
-		ts.AddSSTableToLevel(1, overlap)
+		ts.AddSSTable(1, overlap)
 		non := ts.createSSTable(1, map[string]string{"z": "1"})
-		ts.AddSSTableToLevel(1, non)
+		ts.AddSSTable(1, non)
 		require.NoError(t, l0.Close())
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())
@@ -1120,7 +1119,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		defer ts.Cleanup()
 
 		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(0, l0)
+		ts.AddSSTable(0, l0)
 		require.NoError(t, l0.Close())
 		require.NoError(t, os.Remove(l0.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(l0.FileSystem.Path(), 0o700))
@@ -1136,9 +1135,9 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		defer ts.Cleanup()
 
 		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(0, l0)
+		ts.AddSSTable(0, l0)
 		overlap := ts.createSSTable(1, map[string]string{"a": "old"})
-		ts.AddSSTableToLevel(1, overlap)
+		ts.AddSSTable(1, overlap)
 		require.NoError(t, l0.Close())
 		require.NoError(t, overlap.Close())
 		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
@@ -1158,7 +1157,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		defer ts.Cleanup()
 
 		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(0, l0)
+		ts.AddSSTable(0, l0)
 		require.NoError(t, l0.Close())
 
 		next := ts.Manager.config.fileNumberAllocator.Peek()
@@ -1180,11 +1179,11 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(1, map[string]string{"b": "1"})
-		ts.AddSSTableToLevel(1, src)
+		ts.AddSSTable(1, src)
 		overlap := ts.createSSTable(2, map[string]string{"b": "old"})
-		ts.AddSSTableToLevel(2, overlap)
+		ts.AddSSTable(2, overlap)
 		non := ts.createSSTable(2, map[string]string{"z": "1"})
-		ts.AddSSTableToLevel(2, non)
+		ts.AddSSTable(2, non)
 		require.NoError(t, src.Close())
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())
@@ -1215,9 +1214,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(1, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(1, src)
+		ts.AddSSTable(1, src)
 		l2 := ts.createSSTable(2, map[string]string{"z": "1"})
-		ts.AddSSTableToLevel(2, l2)
+		ts.AddSSTable(2, l2)
 		require.NoError(t, src.Close())
 		require.NoError(t, l2.Close())
 
@@ -1244,7 +1243,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(1, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(1, src)
+		ts.AddSSTable(1, src)
 		require.NoError(t, src.Close())
 		require.NoError(t, os.Remove(src.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(src.FileSystem.Path(), 0o700))
@@ -1260,9 +1259,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(1, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(1, src)
+		ts.AddSSTable(1, src)
 		overlap := ts.createSSTable(2, map[string]string{"a": "old"})
-		ts.AddSSTableToLevel(2, overlap)
+		ts.AddSSTable(2, overlap)
 		require.NoError(t, src.Close())
 		require.NoError(t, overlap.Close())
 		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
@@ -1282,7 +1281,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(1, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(1, src)
+		ts.AddSSTable(1, src)
 		require.NoError(t, src.Close())
 
 		next := ts.Manager.config.fileNumberAllocator.Peek()
@@ -1304,7 +1303,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(0, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(0, src)
+		ts.AddSSTable(0, src)
 		require.NoError(t, src.Close())
 		srcPath := src.FileSystem.Path()
 
@@ -1327,7 +1326,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		defer ts.Cleanup()
 
 		src := ts.createSSTable(0, map[string]string{"a": "1"})
-		ts.AddSSTableToLevel(0, src)
+		ts.AddSSTable(0, src)
 		require.NoError(t, src.Close())
 		srcPath := src.FileSystem.Path()
 
@@ -1351,7 +1350,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		mem.Put(newRecord(Bytes("a"), nil, 1))
 		sst, _, err := flush(ctx, *ts.Config, mem, fs)
 		require.NoError(t, err)
-		ts.AddSSTableToLevel(0, &sst)
+		ts.AddSSTable(0, &sst)
 		require.NoError(t, sst.Close())
 
 		ts.Manager.minSnapshotSeq = 1
@@ -1477,11 +1476,11 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		l0 := ts.createSSTable(0, map[string]string{"b": "1"})
-		ts.AddSSTableToLevel(0, l0)
+		ts.AddSSTable(0, l0)
 		overlap := ts.createSSTable(1, map[string]string{"b": "old"})
-		ts.AddSSTableToLevel(1, overlap)
+		ts.AddSSTable(1, overlap)
 		non := ts.createSSTable(1, map[string]string{"z": "1"})
-		ts.AddSSTableToLevel(1, non)
+		ts.AddSSTable(1, non)
 		require.NoError(t, l0.Close())
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())

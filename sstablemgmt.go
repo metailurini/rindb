@@ -27,9 +27,8 @@ const writeRateAlpha = 0.2
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
 	openedFsMu  sync.Mutex
-	openedFs    map[uint64]*FileSystem     // legacy tracking for compaction paths
-	openedByNum map[uint64]*SStable        // open SSTables keyed by file number
-	levels      []*LinkedList[*FileSystem] // temporary shim; metadata lives in versionSet
+	openedFs    map[uint64]*FileSystem // legacy tracking for compaction paths
+	openedByNum map[uint64]*SStable    // open SSTables keyed by file number
 	versionSet  *VersionSet
 	manifest    ManifestWriter
 	config      Config
@@ -180,22 +179,6 @@ func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw M
 		},
 	}
 
-	if vs != nil {
-		levels := make([]*LinkedList[*FileSystem], len(vs.Levels))
-		for lvl, files := range vs.Levels {
-			if len(files) == 0 {
-				continue
-			}
-			ll := InitLinkedList[*FileSystem]()
-			for _, f := range files {
-				fs := &FileSystem{filePath: path.Join(config.databaseDir, sstPath(f.Number))}
-				ll.PushBack(fs)
-			}
-			levels[lvl] = ll
-		}
-		h.levels = levels
-	}
-
 	h.ioSamplerWG.Add(1)
 	go h.startIOLoadSampler()
 
@@ -290,8 +273,7 @@ func (h *SSTableManager) dynamicTriggerHit() bool {
 }
 
 // AddSSTable registers a new SSTable's metadata, persists it to the manifest,
-// and updates the in-memory VersionSet. It keeps the legacy `levels` list in
-// sync until all call sites migrate to VersionSet usage only.
+// and updates the in-memory VersionSet.
 func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
 	start := time.Now()
@@ -321,17 +303,7 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
 		return err
 	}
 	h.config.fileNumberAllocator.Apply(edit)
-
-	// Maintain legacy levels list for existing compaction code paths.
-	for len(h.levels) <= meta.Level {
-		h.levels = append(h.levels, nil)
-	}
-	if h.levels[meta.Level] == nil {
-		h.levels[meta.Level] = InitLinkedList[*FileSystem]()
-	}
-	fs := &FileSystem{filePath: path.Join(h.config.databaseDir, sstPath(meta.Number))}
-	h.levels[meta.Level].PushBack(fs)
-	INFO(ctx, "Registered new SSTable %s at level %d", fs.Path(), meta.Level)
+	INFO(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
 	return nil
 }
 
@@ -365,31 +337,6 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	filesToClose := make([]*FileSystem, 0, len(h.openedFs))
 	for _, fs := range h.openedFs {
 		filesToClose = append(filesToClose, fs)
-	}
-
-	for _, level := range h.levels {
-		// Usually, the levels are fully populated
-		// but it's possible that some levels are nil when testing
-		if level == nil {
-			continue
-		}
-		levelIterator := level.Iterator()
-		for levelIterator.HasNext() {
-			fs, err := levelIterator.Next()
-			if err != nil {
-				ERROR(ctx, "Error iterating through level: %v", err)
-				continue
-			}
-			num, nerr := fileNum(fs.Path())
-			alreadyOpened := false
-			if nerr == nil {
-				_, alreadyOpened = h.openedFs[num]
-			}
-			if alreadyOpened {
-				continue
-			}
-			filesToClose = append(filesToClose, fs)
-		}
 	}
 	h.openedFs = make(map[uint64]*FileSystem)
 	h.openedFsMu.Unlock()
@@ -526,27 +473,6 @@ func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []F
 	return over, nil
 }
 
-func (h *SSTableManager) removeFromLevel(ctx context.Context, level int, num uint64) {
-	if level >= len(h.levels) || h.levels[level] == nil {
-		return
-	}
-	target := path.Join(h.config.databaseDir, sstPath(num))
-	it := h.levels[level].Iterator()
-	for it.HasNext() {
-		fs, err := it.Next()
-		if err != nil {
-			ERROR(ctx, "Error iterating in removeFromLevel: %v", err)
-			return
-		}
-		if fs.Path() == target {
-			if err := it.RemoveCurrent(); err != nil {
-				ERROR(ctx, "Error removing file %s from level %d: %v", target, level, err)
-			}
-			return
-		}
-	}
-}
-
 func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []FileMeta) error {
 	if len(inputs) == 0 {
 		return nil
@@ -592,14 +518,6 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 		return err
 	}
 
-	for len(h.levels) <= dst {
-		h.levels = append(h.levels, nil)
-	}
-	if h.levels[dst] == nil {
-		h.levels[dst] = InitLinkedList[*FileSystem]()
-	}
-	h.levels[dst].PushBack(newFS)
-
 	var (
 		dels     []FileMeta
 		delMetas []DeletedFileMeta
@@ -607,7 +525,6 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 	for _, fm := range inputs {
 		dels = append(dels, FileMeta{Number: fm.Number})
 		delMetas = append(delMetas, DeletedFileMeta{Level: fm.Level, Number: fm.Number})
-		h.removeFromLevel(ctx, fm.Level, fm.Number)
 	}
 
 	meta.Level = dst

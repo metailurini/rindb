@@ -107,7 +107,7 @@ func TestRindb_IRange(t *testing.T) {
 	mem1.Put(newRecord(Bytes("b"), Bytes("sstB"), 2))
 	sst1, _, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
-	ts.AddSSTableToLevel(0, &sst1)
+	ts.AddSSTable(0, &sst1)
 
 	// Create SSTable with tombstone and another record
 	mem2 := InitMemtable(cfg)
@@ -115,7 +115,7 @@ func TestRindb_IRange(t *testing.T) {
 	mem2.Put(newRecord(Bytes("z"), Bytes("sstZ"), 4))
 	sst2, _, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
-	ts.AddSSTableToLevel(0, &sst2)
+	ts.AddSSTable(0, &sst2)
 
 	// Memtable with latest updates
 	mem := ts.RinDB.memtable
