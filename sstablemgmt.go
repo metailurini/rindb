@@ -331,10 +331,12 @@ func (h *SSTableManager) Close(ctx context.Context) {
 				continue
 			}
 			num, nerr := fileNum(fs.Path())
+			alreadyOpened := false
 			if nerr == nil {
-				if _, exists := h.openedFs[num]; exists {
-					continue
-				}
+				_, alreadyOpened = h.openedFs[num]
+			}
+			if alreadyOpened {
+				continue
 			}
 			filesToClose = append(filesToClose, fs)
 		}
@@ -502,13 +504,13 @@ func (h *SSTableManager) compactHigherLevel(ctx context.Context, level *LinkedLi
 		fs, err := iter.PickNext() // Removes from the source level list
 		if err != nil {
 			// Attempt to close any already opened SSTables before returning error
-			h.closeSSTables(sstablesToMerge)
+			h.closeSSTables(ctx, sstablesToMerge)
 			return fmt.Errorf("error picking next SSTable from level: %w", err)
 		}
 		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
 			// Attempt to close any already opened SSTables before returning error
-			h.closeSSTables(sstablesToMerge)
+			h.closeSSTables(ctx, sstablesToMerge)
 			return fmt.Errorf("error creating SStable object for %s: %w", fs.Path(), err)
 		}
 		sstablesToMerge = append(sstablesToMerge, *sstable)
@@ -546,19 +548,21 @@ func (h *SSTableManager) findOverlappingSSTables(ctx context.Context, levelNumb 
 	for iter.HasNext() {
 		fs, err := iter.Next()
 		if err != nil {
-			h.closeSSTables(overlapping)
+			h.closeSSTables(ctx, overlapping)
 			return nil, err
 		}
 		sstable, err := h.openAndLoadSSTable(ctx, fs)
 		if err != nil {
-			h.closeSSTables(overlapping)
+			h.closeSSTables(ctx, overlapping)
 			return nil, err
 		}
 		if sstable.Overlaps(minKey, maxKey) {
 			overlapping = append(overlapping, *sstable)
 		} else {
 			_ = fs.Close() // Close if not overlapping
-			h.removeOpenedFS(fs)
+			if err := h.removeOpenedFS(fs); err != nil {
+				WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), err)
+			}
 		}
 	}
 	return overlapping, nil
@@ -593,22 +597,25 @@ func (h *SSTableManager) removeOverlappingFromLevel(level *LinkedList[*FileSyste
 	return nil
 }
 
-func (h *SSTableManager) closeSSTables(sstables []SStable) {
+func (h *SSTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
 	for i := range sstables {
 		fs := sstables[i].FileSystem
 		_ = sstables[i].Close()
-		h.removeOpenedFS(fs)
+		if err := h.removeOpenedFS(fs); err != nil {
+			WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), err)
+		}
 	}
 }
 
-func (h *SSTableManager) removeOpenedFS(target *FileSystem) {
+func (h *SSTableManager) removeOpenedFS(target *FileSystem) error {
 	num, err := fileNum(target.Path())
 	if err != nil {
-		return
+		return err
 	}
 	h.openedFsMu.Lock()
 	delete(h.openedFs, num)
 	h.openedFsMu.Unlock()
+	return nil
 }
 
 // openByNumber returns an opened SSTable for the given file number. The
@@ -660,10 +667,12 @@ func (h *SSTableManager) mergeSSTables(ctx context.Context, newLevelNumb int, pi
 
 	merged, meta, err := mergeSSTablesV2(ctx, h.config, newLevelSSTable, pickedUpSSTable, bottommost, h.minSnapshotSeq)
 	// close and remove merged sstables even if there is an error
-	h.closeSSTables(pickedUpSSTable)
+	h.closeSSTables(ctx, pickedUpSSTable)
 	if err != nil || merged == nil {
 		_ = newLevelSSTable.Close()
-		h.removeOpenedFS(newLevelSSTable)
+		if rmErr := h.removeOpenedFS(newLevelSSTable); rmErr != nil {
+			WARN(ctx, "Failed to remove opened file %s: %v", newLevelSSTable.Path(), rmErr)
+		}
 		if rmErr := os.Remove(newLevelSSTable.Path()); rmErr != nil {
 			if err == nil {
 				ERROR(ctx, "Error removing empty file %s: %v", newLevelSSTable.Path(), rmErr)
@@ -856,7 +865,9 @@ func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTab
 			maxSeqNum = max(maxSeqNum, sstSeqNum)
 
 			closeErr := fs.Close()
-			ssTableManager.removeOpenedFS(fs)
+			if rmErr := ssTableManager.removeOpenedFS(fs); rmErr != nil {
+				WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), rmErr)
+			}
 			if closeErr != nil {
 				return 0, closeErr
 			}
