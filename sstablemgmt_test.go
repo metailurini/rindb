@@ -120,20 +120,29 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		// Case 1: ssTableManager.levels is nil
+		// Case 1: no levels exist
 		ts.Manager.levels = nil
+		if ts.Manager.versionSet != nil {
+			ts.Manager.versionSet.Levels = nil
+		}
 		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
-		// Case 2: ssTableManager.levels is empty slice
+		// Case 2: empty slice of levels
 		ts.Manager.levels = []*LinkedList[*FileSystem]{}
+		if ts.Manager.versionSet != nil {
+			ts.Manager.versionSet.Levels = [][]FileMeta{}
+		}
 		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
 
 		// Case 3: Level 0 exists but is empty
 		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
+		if ts.Manager.versionSet != nil {
+			ts.Manager.versionSet.Levels = [][]FileMeta{{}}
+		}
 		maxSeqNum, err = getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.NoError(t, err)
 		assert.Equal(t, uint64(0), maxSeqNum)
@@ -187,14 +196,15 @@ func Test_getMaxSequenceNumberFromSSTables(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		// Create a dummy FS that will return an error on Open
-		badFs := &FileSystem{filePath: "/non/existent/path.sst"}
-		ts.Manager.levels = []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()}
-		ts.Manager.levels[0].PushBack(badFs)
+		// Inject metadata pointing to a missing SSTable file
+		if ts.Manager.versionSet == nil {
+			ts.Manager.versionSet = &VersionSet{}
+		}
+		ts.Manager.versionSet.Levels = [][]FileMeta{{{Number: 999}}}
 
 		maxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ts.Manager)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no such file or directory")
+		assert.Contains(t, err.Error(), "malformed sstable")
 		assert.Equal(t, uint64(0), maxSeqNum)
 	})
 
