@@ -9,7 +9,7 @@ so that `VersionSet` becomes the sole source of truth.
 // levels field deleted; versionSet drives all metadata.
 type SSTableManager struct {
     openedFsMu  sync.Mutex
-    openedFs    map[*FileSystem]struct{}
+    openedFs    map[uint64]*FileSystem
     openedByNum map[uint64]*SStable
 
     versionSet *VersionSet
@@ -30,7 +30,7 @@ func InitSSTableManager(ctx context.Context, cfg Config, vs *VersionSet, mw Mani
         // to build a proper FileMeta entry for recovery
     }
     return &SSTableManager{
-        openedFs:    make(map[*FileSystem]struct{}),
+        openedFs:    make(map[uint64]*FileSystem),
         openedByNum: make(map[uint64]*SStable),
         versionSet:  vs,
         manifest:    mw,
