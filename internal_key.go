@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 )
 
@@ -24,19 +25,10 @@ func (k InternalKey) Compare(other any) int {
 	if cmp := bytes.Compare(k.UserKey, o.UserKey); cmp != 0 {
 		return cmp
 	}
-	if k.Seq > o.Seq {
-		return CmpLess
-	}
-	if k.Seq < o.Seq {
-		return CmpGreater
-	}
-	if k.Type < o.Type {
-		return CmpLess
-	}
-	if k.Type > o.Type {
-		return CmpGreater
-	}
-	return CmpEqual
+	return cmp.Or(bytes.Compare(k.UserKey, o.UserKey),
+		cmp.Compare(o.Seq, k.Seq),
+		cmp.Compare(k.Type, o.Type),
+	)
 }
 
 func EncodeInternalKey(key Bytes, seq uint64, typ RecordType) []byte {

@@ -1,8 +1,6 @@
 module github.com/metailurini/rindb
 
-go 1.23.0
-
-toolchain go1.23.4
+go 1.25.0
 
 require (
 	github.com/shirou/gopsutil/v3 v3.24.5
