@@ -422,7 +422,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		for i := 0; i < level0FileCount; i++ {
 			sstable := ts.createSSTable(0, map[string]string{fmt.Sprintf("l0-key%d", i): "value"})
 			ts.AddSSTableToLevel(0, sstable)
-			num, _ := fileNum(sstable.Path())
+			num, err := fileNum(sstable.Path())
+			require.NoError(t, err)
 			initialLevel0Nums = append(initialLevel0Nums, num)
 		}
 		assert.Equal(t, level0FileCount, len(ts.Manager.versionSet.Levels[0]))
@@ -432,12 +433,13 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		initialLevel1Nums := make([]uint64, level1FileCount)
 		sstable1 := ts.createSSTable(1, map[string]string{"l1-key": "small-value"})
 		ts.AddSSTableToLevel(1, sstable1)
-		num1, _ := fileNum(sstable1.Path())
+		num1, err := fileNum(sstable1.Path())
+		require.NoError(t, err)
 		initialLevel1Nums[0] = num1
 		assert.Equal(t, level1FileCount, len(ts.Manager.versionSet.Levels[1]))
 
 		// --- Act ---
-		err := ts.Manager.Compact(ctx)
+		err = ts.Manager.Compact(ctx)
 		assert.NoError(t, err)
 
 		// --- Assert ---
@@ -541,8 +543,10 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(0, older)
 		ts.AddSSTableToLevel(0, newer)
 
-		nOlder, _ := fileNum(older.Path())
-		nNewer, _ := fileNum(newer.Path())
+		nOlder, err := fileNum(older.Path())
+		require.NoError(t, err)
+		nNewer, err := fileNum(newer.Path())
+		require.NoError(t, err)
 
 		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
 		assert.Equal(t, []uint64{nNewer, nOlder}, nums)
@@ -558,8 +562,10 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(1, older)
 		ts.AddSSTableToLevel(1, newer)
 
-		nOlder, _ := fileNum(older.Path())
-		nNewer, _ := fileNum(newer.Path())
+		nOlder, err := fileNum(older.Path())
+		require.NoError(t, err)
+		nNewer, err := fileNum(newer.Path())
+		require.NoError(t, err)
 
 		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("b"), Bytes("d"))
 		assert.Equal(t, []uint64{nOlder, nNewer}, nums)
@@ -617,9 +623,12 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.AddSSTableToLevel(1, l1Overlap)
 		ts.AddSSTableToLevel(1, l1Non)
 
-		nL0b, _ := fileNum(l0b.Path())
-		nL0a, _ := fileNum(l0a.Path())
-		nL1, _ := fileNum(l1Overlap.Path())
+		nL0b, err := fileNum(l0b.Path())
+		require.NoError(t, err)
+		nL0a, err := fileNum(l0a.Path())
+		require.NoError(t, err)
+		nL1, err := fileNum(l1Overlap.Path())
+		require.NoError(t, err)
 
 		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("d"))
 		assert.Equal(t, []uint64{nL0b, nL0a, nL1}, nums)
@@ -1094,8 +1103,10 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 
 		assert.Empty(t, ts.Manager.versionSet.Levels[0])
 		require.Len(t, ts.Manager.versionSet.Levels[1], 2)
-		numNon, _ := fileNum(non.FileSystem.Path())
-		numOverlap, _ := fileNum(overlap.FileSystem.Path())
+		numNon, err := fileNum(non.FileSystem.Path())
+		require.NoError(t, err)
+		numOverlap, err := fileNum(overlap.FileSystem.Path())
+		require.NoError(t, err)
 		var nums []uint64
 		for _, fm := range ts.Manager.versionSet.Levels[1] {
 			nums = append(nums, fm.Number)
@@ -1187,8 +1198,10 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		assert.Empty(t, ts.Manager.versionSet.Levels[1])
 		require.Len(t, ts.Manager.versionSet.Levels[2], 2)
-		numNon, _ := fileNum(non.FileSystem.Path())
-		numOverlap, _ := fileNum(overlap.FileSystem.Path())
+		numNon, err := fileNum(non.FileSystem.Path())
+		require.NoError(t, err)
+		numOverlap, err := fileNum(overlap.FileSystem.Path())
+		require.NoError(t, err)
 		var nums []uint64
 		for _, fm := range ts.Manager.versionSet.Levels[2] {
 			nums = append(nums, fm.Number)
@@ -1217,7 +1230,8 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 
 		assert.Empty(t, ts.Manager.versionSet.Levels[1])
 		require.Len(t, ts.Manager.versionSet.Levels[2], 2)
-		numL2, _ := fileNum(l2.FileSystem.Path())
+		numL2, err := fileNum(l2.FileSystem.Path())
+		require.NoError(t, err)
 		var nums []uint64
 		for _, fm := range ts.Manager.versionSet.Levels[2] {
 			nums = append(nums, fm.Number)
