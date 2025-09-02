@@ -33,9 +33,10 @@ func InitSSTableManager(ctx context.Context, cfg Config, vs *VersionSet, mw Mani
             if err != nil { return err }
             fs, err := OpenExistingFS(ctx, path)
             if err != nil { return err }
+            defer fs.Close()
             sst, err := NewSSTable(ctx, cfg, fs)
-            fs.Close()
             if err != nil { return err }
+            defer sst.Close()
             lo, hi := sst.GetKeyRange()
             seqHi, err := sst.MaxSequenceNumber()
             if err != nil { return err }
