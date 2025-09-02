@@ -97,7 +97,7 @@ func TestManifest(t *testing.T) {
 		require.NoError(t, w.Close())
 		require.NoError(t, WriteCURRENT(ctx, dir, mf))
 
-		vs, _, err := recoverVersionSet(ctx, dir)
+		vs, _, err := RecoverVersionSet(ctx, dir)
 		require.NoError(t, err)
 		require.Equal(t, seq, vs.LastSequence)
 	})
@@ -105,7 +105,7 @@ func TestManifest(t *testing.T) {
 	t.Run("RecoverVersionSetNoManifest", func(t *testing.T) {
 		ctx := context.Background()
 		dir := t.TempDir()
-		vs, _, err := recoverVersionSet(ctx, dir)
+		vs, _, err := RecoverVersionSet(ctx, dir)
 		require.NoError(t, err)
 		require.Equal(t, uint64(0), vs.LastSequence)
 	})

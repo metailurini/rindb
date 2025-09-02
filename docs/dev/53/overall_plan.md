@@ -175,7 +175,7 @@ func (a *FileNumberAllocator) Apply(edit VersionEdit) {
 ```go
 func InitSSTableManager(ctx context.Context, cfg Config) (*SSTableManager, error) {
     if cfg.repairMode { return loadByScan(ctx, cfg) }
-    vs, err := recoverVersionSet(ctx, cfg.databaseDir)
+    vs, err := RecoverVersionSet(ctx, cfg.databaseDir)
     if err != nil { return nil, err }
     return &SSTableManager{versionSet: vs, config: cfg}, nil
 }
@@ -211,7 +211,7 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 ### `rindb.go`
 - `InitRinDB` now bootstraps from the MANIFEST, which dictates both live SSTables and WAL identifiers.
 - Flow:
-  1. `recoverVersionSet` reads `CURRENT` and replays the manifest to rebuild levels and allocator state.
+  1. `RecoverVersionSet` reads `CURRENT` and replays the manifest to rebuild levels and allocator state.
   2. Seed a `FileNumberAllocator` and WAL plumbing from `vs.NextFileNumber`, `vs.LogNumber`, and `vs.PrevLogNumber`.
   3. Replay the WAL files referenced by those log numbers to restore the memtable and determine `lastSeq`.
   4. Construct `SSTableManager` directly from the recovered `VersionSet`—no directory scan.
@@ -219,7 +219,7 @@ func (h *SSTableManager) LoadLevels(dir string) error {
 func InitRinDB(ctx context.Context, opts ...Option) (*Rindb, error) {
     cfg := NewConfig(opts...)
 
-    vs, err := recoverVersionSet(ctx, cfg.databaseDir)
+    vs, err := RecoverVersionSet(ctx, cfg.databaseDir)
     if err != nil { return nil, err }
 
     allocator := cfg.newFileNumberAllocatorFunc(vs.NextFileNumber)

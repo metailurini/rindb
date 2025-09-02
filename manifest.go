@@ -130,8 +130,8 @@ func syncDir(dir string) error {
 	return d.Sync()
 }
 
-// recoverVersionSet rebuilds the VersionSet by replaying the MANIFEST.
-func recoverVersionSet(ctx context.Context, dir string) (*VersionSet, string, error) {
+// RecoverVersionSet rebuilds the VersionSet by replaying the MANIFEST.
+func RecoverVersionSet(ctx context.Context, dir string) (*VersionSet, string, error) {
 	vs := &VersionSet{}
 	curr := filepath.Join(dir, "CURRENT")
 	data, err := os.ReadFile(curr)
