@@ -184,8 +184,10 @@ func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	info, err := os.Stat(sstable.Path())
 	assert.NoError(ts.T, err)
 	small, large := sstable.GetKeyRange()
-	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size())}
-	assert.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta, meta.SeqHi))
+	seqHi, err := sstable.MaxSequenceNumber()
+	assert.NoError(ts.T, err)
+	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
+	assert.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta, seqHi))
 }
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
