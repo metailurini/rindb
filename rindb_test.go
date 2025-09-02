@@ -274,22 +274,21 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	// SSTableManager is now part of rin
-	fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0) // Create FS for the initial SSTable
+	fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
 	assert.NoError(t, err)
-	// Defer close for the FS used in the test setup
 	defer func() {
 		if fs.IsOpened() {
 			assert.NoError(t, fs.Close())
 		}
 	}()
-	_ = createSSTable(t, rin.config, fs, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
-	// Ensure level 0 exists before pushing back
-	if len(rin.ssTableManager.levels) == 0 {
-		rin.ssTableManager.levels = append(rin.ssTableManager.levels, InitLinkedList[*FileSystem]())
-	} else if rin.ssTableManager.levels[0] == nil {
-		rin.ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
-	}
-	rin.ssTableManager.levels[0].PushBack(fs)        // Add the newly created SSTable FS to the manager
+	sst := createSSTable(t, rin.config, fs, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
+	num, err := fileNum(fs.Path())
+	assert.NoError(t, err)
+	info, err := os.Stat(fs.Path())
+	assert.NoError(t, err)
+	small, large := sst.GetKeyRange()
+	meta := FileMeta{Number: num, Level: 0, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size())}
+	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta))
 	err = rin.Put(ctx, Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(ctx, Bytes("k1"))

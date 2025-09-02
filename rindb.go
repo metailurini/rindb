@@ -179,9 +179,10 @@ func (r *Rindb) Stats() Stats {
 
 	// Lock separately for SSTable manager stats.
 	r.ssTableManager.mu.RLock()
-	if r.ssTableManager.versionSet != nil {
-		stats.SSTablesPerLevel = make([]int, len(r.ssTableManager.versionSet.Levels))
-		for i, files := range r.ssTableManager.versionSet.Levels {
+	vs := r.ssTableManager.versionSet
+	if vs != nil {
+		stats.SSTablesPerLevel = make([]int, len(vs.Levels))
+		for i, files := range vs.Levels {
 			stats.SSTablesPerLevel[i] = len(files)
 		}
 	}

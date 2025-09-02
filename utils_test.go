@@ -52,7 +52,6 @@ type testRindbSetup struct {
 	Config       *Config
 	Manager      *SSTableManager
 	TempDir      string
-	Levels       []*LinkedList[*FileSystem]
 	RinDB        *Rindb
 	CleanupFuncs []func()
 }
@@ -104,20 +103,11 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	assert.NoError(t, err)
 
 	manager := db.ssTableManager
-
-	// Ensure at least 3 levels exist for common test requirements.
-	minLevels := 3
-	if len(manager.levels) < minLevels {
-		needed := minLevels - len(manager.levels)
-		for range needed {
-			manager.levels = append(manager.levels, InitLinkedList[*FileSystem]())
-		}
+	if manager.versionSet == nil {
+		manager.versionSet = &VersionSet{}
 	}
-	for i := 0; i < minLevels && i < len(manager.levels); i++ {
-		if manager.levels[i] == nil {
-			manager.levels[i] = InitLinkedList[*FileSystem]()
-		}
-	}
+	// Ensure at least three levels exist for tests
+	manager.versionSet.ensureLevel(2)
 
 	cleanup := func() {
 		assert.NoError(t, db.Close(), "Failed to close RinDB")
@@ -130,7 +120,6 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 		RinDB:        db,
 		Manager:      manager,
 		TempDir:      tempDir,
-		Levels:       manager.levels,
 		CleanupFuncs: []func(){cleanup},
 	}
 }
@@ -185,21 +174,18 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 
 // AddSSTableToLevel adds an SSTable to the specified level.
 func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
-	fs := sstable.FileSystem
-	ts.Levels[level].PushBack(fs)
-
 	if ts.Manager.versionSet == nil {
 		ts.Manager.versionSet = &VersionSet{}
 	}
 	ts.Manager.versionSet.ensureLevel(level)
 
-	num, err := fileNum(fs.Path())
+	num, err := fileNum(sstable.Path())
 	assert.NoError(ts.T, err)
-	info, err := os.Stat(fs.Path())
+	info, err := os.Stat(sstable.Path())
 	assert.NoError(ts.T, err)
 	small, large := sstable.GetKeyRange()
 	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size())}
-	ts.Manager.versionSet.Levels[level] = append(ts.Manager.versionSet.Levels[level], meta)
+	assert.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta))
 }
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
