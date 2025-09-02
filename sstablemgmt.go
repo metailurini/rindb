@@ -777,38 +777,6 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 	return nil, ErrKeyNotFound
 }
 
-// TODO: This is a temporary approach that only scans L0 SSTables.
-// We should scan *all* levels to find the true max sequence number.
-// The correct long-term solution is to maintain a MANIFEST file
-// that tracks global sequence number metadata across all levels.
-func getMaxSequenceNumberFromSSTables(ctx context.Context, ssTableManager *SSTableManager) (uint64, error) {
-	var maxSeqNum uint64
-	if ssTableManager.versionSet == nil || len(ssTableManager.versionSet.Levels) == 0 {
-		return 0, nil
-	}
-	for _, meta := range ssTableManager.versionSet.Levels[0] {
-		fs := &FileSystem{filePath: path.Join(ssTableManager.config.databaseDir, sstPath(meta.Number))}
-		sstable, err := ssTableManager.openAndLoadSSTable(ctx, fs)
-		if err != nil {
-			return 0, err
-		}
-		sstSeqNum, err := sstable.MaxSequenceNumber()
-		if err != nil {
-			return 0, err
-		}
-		maxSeqNum = max(maxSeqNum, sstSeqNum)
-
-		closeErr := fs.Close()
-		if rmErr := ssTableManager.removeOpenedFS(fs); rmErr != nil {
-			WARN(ctx, "Failed to remove opened file %s: %v", fs.Path(), rmErr)
-		}
-		if closeErr != nil {
-			return 0, closeErr
-		}
-	}
-	return maxSeqNum, nil
-}
-
 func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta FileMeta, err error) {
 	if len(sources) == 0 {
 		return nil, FileMeta{}, nil

@@ -127,33 +127,17 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		}
 	}()
 
-	memtable, err := wal.Load(ctx)
+	// Determine the maximum sequence number by comparing the manifest's
+	// LastSequence with the WAL's highest sequence.
+	maxSeqNum, memtable, err := getMaxSequenceNumber(ctx, vs, wal)
 	if err != nil {
 		return nil, err
 	}
-
-	// Set default is 0, while inserting new record, it will automatically increase
-	// So first record's sequence number is always 1 if database is empty
-	var maxSeqNum uint64 = vs.LastSequence
-
-	memMaxSeqNum, err := getMaxSequenceNumberFromMemtable(memtable)
-	if err != nil {
-		return nil, err
-	}
-	maxSeqNum = max(maxSeqNum, memMaxSeqNum)
 
 	ssTableManager, err := cfg.newSSTableManagerFunc(ctx, cfg, vs, mw)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
-
-	// Only scan L0 SSTables for max sequence number during initialization.
-	// L0 SSTables contain the most recent data after the memtable.
-	sstMaxSeqNum, err := getMaxSequenceNumberFromSSTables(ctx, ssTableManager)
-	if err != nil {
-		return nil, err
-	}
-	maxSeqNum = max(maxSeqNum, sstMaxSeqNum)
 
 	INFO(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
 	rin := &Rindb{
