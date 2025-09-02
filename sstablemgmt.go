@@ -488,18 +488,34 @@ func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []F
 		return nil, nil
 	}
 	files := h.versionSet.Levels[level]
-	if len(files) == 0 {
+	if len(files) == 0 || len(inputs) == 0 {
 		return nil, nil
 	}
-	minKey := inputs[0].Smallest.UserKey
-	maxKey := inputs[0].Largest.UserKey
-	for _, f := range inputs[1:] {
+
+	var (
+		minKey Bytes
+		maxKey Bytes
+		first  = true
+	)
+	for _, f := range inputs {
+		if len(f.Smallest.UserKey) == 0 && len(f.Largest.UserKey) == 0 {
+			continue
+		}
+		if first {
+			minKey = f.Smallest.UserKey
+			maxKey = f.Largest.UserKey
+			first = false
+			continue
+		}
 		if f.Smallest.UserKey.Compare(minKey) < 0 {
 			minKey = f.Smallest.UserKey
 		}
 		if f.Largest.UserKey.Compare(maxKey) > 0 {
 			maxKey = f.Largest.UserKey
 		}
+	}
+	if first {
+		return nil, nil
 	}
 	var over []FileMeta
 	for _, f := range files {
