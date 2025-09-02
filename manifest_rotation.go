@@ -42,19 +42,26 @@ func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath
 		return nil, "", err
 	}
 
+	success := false
+	defer func() {
+		if !success {
+			_ = w.Close()
+			_ = os.Remove(newPath)
+		}
+	}()
+
 	snap := vs.SnapshotEdit()
-	if err := w.Append(snap); err != nil {
-		_ = w.Close()
+	if err = w.Append(snap); err != nil {
 		return nil, "", err
 	}
-	if err := w.Sync(); err != nil {
-		_ = w.Close()
+	if err = w.Sync(); err != nil {
 		return nil, "", err
 	}
-	if err := WriteCURRENT(ctx, dir, newBase); err != nil {
-		_ = w.Close()
+	if err = WriteCURRENT(ctx, dir, newBase); err != nil {
 		return nil, "", err
 	}
+
+	success = true
 	return w, newPath, nil
 }
 
