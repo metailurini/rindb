@@ -316,3 +316,37 @@ Tests in `sstablemgmt_test.go` and helpers in `utils_test.go` seed files via `Ad
 `Manager.versionSet.Levels`. Other tests such as `rindb_test.go` and `range_test.go` drop `AddSSTableToLevel` and direct
 `manager.levels` access. The helper carries the opened database via `RinDB`, builds SSTables through `createSSTable`, registers
 them, and lets tests verify placement through the public API only.
+
+## Implementation Tasks
+
+1. **Trace and migrate `levels` usage.**
+   - Audit all references to `SSTableManager.levels` and replace them with lookups against `versionSet.Levels` while keeping `levels` as a temporary shim.
+
+2. **Rework initialization flow.**
+   - Require a non-nil `VersionSet` unless `repairMode` is enabled.
+   - In `repairMode`, scan the database directory for `.sst` files, open each briefly to collect metadata, and populate `versionSet.Levels` with Level 0 entries.
+   - Remove the legacy `LoadLevels` function and update all call sites.
+
+3. **Introduce manifest-backed SSTable registration.**
+   - Add `AddSSTable(ctx, meta FileMeta)` which appends a `VersionEdit` to the manifest, syncs it, then updates `versionSet` and the file-number allocator under lock.
+
+4. **Overhaul compaction logic.**
+   - Replace `compactLevel0`, `compactHigherLevel`, `findOverlappingSSTables`, and `removeOverlappingFromLevel` with a version-set driven pipeline that picks compaction candidates, locates overlaps, merges them, and applies the resulting `VersionEdit`.
+   - Resolve `FileMeta.Number` to `FileSystem` lazily when opening SSTables.
+
+5. **Revise sequence number recovery.**
+   - Remove `getMaxSequenceNumberFromSSTables` and the Level‑0 scan.
+   - Implement `getMaxSequenceNumber(ctx, vs, wal)` that compares the manifest’s `LastSequence` with the WAL’s highest sequence, and call it from `InitRinDB`.
+
+6. **Update statistics gathering.**
+   - Modify `Rindb.Stats` to compute `SSTablesPerLevel` directly from `ssTableManager.versionSet.Levels`.
+   - Eliminate any remaining uses of `manager.levels` in the codebase.
+
+7. **Adapt tests and helpers.**
+   - Introduce `testRindbSetup` with `AddSSTable` and `createSSTable` helpers.
+   - Update `sstablemgmt_test.go`, `utils_test.go`, `rindb_test.go`, `range_test.go`, and related tests to seed and assert via the public `SSTableManager` API and `VersionSet`.
+
+8. **Clean up obsolete code and docs.**
+   - Remove the `levels` linked lists once no code depends on them, making `VersionSet` the single source of metadata.
+   - Delete unused methods and comments tied to `levels` (e.g., `AddSSTableToLevel`).
+   - Refresh documentation to reflect `VersionSet` as the sole metadata source.
