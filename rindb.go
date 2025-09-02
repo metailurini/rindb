@@ -92,7 +92,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
-	vs, manifestPath, err := RecoverVersionSet(ctx, cfg.databaseDir)
+	vs, manifestPath, err := RecoverVersionSet(ctx, cfg.databaseDir, cfg.fileNumberAllocator)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,6 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	if vs.NextFileNumber == 0 {
 		vs.NextFileNumber = 1
 	}
-	cfg.fileNumberAllocator.Set(vs.NextFileNumber)
 
 	wal, err := cfg.newWALFunc(ctx, cfg)
 	if err != nil {
@@ -390,6 +389,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		if err := edit.Apply(r.versionSet); err != nil {
 			return err
 		}
+		r.config.fileNumberAllocator.Apply(edit)
 		if err := r.maybeRotateManifest(ctx); err != nil {
 			return err
 		}

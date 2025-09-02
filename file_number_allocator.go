@@ -30,3 +30,10 @@ func (a *FileNumberAllocator) Set(v uint64) {
 func (a *FileNumberAllocator) Peek() uint64 {
 	return atomic.LoadUint64(&a.next)
 }
+
+// Apply updates the allocator using the NextFileNumber from edit if present.
+func (a *FileNumberAllocator) Apply(edit VersionEdit) {
+	if edit.NextFileNumber != 0 {
+		a.Set(edit.NextFileNumber)
+	}
+}
