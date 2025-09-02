@@ -506,12 +506,13 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem.Put(newRecord(Bytes("sk2"), Bytes("sv2"), 60))
 		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
-		edit := VersionEdit{AddFiles: []FileMeta{meta}, LastSequence: meta.SeqHi}
+		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta))
+		assert.NoError(t, fs.Close())
+		assert.NoError(t, rin.ssTableManager.removeOpenedFS(fs))
+		edit := VersionEdit{LastSequence: meta.SeqHi}
 		assert.NoError(t, rin.manifest.Append(edit))
 		assert.NoError(t, rin.manifest.Sync())
 		assert.NoError(t, edit.Apply(rin.versionSet))
-		rin.config.fileNumberAllocator.Apply(edit)
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
 		wp := path.Join(rin.config.databaseDir, walPath(1))
@@ -547,9 +548,15 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		mem := InitMemtable(rin.config)
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 70))
-		_, _, err = flush(ctx, rin.config, mem, fs)
+		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta))
+		assert.NoError(t, fs.Close())
+		assert.NoError(t, rin.ssTableManager.removeOpenedFS(fs))
+		edit := VersionEdit{LastSequence: meta.SeqHi}
+		assert.NoError(t, rin.manifest.Append(edit))
+		assert.NoError(t, rin.manifest.Sync())
+		assert.NoError(t, edit.Apply(rin.versionSet))
 
 		// Create a WAL with the same highest sequence number
 		// The database directory is already created by initRinDBWithCleanup

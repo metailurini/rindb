@@ -285,8 +285,10 @@ func (h *SSTableManager) dynamicTriggerHit() bool {
 	return h.writeRate > h.config.writeRateTrigger && h.ioLoad < h.config.ioLoadMax
 }
 
-// AddSSTable registers a new SSTable file system with the manager at the specified level.
-func (h *SSTableManager) AddSSTable(ctx context.Context, levelNumb int, fs *FileSystem) error {
+// AddSSTable registers a new SSTable's metadata, persists it to the manifest,
+// and updates the in-memory VersionSet. It keeps the legacy `levels` list in
+// sync until all call sites migrate to VersionSet usage only.
+func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta) error {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
 	start := time.Now()
 	defer func() {
@@ -295,20 +297,37 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, levelNumb int, fs *File
 		addSSTableCalls.Add(ctx, 1)
 	}()
 
+	edit := VersionEdit{
+		AddFiles:       []FileMeta{meta},
+		NextFileNumber: h.config.fileNumberAllocator.Peek(),
+	}
+	if h.manifest != nil {
+		if err := h.manifest.Append(edit); err != nil {
+			return err
+		}
+		if err := h.manifest.Sync(); err != nil {
+			return err
+		}
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Ensure the level exists
-	for len(h.levels) <= levelNumb {
+	if err := edit.Apply(h.versionSet); err != nil {
+		return err
+	}
+	h.config.fileNumberAllocator.Apply(edit)
+
+	// Maintain legacy levels list for existing compaction code paths.
+	for len(h.levels) <= meta.Level {
 		h.levels = append(h.levels, nil)
 	}
-	if h.levels[levelNumb] == nil {
-		h.levels[levelNumb] = InitLinkedList[*FileSystem]()
+	if h.levels[meta.Level] == nil {
+		h.levels[meta.Level] = InitLinkedList[*FileSystem]()
 	}
-
-	// Add the new SSTable to the end of the level list
-	h.levels[levelNumb].PushBack(fs)
-	INFO(ctx, "Registered new SSTable %s at level %d", fs.Path(), levelNumb)
+	fs := &FileSystem{filePath: path.Join(h.config.databaseDir, sstPath(meta.Number))}
+	h.levels[meta.Level].PushBack(fs)
+	INFO(ctx, "Registered new SSTable %s at level %d", fs.Path(), meta.Level)
 	return nil
 }
 
