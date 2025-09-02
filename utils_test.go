@@ -172,8 +172,8 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 	return &sstable
 }
 
-// AddSSTableToLevel adds an SSTable to the specified level.
-func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
+// AddSSTable registers an SSTable at the specified level.
+func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	if ts.Manager.versionSet == nil {
 		ts.Manager.versionSet = &VersionSet{}
 	}
