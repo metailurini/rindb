@@ -1203,3 +1203,155 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		_ = os.Remove(path.Join(ts.Config.databaseDir, sstPath(next)))
 	})
 }
+
+func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
+	cfg := testConfig()
+	ctx := context.Background()
+	ik := func(s string) InternalKey { return InternalKey{UserKey: Bytes(s)} }
+
+	t.Run("Level does not exist", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 5, inputs)
+		require.NoError(t, err)
+		assert.Nil(t, overlaps)
+	})
+
+	t.Run("Level is nil", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		if ts.Manager.versionSet == nil {
+			ts.Manager.versionSet = &VersionSet{}
+		}
+		ts.Manager.versionSet.ensureLevel(2)
+		ts.Manager.versionSet.Levels[2] = nil
+
+		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 2, inputs)
+		require.NoError(t, err)
+		assert.Nil(t, overlaps)
+	})
+
+	t.Run("Level empty", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		if ts.Manager.versionSet == nil {
+			ts.Manager.versionSet = &VersionSet{}
+		}
+		ts.Manager.versionSet.ensureLevel(1)
+		ts.Manager.versionSet.Levels[1] = []FileMeta{}
+
+		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, inputs)
+		require.NoError(t, err)
+		assert.Nil(t, overlaps)
+	})
+
+	t.Run("Return only overlapping SSTables", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.versionSet.ensureLevel(1)
+		lvl1 := []FileMeta{
+			{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("c")},
+			{Number: 2, Level: 1, Smallest: ik("e"), Largest: ik("g")},
+			{Number: 3, Level: 1, Smallest: ik("h"), Largest: ik("j")},
+		}
+		ts.Manager.versionSet.Levels[1] = append([]FileMeta(nil), lvl1...)
+
+		inputs := []FileMeta{{Number: 4, Level: 0, Smallest: ik("b"), Largest: ik("f")}}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, inputs)
+		require.NoError(t, err)
+		require.Len(t, overlaps, 2)
+		var nums []uint64
+		for _, fm := range overlaps {
+			nums = append(nums, fm.Number)
+		}
+		assert.Contains(t, nums, uint64(1))
+		assert.Contains(t, nums, uint64(2))
+		assert.NotContains(t, nums, uint64(3))
+	})
+
+	t.Run("No overlapping SSTables", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.versionSet.ensureLevel(1)
+		lvl1 := []FileMeta{
+			{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")},
+			{Number: 2, Level: 1, Smallest: ik("e"), Largest: ik("f")},
+		}
+		ts.Manager.versionSet.Levels[1] = append([]FileMeta(nil), lvl1...)
+
+		inputs := []FileMeta{{Number: 3, Level: 0, Smallest: ik("c"), Largest: ik("d")}}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, inputs)
+		require.NoError(t, err)
+		assert.Empty(t, overlaps)
+	})
+
+	t.Run("Error opening SSTable and resource cleanup", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0 := ts.createSSTable(0, map[string]string{"b": "1"})
+		ts.AddSSTableToLevel(0, l0)
+		overlap := ts.createSSTable(1, map[string]string{"b": "old"})
+		ts.AddSSTableToLevel(1, overlap)
+		non := ts.createSSTable(1, map[string]string{"z": "1"})
+		ts.AddSSTableToLevel(1, non)
+		require.NoError(t, l0.Close())
+		require.NoError(t, overlap.Close())
+		require.NoError(t, non.Close())
+
+		ts.Manager.openedFsMu.Lock()
+		ts.Manager.openedFs = make(map[uint64]*FileSystem)
+		ts.Manager.openedFsMu.Unlock()
+
+		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
+		require.NoError(t, err)
+		require.Len(t, overlaps, 1)
+
+		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
+		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
+		defer os.Remove(overlap.FileSystem.Path())
+
+		err = ts.Manager.mergeIntoLevel(ctx, 1, append(overlaps, picked...))
+		assert.Error(t, err)
+
+		ts.Manager.openedFsMu.Lock()
+		defer ts.Manager.openedFsMu.Unlock()
+		assert.Empty(t, ts.Manager.openedFs)
+	})
+
+	t.Run("Empty sources", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.versionSet.ensureLevel(1)
+		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
+
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, nil)
+		require.NoError(t, err)
+		assert.Nil(t, overlaps)
+	})
+
+	t.Run("With empty and non-empty source sstables", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.versionSet.ensureLevel(1)
+		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 5, Level: 1, Smallest: ik("c"), Largest: ik("e")}}
+
+		empty := FileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
+		nonEmpty := FileMeta{Smallest: ik("b"), Largest: ik("d")}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, []FileMeta{empty, nonEmpty})
+		require.NoError(t, err)
+		require.Len(t, overlaps, 1)
+		assert.Equal(t, uint64(5), overlaps[0].Number)
+	})
+}
