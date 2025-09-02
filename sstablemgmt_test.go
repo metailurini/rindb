@@ -1336,7 +1336,7 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			ioVal := uint64(0)
 
 			sm := &SSTableManager{
-				openedFs:       make(map[*FileSystem]struct{}),
+				openedFs:       make(map[uint64]*FileSystem),
 				levels:         []*LinkedList[*FileSystem]{InitLinkedList[*FileSystem]()},
 				config:         cfg,
 				now:            func() time.Time { return current },

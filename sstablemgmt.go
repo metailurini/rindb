@@ -28,8 +28,8 @@ const writeRateAlpha = 0.2
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
 	openedFsMu  sync.Mutex
-	openedFs    map[*FileSystem]struct{} // legacy tracking for compaction paths
-	openedByNum map[uint64]*SStable      // open SSTables keyed by file number
+	openedFs    map[uint64]*FileSystem // legacy tracking for compaction paths
+	openedByNum map[uint64]*SStable    // open SSTables keyed by file number
 	levels      []*LinkedList[*FileSystem]
 	versionSet  *VersionSet
 	manifest    ManifestWriter
@@ -75,15 +75,20 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 		_ = fs.Close() // Ensure file is closed on SSTable creation error
 		return nil, fmt.Errorf("failed to create sstable object for %s: %w", fs.Path(), err)
 	}
+	num, err := fileNum(fs.Path())
+	if err != nil {
+		_ = fs.Close()
+		return nil, fmt.Errorf("invalid sstable path %s: %w", fs.Path(), err)
+	}
 	h.openedFsMu.Lock()
-	h.openedFs[fs] = struct{}{} // Track opened file system
+	h.openedFs[num] = fs // Track opened file system
 	h.openedFsMu.Unlock()
 	return &sstable, nil
 }
 
 func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
 	h := &SSTableManager{
-		openedFs:          make(map[*FileSystem]struct{}),
+		openedFs:          make(map[uint64]*FileSystem),
 		openedByNum:       make(map[uint64]*SStable),
 		versionSet:        vs,
 		manifest:          mw,
@@ -289,7 +294,7 @@ func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*File
 	}
 
 	h.openedFsMu.Lock()
-	h.openedFs[fs] = struct{}{}
+	h.openedFs[id] = fs
 	h.openedFsMu.Unlock()
 	return fs, nil
 }
@@ -308,7 +313,7 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 	h.openedByNum = make(map[uint64]*SStable)
 	filesToClose := make([]*FileSystem, 0, len(h.openedFs))
-	for fs := range h.openedFs {
+	for _, fs := range h.openedFs {
 		filesToClose = append(filesToClose, fs)
 	}
 
@@ -325,13 +330,16 @@ func (h *SSTableManager) Close(ctx context.Context) {
 				ERROR(ctx, "Error iterating through level: %v", err)
 				continue
 			}
-			if _, exists := h.openedFs[fs]; exists {
-				continue
+			num, nerr := fileNum(fs.Path())
+			if nerr == nil {
+				if _, exists := h.openedFs[num]; exists {
+					continue
+				}
 			}
 			filesToClose = append(filesToClose, fs)
 		}
 	}
-	h.openedFs = make(map[*FileSystem]struct{})
+	h.openedFs = make(map[uint64]*FileSystem)
 	h.openedFsMu.Unlock()
 	h.mu.Unlock()
 
@@ -594,8 +602,12 @@ func (h *SSTableManager) closeSSTables(sstables []SStable) {
 }
 
 func (h *SSTableManager) removeOpenedFS(target *FileSystem) {
+	num, err := fileNum(target.Path())
+	if err != nil {
+		return
+	}
 	h.openedFsMu.Lock()
-	delete(h.openedFs, target)
+	delete(h.openedFs, num)
 	h.openedFsMu.Unlock()
 }
 
