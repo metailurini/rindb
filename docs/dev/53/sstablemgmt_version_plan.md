@@ -207,7 +207,8 @@ func getMaxSequenceNumber(ctx context.Context, vs *VersionSet, wal *WAL) (uint64
 
 ```go
 func InitRinDB(ctx context.Context, cfg Config) (*Rindb, error) {
-    vs := &VersionSet{}
+    vs, err := RecoverVersionSet(cfg.databaseDir)
+    if err != nil { return nil, err }
     wal, err := OpenWAL(cfg.databaseDir)
     if err != nil { return nil, err }
     seq, err := getMaxSequenceNumber(ctx, vs, wal)
@@ -217,8 +218,9 @@ func InitRinDB(ctx context.Context, cfg Config) (*Rindb, error) {
 }
 ```
 
-During startup the database pulls the greater sequence number from the manifest or WAL, avoiding a Level‑0 scan. The resulting
-value seeds `Rindb.sequenceNumber` so new writes continue the sequence monotonically after recovery.
+During startup the database first recovers the `VersionSet` from the manifest and then opens the WAL. `getMaxSequenceNumber`
+compares the manifest's `LastSequence` with the WAL's max to avoid a Level‑0 scan. The resulting value seeds
+`Rindb.sequenceNumber` so new writes continue the sequence monotonically after recovery.
 
 ## Stats Gathering
 ```go
