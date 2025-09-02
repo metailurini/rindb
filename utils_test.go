@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -201,18 +200,6 @@ func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
 	ts.Manager.versionSet.Levels[level] = append(ts.Manager.versionSet.Levels[level], meta)
 }
 
-// createDummyFile creates a dummy file of specified size in MB for testing compaction.
-func createDummyFile(t *testing.T, dir, name string, sizeMB int) string {
-	path := filepath.Join(dir, name)
-	f, err := os.Create(path)
-	assert.NoError(t, err)
-	defer f.Close()
-	data := make([]byte, sizeMB*1024*1024)
-	_, err = f.Write(data)
-	assert.NoError(t, err)
-	return path
-}
-
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
 // initialContents, if provided, must have length n. A nil entry means no initial content for that file.
 func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*FileSystem, func()) {
@@ -337,13 +324,6 @@ func initRinDBWithCleanup(t *testing.T, opts ...Option) (*Rindb, func()) {
 	}
 
 	return rin, cleanup
-}
-
-// assertFileExists checks if a file exists at the given path and fails the test if not.
-func assertFileExists(t *testing.T, path string) {
-	t.Helper()
-	_, err := os.Stat(path)
-	assert.NoError(t, err, "Expected file '%s' to exist, but got error: %v", path, err)
 }
 
 // assertFileNotExists checks if a file does not exist at the given path and fails the test if it does.
