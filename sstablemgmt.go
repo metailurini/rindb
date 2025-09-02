@@ -122,11 +122,16 @@ func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*VersionSet, erro
 		if closeErr != nil {
 			return closeErr
 		}
+		info, err := os.Stat(p)
+		if err != nil {
+			return err
+		}
 		metas = append(metas, FileMeta{
 			Number:   num,
 			Level:    0,
 			Smallest: InternalKey{UserKey: lo},
 			Largest:  InternalKey{UserKey: hi},
+			Size:     uint64(info.Size()),
 			SeqHi:    seqHi,
 		})
 		return nil
@@ -423,13 +428,7 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files
 
 	var totalSize int64
 	for _, f := range files {
-		p := path.Join(h.config.databaseDir, sstPath(f.Number))
-		info, err := os.Stat(p)
-		if err != nil {
-			ERROR(ctx, "Error stating file %s: %v", p, err)
-			continue
-		}
-		totalSize += info.Size()
+		totalSize += int64(f.Size)
 	}
 
 	multiplier := h.config.levelSizeMultiplier
@@ -511,7 +510,7 @@ func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []F
 	return over, nil
 }
 
-func (h *SSTableManager) removeFromLevel(level int, num uint64) {
+func (h *SSTableManager) removeFromLevel(ctx context.Context, level int, num uint64) {
 	if level >= len(h.levels) || h.levels[level] == nil {
 		return
 	}
@@ -520,10 +519,13 @@ func (h *SSTableManager) removeFromLevel(level int, num uint64) {
 	for it.HasNext() {
 		fs, err := it.Next()
 		if err != nil {
+			ERROR(ctx, "Error iterating in removeFromLevel: %v", err)
 			return
 		}
 		if fs.Path() == target {
-			_ = it.RemoveCurrent()
+			if err := it.RemoveCurrent(); err != nil {
+				ERROR(ctx, "Error removing file %s from level %d: %v", target, level, err)
+			}
 			return
 		}
 	}
@@ -589,7 +591,7 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 	for _, fm := range inputs {
 		dels = append(dels, FileMeta{Number: fm.Number})
 		delMetas = append(delMetas, DeletedFileMeta{Level: fm.Level, Number: fm.Number})
-		h.removeFromLevel(fm.Level, fm.Number)
+		h.removeFromLevel(ctx, fm.Level, fm.Number)
 	}
 
 	meta.Level = dst
@@ -611,6 +613,7 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
 		ERROR(ctx, "Error removing files: %v", err)
+		return err
 	}
 	return nil
 }

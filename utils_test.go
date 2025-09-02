@@ -195,8 +195,10 @@ func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
 
 	num, err := fileNum(fs.Path())
 	assert.NoError(ts.T, err)
+	info, err := os.Stat(fs.Path())
+	assert.NoError(ts.T, err)
 	small, large := sstable.GetKeyRange()
-	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}}
+	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size())}
 	ts.Manager.versionSet.Levels[level] = append(ts.Manager.versionSet.Levels[level], meta)
 }
 
