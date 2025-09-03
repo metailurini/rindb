@@ -19,6 +19,13 @@ func cleanupTemp(fs *FileSystem, p string) {
 	_ = os.Remove(p)
 }
 
+var (
+	walWriteRecord = WriteRecord
+	walTxCommit    = func(tx *Transaction, ctx context.Context, w io.Writer) error {
+		return tx.Commit(ctx, w)
+	}
+)
+
 type WAL struct {
 	*FileSystem
 	tm      *TransactionManager
@@ -226,11 +233,11 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 			continue
 		}
 		tx := w.tm.Begin()
-		if err := WriteRecord(tx, rec); err != nil {
+		if err := walWriteRecord(tx, rec); err != nil {
 			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 		}
-		if err := tx.Commit(ctx, tmpFS); err != nil {
+		if err := walTxCommit(tx, ctx, tmpFS); err != nil {
 			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to commit WAL transaction: %w", err)
 		}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // validateWALFormat validates that the WAL records are well-formed according to
@@ -97,6 +98,63 @@ func TestWAL_Clean(t *testing.T) {
 	assert.Empty(t, mem.data.Len())
 	err = w.Close()
 	assert.NoError(t, err)
+}
+
+func TestWAL_CleanErrors(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("ChecksumMismatch", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		info, err := fs.file.Stat()
+		require.NoError(t, err)
+		_, err = fs.file.WriteAt([]byte{0}, info.Size()-1)
+		require.NoError(t, err)
+
+		err = w.Clean(ctx, 0)
+		assert.ErrorIs(t, err, ErrChecksumMismatch)
+	})
+
+	t.Run("WriteRecordFailure", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		orig := walWriteRecord
+		walWriteRecord = func(tx *Transaction, rec Record) error { return errors.New("write fail") }
+		defer func() { walWriteRecord = orig }()
+
+		err := w.Clean(ctx, 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to write record")
+	})
+
+	t.Run("CommitFailure", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		orig := walTxCommit
+		walTxCommit = func(tx *Transaction, ctx context.Context, w io.Writer) error {
+			return errors.New("commit fail")
+		}
+		defer func() { walTxCommit = orig }()
+
+		err := w.Clean(ctx, 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to commit")
+	})
 }
 
 // TestWAL_AppendAndLoad tests appending and loading records from the WAL.
