@@ -2,7 +2,6 @@ package rindb
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -29,12 +28,12 @@ func (vs *VersionSet) SnapshotEdit() VersionEdit {
 func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath string) (ManifestWriter, string, error) {
 	dir := filepath.Dir(currentPath)
 	base := filepath.Base(currentPath)
-	var num int
-	if _, err := fmt.Sscanf(base, "MANIFEST-%d", &num); err != nil {
+	num, err := manifestNum(base)
+	if err != nil {
 		return nil, "", err
 	}
 	num++
-	newBase := fmt.Sprintf("MANIFEST-%06d", num)
+	newBase := manifestPath(num)
 	newPath := filepath.Join(dir, newBase)
 
 	w, err := cfg.newManifestWriterFunc(ctx, newPath)

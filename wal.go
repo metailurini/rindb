@@ -14,6 +14,11 @@ import (
 	"sync/atomic"
 )
 
+func cleanupTemp(fs *FileSystem, p string) {
+	_ = fs.Close()
+	_ = os.Remove(p)
+}
+
 type WAL struct {
 	*FileSystem
 	tm      *TransactionManager
@@ -33,7 +38,7 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 	var maxID uint64
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasSuffix(name, ".wal") {
+		if strings.HasSuffix(name, walExt) {
 			if n, nerr := fileNum(name); nerr == nil && n > maxID {
 				maxID = n
 			}
@@ -211,8 +216,7 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			_ = tmpFS.Close()
-			_ = os.Remove(tmpPath)
+			cleanupTemp(tmpFS, tmpPath)
 			if errors.Is(err, ErrChecksumMismatch) {
 				return fmt.Errorf("checksum mismatch while reading WAL: %w", err)
 			}
@@ -223,13 +227,11 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 		}
 		tx := w.tm.Begin()
 		if err := WriteRecord(tx, rec); err != nil {
-			_ = tmpFS.Close()
-			_ = os.Remove(tmpPath)
+			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 		}
 		if err := tx.Commit(ctx, tmpFS); err != nil {
-			_ = tmpFS.Close()
-			_ = os.Remove(tmpPath)
+			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to commit WAL transaction: %w", err)
 		}
 		keptRecords++
@@ -237,18 +239,16 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 	}
 
 	if err := tmpFS.Sync(); err != nil {
-		_ = tmpFS.Close()
-		_ = os.Remove(tmpPath)
+		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to sync WAL: %w", err)
 	}
 
 	if err := w.Close(); err != nil {
-		_ = tmpFS.Close()
-		_ = os.Remove(tmpPath)
+		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to close WAL: %w", err)
 	}
 	if err := tmpFS.Rename(w.Path()); err != nil {
-		_ = os.Remove(tmpPath)
+		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to replace WAL: %w", err)
 	}
 	if err := w.Open(ctx); err != nil {

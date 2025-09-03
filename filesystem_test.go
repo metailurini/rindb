@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //nolint:funlen
@@ -53,6 +54,27 @@ func TestFileSystem(t *testing.T) {
 
 		assert.NoError(t, fs.Rename(newPath))
 		assert.Equal(t, newPath, fs.Path())
+	})
+
+	t.Run("Rename and append content", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		ctx := context.Background()
+
+		_, err := fs.Write([]byte("A"))
+		require.NoError(t, err)
+		newPath := filepath.Join(filepath.Dir(fs.Path()), "file")
+		require.NoError(t, fs.Rename(newPath))
+		require.NoError(t, fs.Open(ctx))
+		_, err = fs.Seek(0, io.SeekEnd)
+		require.NoError(t, err)
+		_, err = fs.Write([]byte("B"))
+		require.NoError(t, err)
+		require.NoError(t, fs.Close())
+		data, err := os.ReadFile(newPath)
+		require.NoError(t, err)
+		require.Equal(t, []byte("AB"), data)
 	})
 }
 

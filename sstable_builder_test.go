@@ -44,8 +44,9 @@ func TestSSTableBuilder(t *testing.T) {
 			assert.NoError(t, builder.Add(r))
 		}
 
-		sst, _, _, err := builder.Build(ctx)
+		sst, meta, _, err := builder.Build(ctx)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 
 		var offset int64
 		for i, r := range recs {

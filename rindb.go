@@ -97,7 +97,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, err
 	}
 	if manifestPath == "" {
-		manifestFile := "MANIFEST-000001"
+		manifestFile := defaultManifestFile
 		manifestPath = path.Join(cfg.databaseDir, manifestFile)
 		if err := WriteCURRENT(ctx, cfg.databaseDir, manifestFile); err != nil {
 			return nil, err
@@ -314,101 +314,83 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		)
 	}
 
-	r.mu.Lock()
-
-	if r.closed {
-		r.mu.Unlock()
-		return ErrDatabaseClosed
-	}
-
-	r.sequenceNumber++
-	record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber, Type: TypeValue}
-	if err := r.wal.Append(ctx, record); err != nil {
-		r.mu.Unlock()
-		return err
-	}
-	r.memtable.Put(record) // This now updates the internal size estimate
-
-	memSize := r.memtable.ByteSize()
-	// Check estimated byte size and flush if needed
-	// Cast ByteSize() to uint to match maxMemtableSize type
-	// Check estimated byte size and flush if needed
-	if uint(memSize) >= r.config.maxMemtableSize {
-		flushCount.Add(ctx, 1)
-		r.flushCount.Add(1)
-		INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
-
-		// Create new SSTable file system for level 0
-		fs, err := r.ssTableManager.NewSSTableFS(ctx, 0)
-		if err != nil {
-			ERROR(ctx, "Failed to create new SSTable file system: %v", err)
-			return fmt.Errorf("failed to create new SSTable file system: %w", err)
+	if err := func() error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.closed {
+			return ErrDatabaseClosed
 		}
-
-		_, meta, err := flush(ctx, r.config, r.memtable, fs)
-		if err != nil {
-			_ = fs.Close() // Attempt to close FS on flush error
-			ERROR(ctx, "Failed to flush memtable: %v", err)
-			return fmt.Errorf("failed to flush memtable: %w", err)
-		}
-
-		if err := r.ssTableManager.AddSSTable(ctx, meta, r.sequenceNumber); err != nil {
-			_ = fs.Close()
-			ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
-			return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
-		}
-		// Close the writable FileSystem now that metadata is persisted.
-		if err := fs.Close(); err != nil {
-			WARN(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
-		}
-
-		if err := r.maybeRotateManifest(ctx); err != nil {
+		r.sequenceNumber++
+		record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber, Type: TypeValue}
+		if err := r.wal.Append(ctx, record); err != nil {
 			return err
 		}
+		r.memtable.Put(record)
+		memSize := r.memtable.ByteSize()
+		if uint(memSize) >= r.config.maxMemtableSize {
+			flushCount.Add(ctx, 1)
+			r.flushCount.Add(1)
+			INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
-		// Clear the memtable and clean the WAL *after* successful flush and registration
-		r.memtable.Clear()
-		snapMin := r.minSnapshotSeq()
-		walThreshold := snapMin
-		if len(r.activeSnapshots) == 0 {
-			walThreshold = r.sequenceNumber + 1
-		}
-		if err := r.wal.Clean(ctx, walThreshold); err != nil {
-			ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
-			return fmt.Errorf("failed to clean WAL: %w", err)
-		}
-		r.ssTableManager.setMinSnapshotSeq(snapMin)
-
-		// Capture the sequence number at flush time for later cleanup.
-		flushSeq := r.sequenceNumber
-
-		// Trigger compaction in a goroutine *after* flushing
-		INFO(ctx, "Triggering background compaction check.")
-		r.wg.Add(1)
-		compactionCtx := trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx))
-		go func(ctx context.Context) {
-			defer r.wg.Done()
-			INFO(ctx, "Background compaction goroutine started.")
-			if err := r.ssTableManager.Compact(ctx); err != nil {
-				ERROR(ctx, "Background compaction failed: %v", err)
-			} else {
-				INFO(ctx, "Background compaction goroutine finished.")
+			fs, err := r.ssTableManager.NewSSTableFS(ctx, 0)
+			if err != nil {
+				ERROR(ctx, "Failed to create new SSTable file system: %v", err)
+				return fmt.Errorf("failed to create new SSTable file system: %w", err)
 			}
-			r.mu.Lock()
-			if err := r.cleanupObsoleteLocked(ctx, flushSeq); err != nil {
-				ERROR(ctx, "Post-compaction cleanup failed: %v", err)
+
+			_, meta, err := flush(ctx, r.config, r.memtable, fs)
+			if err != nil {
+				_ = fs.Close()
+				ERROR(ctx, "Failed to flush memtable: %v", err)
+				return fmt.Errorf("failed to flush memtable: %w", err)
 			}
-			r.mu.Unlock()
-		}(compactionCtx)
+
+			if err := r.ssTableManager.AddSSTable(ctx, meta, r.sequenceNumber); err != nil {
+				_ = fs.Close()
+				ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
+				return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
+			}
+			if err := fs.Close(); err != nil {
+				WARN(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
+			}
+			if err := r.maybeRotateManifest(ctx); err != nil {
+				return err
+			}
+			r.memtable.Clear()
+			snapMin := r.minSnapshotSeq()
+			walThreshold := snapMin
+			if len(r.activeSnapshots) == 0 {
+				walThreshold = r.sequenceNumber + 1
+			}
+			if err := r.wal.Clean(ctx, walThreshold); err != nil {
+				ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
+				return fmt.Errorf("failed to clean WAL: %w", err)
+			}
+			r.ssTableManager.setMinSnapshotSeq(snapMin)
+			flushSeq := r.sequenceNumber
+			INFO(ctx, "Triggering background compaction check.")
+			r.wg.Add(1)
+			compactionCtx := trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx))
+			go func(ctx context.Context) {
+				defer r.wg.Done()
+				INFO(ctx, "Background compaction goroutine started.")
+				if err := r.ssTableManager.Compact(ctx); err != nil {
+					ERROR(ctx, "Background compaction failed: %v", err)
+				} else {
+					INFO(ctx, "Background compaction goroutine finished.")
+				}
+				r.mu.Lock()
+				if err := r.cleanupObsoleteLocked(ctx, flushSeq); err != nil {
+					ERROR(ctx, "Post-compaction cleanup failed: %v", err)
+				}
+				r.mu.Unlock()
+			}(compactionCtx)
+		}
+		return nil
+	}(); err != nil {
+		return err
 	}
-
-	r.mu.Unlock()
-
-	// Feed metrics used by the SSTable manager to compute write throughput
-	// for dynamic compaction decisions. Lock ordering: sstableManager.mu before
-	// r.mu, so recordWrite is invoked after releasing r.mu.
 	r.ssTableManager.recordWrite()
-
 	return nil
 }
 

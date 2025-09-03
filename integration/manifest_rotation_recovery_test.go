@@ -15,6 +15,11 @@ import (
 	"github.com/metailurini/rindb"
 )
 
+const (
+	currentFile         = "CURRENT"
+	defaultManifestFile = "MANIFEST-000001"
+)
+
 func TestManifestRotationRecovery(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -34,10 +39,10 @@ func TestManifestRotationRecovery(t *testing.T) {
 	}
 	require.NoError(t, db.Close())
 
-	data, err := os.ReadFile(filepath.Join(dir, "CURRENT"))
+	data, err := os.ReadFile(filepath.Join(dir, currentFile))
 	require.NoError(t, err)
 	mf := strings.TrimSpace(string(data))
-	require.NotEqual(t, "MANIFEST-000001", mf)
+	require.NotEqual(t, defaultManifestFile, mf)
 
 	alloc := rindb.NewFileNumberAllocator(1)
 	vs, manifestPath, err := rindb.RecoverVersionSet(ctx, dir, alloc)

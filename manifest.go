@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+const manifestRecordHeaderSize = 2 * checksumSize
+
 // ManifestWriter appends edits to a MANIFEST file.
 type ManifestWriter interface {
 	Append(VersionEdit) error
@@ -49,10 +51,10 @@ func (w *fileManifestWriter) Append(edit VersionEdit) error {
 	if err != nil {
 		return err
 	}
-	var header [8]byte
-	byteOrder.PutUint32(header[0:4], uint32(len(data)))
+	var header [manifestRecordHeaderSize]byte
+	byteOrder.PutUint32(header[0:checksumSize], uint32(len(data)))
 	crc := checksum(data)
-	byteOrder.PutUint32(header[4:8], crc)
+	byteOrder.PutUint32(header[checksumSize:manifestRecordHeaderSize], crc)
 	if _, err := w.fs.Write(header[:]); err != nil {
 		return err
 	}
@@ -75,12 +77,12 @@ func NewManifestReader(ctx context.Context, path string) (ManifestReader, error)
 }
 
 func (r *fileManifestReader) Next() (VersionEdit, error) {
-	var header [8]byte
+	var header [manifestRecordHeaderSize]byte
 	if _, err := io.ReadFull(r.fs, header[:]); err != nil {
 		return VersionEdit{}, err
 	}
-	n := byteOrder.Uint32(header[0:4])
-	crc := byteOrder.Uint32(header[4:8])
+	n := byteOrder.Uint32(header[0:checksumSize])
+	crc := byteOrder.Uint32(header[checksumSize:manifestRecordHeaderSize])
 	data := make([]byte, n)
 	if _, err := io.ReadFull(r.fs, data); err != nil {
 		return VersionEdit{}, err
@@ -99,7 +101,7 @@ func (r *fileManifestReader) Close() error { return r.fs.Close() }
 
 // WriteCURRENT atomically updates the CURRENT file to point to manifest.
 func WriteCURRENT(ctx context.Context, dir, manifest string) error {
-	tmp := filepath.Join(dir, "CURRENT.tmp")
+	tmp := filepath.Join(dir, currentTmp)
 	fs, err := OpenFS(ctx, tmp)
 	if err != nil {
 		return err
@@ -114,7 +116,7 @@ func WriteCURRENT(ctx context.Context, dir, manifest string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := fs.Rename(filepath.Join(dir, "CURRENT")); err != nil {
+	if err := fs.Rename(filepath.Join(dir, currentFile)); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
@@ -134,7 +136,7 @@ func syncDir(dir string) error {
 // updates the allocator with any NextFileNumber entries.
 func RecoverVersionSet(ctx context.Context, dir string, a *FileNumberAllocator) (*VersionSet, string, error) {
 	vs := &VersionSet{}
-	curr := filepath.Join(dir, "CURRENT")
+	curr := filepath.Join(dir, currentFile)
 	data, err := os.ReadFile(curr)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
