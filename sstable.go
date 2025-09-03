@@ -102,7 +102,17 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	offset, err := s.SparseIndex.GetOffset(key)
 	if err != nil {
-		offset = 0
+		if !errors.Is(err, ErrKeyNotFound) {
+			return nil, err
+		}
+		idx := sort.Search(len(s.SparseIndex), func(i int) bool {
+			return Compare(s.SparseIndex[i].key, key) >= 0
+		})
+		if idx > 0 {
+			offset = s.SparseIndex[idx-1].offset
+		} else {
+			offset = 0
+		}
 	}
 
 	reader := newOffsetReader(s.FileSystem, offset)

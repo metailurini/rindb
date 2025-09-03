@@ -340,6 +340,84 @@ func TestSStable(t *testing.T) {
 	})
 }
 
+// TestSStable_GetValueSparseIndexFallback ensures GetValue can retrieve keys
+// when they are absent from the sparse index by scanning from the nearest
+// preceding entry.
+func TestSStable_GetValueSparseIndexFallback(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	data := []struct{ key, value Bytes }{
+		{Bytes("a"), Bytes("1")},
+		{Bytes("b"), Bytes("2")},
+		{Bytes("c"), Bytes("3")},
+		{Bytes("d"), Bytes("4")},
+		{Bytes("e"), Bytes("5")},
+	}
+	mem := InitMemtable(cfg)
+	for i, v := range data {
+		mem.Put(newRecord(v.key, v.value, uint64(i)))
+	}
+	sst, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	// Reduce sparse index to only a subset of keys to simulate sparsity.
+	orig := sst.SparseIndex
+	sst.SparseIndex = SparseIndex{}
+	for _, ko := range orig {
+		if Compare(ko.key, Bytes("c")) == CmpEqual || Compare(ko.key, Bytes("e")) == CmpEqual {
+			sst.SparseIndex = append(sst.SparseIndex, ko)
+		}
+	}
+
+	// Insert a non-existent key into the Bloom filter to force a scan.
+	sst.Bloom.Insert(Bytes("da"))
+
+	tests := []struct {
+		name    string
+		key     Bytes
+		value   Bytes
+		wantErr error
+	}{
+		{
+			name:  "existing key before first index entry",
+			key:   Bytes("a"),
+			value: Bytes("1"),
+		},
+		{
+			name:  "existing key between index entries",
+			key:   Bytes("d"),
+			value: Bytes("4"),
+		},
+		{
+			name:    "missing key between index entries",
+			key:     Bytes("da"),
+			wantErr: ErrKeyNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			off, err := sst.SparseIndex.GetOffset(tt.key)
+			assert.ErrorIs(t, err, ErrKeyNotFound)
+			assert.Equal(t, int64(0), off)
+
+			val, err := sst.GetValue(ctx, tt.key)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, val)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.value, val)
+			}
+		})
+	}
+}
+
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
 func TestSparseIndex_GetOffset(t *testing.T) {
 	type args struct {
