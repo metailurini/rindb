@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSStable tests the SStable functionality.
@@ -44,8 +45,9 @@ func TestSStable(t *testing.T) {
 		for i, v := range data {
 			mem.Put(newRecord(v.key, v.value, uint64(i)))
 		}
-		sstable, _, err := flush(ctx, cfg, mem, fs)
+		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
 		assert.NoError(t, err)
 		reader := newOffsetReader(sstable.FileSystem, tailSSTableOffset)
@@ -163,8 +165,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-		sstable, _, err := flush(context.Background(), cfg, mem, fs)
+		sstable, meta, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		iterator, err := sstable.Iterator()
 		assert.NoError(t, err)
 		assert.True(t, iterator.HasNext())

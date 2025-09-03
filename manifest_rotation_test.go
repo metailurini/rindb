@@ -30,10 +30,10 @@ func TestManifestRotation(t *testing.T) {
 	}
 	rin.wg.Wait()
 
-	data, err := os.ReadFile(filepath.Join(dir, "CURRENT"))
+	data, err := os.ReadFile(filepath.Join(dir, CurrentFile))
 	require.NoError(t, err)
 	mf := strings.TrimSpace(string(data))
-	require.NotEqual(t, "MANIFEST-000001", mf)
+	require.NotEqual(t, DefaultManifestFile, mf)
 
 	r, err := NewManifestReader(ctx, filepath.Join(dir, mf))
 	require.NoError(t, err)
@@ -44,3 +44,32 @@ func TestManifestRotation(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF)
 	require.NoError(t, r.Close())
 }
+
+func TestMaybeRotateManifest(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
+	fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
+	require.NoError(t, err)
+	mw := NewManifestWriterMock(fs)
+	vs := &VersionSet{}
+	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, manifestPath: fs.Path(), ssTableManager: &SSTableManager{manifest: mw, versionSet: vs, config: cfg}}
+
+	// Below threshold
+	require.NoError(t, rin.maybeRotateManifest(ctx))
+	require.Equal(t, fs.Path(), rin.manifestPath)
+
+	// Exceed threshold
+	_, err = fs.Write([]byte(strings.Repeat("x", int(cfg.manifestSizeThreshold+1))))
+	require.NoError(t, err)
+	require.NoError(t, rin.maybeRotateManifest(ctx))
+	require.NotEqual(t, fs.Path(), rin.manifestPath)
+}
+
+type manifestWriterMock struct{ *FileSystem }
+
+func NewManifestWriterMock(fs *FileSystem) *manifestWriterMock { return &manifestWriterMock{fs} }
+
+func (m *manifestWriterMock) Append(VersionEdit) error { return nil }
+func (m *manifestWriterMock) Sync() error              { return nil }
+func (m *manifestWriterMock) Close() error             { return m.FileSystem.Close() }

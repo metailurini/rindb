@@ -14,7 +14,7 @@ func TestManifest(t *testing.T) {
 	t.Run("WriteRead", func(t *testing.T) {
 		ctx := context.Background()
 		dir := t.TempDir()
-		mf := filepath.Join(dir, "MANIFEST-000001")
+		mf := filepath.Join(dir, DefaultManifestFile)
 		w, err := NewManifestWriter(ctx, mf)
 		require.NoError(t, err)
 		edit := VersionEdit{ComparatorName: "bytes", LastSequence: 7}
@@ -35,7 +35,7 @@ func TestManifest(t *testing.T) {
 	t.Run("ReaderBadCRC", func(t *testing.T) {
 		ctx := context.Background()
 		dir := t.TempDir()
-		mf := filepath.Join(dir, "MANIFEST-000001")
+		mf := filepath.Join(dir, DefaultManifestFile)
 		w, err := NewManifestWriter(ctx, mf)
 		require.NoError(t, err)
 		edit := VersionEdit{LastSequence: 1}
@@ -66,7 +66,7 @@ func TestManifest(t *testing.T) {
 	t.Run("ReaderTruncated", func(t *testing.T) {
 		ctx := context.Background()
 		dir := t.TempDir()
-		mf := filepath.Join(dir, "MANIFEST-000001")
+		mf := filepath.Join(dir, DefaultManifestFile)
 		w, err := NewManifestWriter(ctx, mf)
 		require.NoError(t, err)
 		edit := VersionEdit{LastSequence: 1}
@@ -87,7 +87,7 @@ func TestManifest(t *testing.T) {
 	t.Run("RecoverVersionSet", func(t *testing.T) {
 		ctx := context.Background()
 		dir := t.TempDir()
-		mf := "MANIFEST-000001"
+		mf := DefaultManifestFile
 		path := filepath.Join(dir, mf)
 		w, err := NewManifestWriter(ctx, path)
 		require.NoError(t, err)

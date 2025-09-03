@@ -87,8 +87,9 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	mem1 := InitMemtable(cfg)
 	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
-	sst1, _, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
+	sst1, meta, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 	ts.AddSSTable(0, &sst1)
 
 	iter, err := ts.RinDB.IRange(ctx, Bytes("a"), Bytes("z"))

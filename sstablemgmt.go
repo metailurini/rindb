@@ -15,6 +15,22 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
+func removeFiles(dir string, files []FileMeta) error {
+	var first error
+	for _, f := range files {
+		p := filepath.Join(dir, sstPath(f.Number))
+		if err := os.Remove(p); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	return first
+}
+
 // writeRateAlpha is the smoothing factor for write-rate exponential moving
 // average. A higher value weights recent samples more heavily.
 const writeRateAlpha = 0.2
@@ -59,6 +75,10 @@ type SSTableManager struct {
 	diskSampler func() (uint64, error)
 }
 
+func (h *SSTableManager) sstInfo(num uint64) (os.FileInfo, error) {
+	return os.Stat(path.Join(h.config.databaseDir, sstPath(num)))
+}
+
 // openAndLoadSSTable opens a FileSystem and creates an SSTable object from it.
 // It returns the created *SSTable or an error.
 func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem) (*SStable, error) {
@@ -85,7 +105,7 @@ func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*VersionSet, erro
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || filepath.Ext(p) != ".sst" {
+		if d.IsDir() || filepath.Ext(p) != sstExt {
 			return nil
 		}
 		num, err := fileNum(p)
@@ -370,17 +390,13 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.versionSet == nil {
-		return nil
-	}
-
 	INFO(ctx, "Starting compaction check across %d levels", len(h.versionSet.Levels))
 
 	for lvl, files := range h.versionSet.Levels {
 		if !h.shouldCompact(ctx, lvl, files) {
 			continue
 		}
-		picked := h.pickFiles(ctx, lvl, files)
+		picked := append([]FileMeta(nil), files...)
 		if len(picked) == 0 {
 			continue
 		}
@@ -395,14 +411,8 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 	return nil
 }
 
-func (h *SSTableManager) pickFiles(ctx context.Context, level int, files []FileMeta) []FileMeta {
-	out := make([]FileMeta, len(files))
-	copy(out, files)
-	return out
-}
-
 func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error) {
-	if h.versionSet == nil || level >= len(h.versionSet.Levels) {
+	if level >= len(h.versionSet.Levels) {
 		return nil, nil
 	}
 	files := h.versionSet.Levels[level]
@@ -572,10 +582,6 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	if h.versionSet == nil {
-		return nil
-	}
-
 	var out []uint64
 	for lvl, files := range h.versionSet.Levels {
 		if len(files) == 0 {
@@ -585,8 +591,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			for i := len(files) - 1; i >= 0; i-- {
 				f := files[i]
 				if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
-					p := path.Join(h.config.databaseDir, sstPath(f.Number))
-					info, err := os.Stat(p)
+					info, err := h.sstInfo(f.Number)
 					if err == nil && info.Size() > 0 {
 						out = append(out, f.Number)
 					}
@@ -596,8 +601,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 		}
 		for _, f := range files {
 			if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
-				p := path.Join(h.config.databaseDir, sstPath(f.Number))
-				info, err := os.Stat(p)
+				info, err := h.sstInfo(f.Number)
 				if err == nil && info.Size() > 0 {
 					out = append(out, f.Number)
 				}

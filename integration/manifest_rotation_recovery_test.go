@@ -34,10 +34,10 @@ func TestManifestRotationRecovery(t *testing.T) {
 	}
 	require.NoError(t, db.Close())
 
-	data, err := os.ReadFile(filepath.Join(dir, "CURRENT"))
+	data, err := os.ReadFile(filepath.Join(dir, rindb.CurrentFile))
 	require.NoError(t, err)
 	mf := strings.TrimSpace(string(data))
-	require.NotEqual(t, "MANIFEST-000001", mf)
+	require.NotEqual(t, rindb.DefaultManifestFile, mf)
 
 	alloc := rindb.NewFileNumberAllocator(1)
 	vs, manifestPath, err := rindb.RecoverVersionSet(ctx, dir, alloc)

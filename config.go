@@ -201,74 +201,92 @@ func WithDatabaseDir(dir string) Option {
 	return func(c *Config) { c.databaseDir = dir }
 }
 
+// WithRepairMode enables repair mode which scans SSTables from disk on startup.
 func WithRepairMode(v bool) Option {
 	return func(c *Config) { c.repairMode = v }
 }
 
+// WithMaxMemtableSize sets the maximum number of entries allowed in the memtable before flushing.
 func WithMaxMemtableSize(size uint) Option {
 	return func(c *Config) { c.maxMemtableSize = size }
 }
 
+// WithLevel0CompactionThreshold configures how many level 0 files trigger a compaction.
 func WithLevel0CompactionThreshold(threshold int) Option {
 	return func(c *Config) { c.level0CompactionThreshold = threshold }
 }
 
+// WithBaseCompactionSizeMB sets the base size in MB for level 1 compaction.
 func WithBaseCompactionSizeMB(size int) Option {
 	return func(c *Config) { c.baseCompactionSizeMB = size }
 }
 
+// WithLevelSizeMultiplier specifies the multiplier for computing higher level sizes.
 func WithLevelSizeMultiplier(multiplier int) Option {
 	return func(c *Config) { c.levelSizeMultiplier = multiplier }
 }
 
+// WithWriteRateTrigger sets the write throughput threshold to attempt background compaction.
 func WithWriteRateTrigger(trigger float64) Option {
 	return func(c *Config) { c.writeRateTrigger = trigger }
 }
 
+// WithIOLoadMax limits the allowed disk utilization fraction for dynamic compaction triggers.
 func WithIOLoadMax(max float64) Option {
 	return func(c *Config) { c.ioLoadMax = max }
 }
 
+// WithBloomFalsePositiveRate configures the Bloom filter false positive probability.
 func WithBloomFalsePositiveRate(rate float64) Option {
 	return func(c *Config) { c.bloomFalsePositiveRate = rate }
 }
 
+// WithSkipListDefaultLevel sets the initial height of the skip list.
 func WithSkipListDefaultLevel(level uint) Option {
 	return func(c *Config) { c.skipListDefaultLevel = level }
 }
 
+// WithSkipListMaxLevel sets the maximum height of the skip list.
 func WithSkipListMaxLevel(maxLevel uint) Option {
 	return func(c *Config) { c.skipListMaxLevel = maxLevel }
 }
 
+// WithSkipListP sets the probability for skip list level promotion.
 func WithSkipListP(p float64) Option {
 	return func(c *Config) { c.skipListP = p }
 }
 
+// WithManifestSizeThreshold defines the manifest size in bytes that triggers rotation.
 func WithManifestSizeThreshold(threshold int64) Option {
 	return func(c *Config) { c.manifestSizeThreshold = threshold }
 }
 
+// WithEnableTelemetry toggles OpenTelemetry metrics and traces.
 func WithEnableTelemetry(enable bool) Option {
 	return func(c *Config) { c.enableTelemetry = enable }
 }
 
+// WithExporterEndpoint sets the OTLP gRPC endpoint for telemetry export.
 func WithExporterEndpoint(endpoint string) Option {
 	return func(c *Config) { c.exporterEndpoint = endpoint }
 }
 
+// WithExporterInsecure disables TLS for the OTLP exporter.
 func WithExporterInsecure(insecure bool) Option {
 	return func(c *Config) { c.exporterInsecure = insecure }
 }
 
+// WithTelemetrySamplingRate configures the trace sampling rate (0.0-1.0).
 func WithTelemetrySamplingRate(rate float64) Option {
 	return func(c *Config) { c.telemetrySamplingRate = rate }
 }
 
+// WithNewWALFunc overrides the default WAL constructor.
 func WithNewWALFunc(f NewWALFunc) Option {
 	return func(c *Config) { c.newWALFunc = f }
 }
 
+// WithNewSSTableManagerFunc overrides the default SSTableManager constructor.
 func WithNewSSTableManagerFunc(f NewSSTableManagerFunc) Option {
 	return func(c *Config) { c.newSSTableManagerFunc = f }
 }
@@ -278,12 +296,12 @@ func WithFileNumberAllocator(a *FileNumberAllocator) Option {
 	return func(c *Config) { c.fileNumberAllocator = a }
 }
 
-// WithNewFileNumberAllocatorFunc sets the constructor for FileNumberAllocator.
+// WithNewFileNumberAllocatorFunc provides a custom constructor for FileNumberAllocator.
 func WithNewFileNumberAllocatorFunc(f func(start uint64) *FileNumberAllocator) Option {
 	return func(c *Config) { c.newFileNumberAllocatorFunc = f }
 }
 
-// WithNewManifestWriterFunc sets the constructor for ManifestWriter.
+// WithNewManifestWriterFunc sets the constructor for ManifestWriter implementations.
 func WithNewManifestWriterFunc(f func(ctx context.Context, path string) (ManifestWriter, error)) Option {
 	return func(c *Config) { c.newManifestWriterFunc = f }
 }
