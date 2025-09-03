@@ -128,9 +128,7 @@ func TestWAL_CleanErrors(t *testing.T) {
 		w := NewWAL(cfg, fs)
 		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
 
-		orig := walWriteRecord
-		walWriteRecord = func(tx *Transaction, rec Record) error { return errors.New("write fail") }
-		defer func() { walWriteRecord = orig }()
+		w.writeRecord = func(tx *Transaction, rec Record) error { return errors.New("write fail") }
 
 		err := w.Clean(ctx, 0)
 		assert.Error(t, err)
@@ -145,11 +143,9 @@ func TestWAL_CleanErrors(t *testing.T) {
 		w := NewWAL(cfg, fs)
 		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
 
-		orig := walTxCommit
-		walTxCommit = func(tx *Transaction, ctx context.Context, w io.Writer) error {
+		w.txCommit = func(tx *Transaction, ctx context.Context, w io.Writer) error {
 			return errors.New("commit fail")
 		}
-		defer func() { walTxCommit = orig }()
 
 		err := w.Clean(ctx, 0)
 		assert.Error(t, err)
