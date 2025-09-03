@@ -37,3 +37,7 @@ test-coverage: clean-testdata
 
 test-pprof:
 	@./scripts/run-pprof-tests.sh
+
+view-coverage:
+	@$(GO) tool cover -html=coverage.txt -o coverage.html
+	@open coverage.html
