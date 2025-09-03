@@ -86,8 +86,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-		sstable1, _, err := flush(ctx, cfg, mem, fs)
+		sstable1, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		sstable2, err := NewSSTable(ctx, cfg, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, sstable1.SparseIndex, sstable2.SparseIndex)
@@ -101,8 +102,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-		_, _, err := flush(ctx, cfg, mem, fs)
+		_, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		sstable, err := NewSSTable(ctx, cfg, fs)
 		assert.NoError(t, err)
 		sparseIndex := sstable.SparseIndex
@@ -124,8 +126,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 		assert.Equal(t, uint(3), mem.data.Len())
-		sstable, _, err := flush(ctx, cfg, mem, fs)
+		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		assert.Equal(t, uint(0), mem.data.Len())
 		value, err := sstable.GetValue(ctx, Bytes("2"))
 		assert.NoError(t, err)
@@ -148,8 +151,9 @@ func TestSStable(t *testing.T) {
 		mem := InitMemtable(cfg)
 		mem.Put(newRecord(Bytes("a"), Bytes("old"), 1))
 		mem.Put(newRecord(Bytes("a"), Bytes("new"), 2))
-		sstable, _, err := flush(ctx, cfg, mem, fs)
+		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		value, err := sstable.GetValue(ctx, Bytes("a"), 1)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("old"), value)
@@ -212,8 +216,9 @@ func TestSStable(t *testing.T) {
 		for i, v := range data {
 			mem.Put(newRecord(v.key, v.value, uint64(i)))
 		}
-		sstable, _, err := flush(context.Background(), cfg, mem, fs)
+		sstable, meta, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 
 		tests := []struct {
 			name         string
@@ -470,8 +475,9 @@ func TestFlushWithTombstones(t *testing.T) {
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(k1, Bytes("v1"), 1))
 	mem.Put(newRecord(k2, nil, 2))
-	sstable, _, err := flush(ctx, cfg, mem, fs)
+	sstable, meta, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 	v1, err := sstable.GetValue(ctx, k1)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
@@ -489,8 +495,9 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	fs := fss[0]
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("k1"), Bytes("v1"), 2))
-	sstable, _, err := flush(ctx, cfg, mem, fs)
+	sstable, meta, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 	posBefore, err := fs.CursorPos()
 	assert.NoError(t, err)
 	_, err = sstable.GetValue(ctx, Bytes("k2"))
@@ -510,8 +517,9 @@ func TestSStableChecksumMismatch(t *testing.T) {
 	mem := InitMemtable(cfg)
 	rec := newRecord(Bytes("a"), Bytes("1"), 1)
 	mem.Put(rec)
-	sstable, _, err := flush(ctx, cfg, mem, fs)
+	sstable, meta, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 
 	offset := int64(CalOnDiskSize(rec)) - checksumSize
 	_, err = fs.file.WriteAt([]byte{0}, offset)

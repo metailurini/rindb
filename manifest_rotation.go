@@ -68,10 +68,11 @@ func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath
 // it exceeds the configured threshold. It swaps r.manifest and updates related
 // fields atomically.
 func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
-	if r.manifestPath == "" {
+	path := r.manifest.Path()
+	if path == "" {
 		return nil
 	}
-	fi, err := os.Stat(r.manifestPath)
+	fi, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
@@ -80,7 +81,7 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 	}
 
 	r.ssTableManager.mu.Lock()
-	mw, newPath, err := rotateManifest(ctx, r.config, r.versionSet, r.manifestPath)
+	mw, _, err := rotateManifest(ctx, r.config, r.versionSet, path)
 	if err != nil {
 		r.ssTableManager.mu.Unlock()
 		return err
@@ -88,7 +89,6 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 
 	old := r.manifest
 	r.manifest = mw
-	r.manifestPath = newPath
 	r.ssTableManager.manifest = mw
 	r.ssTableManager.mu.Unlock()
 	if old != nil {

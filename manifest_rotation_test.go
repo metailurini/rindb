@@ -53,17 +53,17 @@ func TestMaybeRotateManifest(t *testing.T) {
 	require.NoError(t, err)
 	mw := NewManifestWriterMock(fs)
 	vs := &VersionSet{}
-	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, manifestPath: fs.Path(), ssTableManager: &SSTableManager{manifest: mw, versionSet: vs, config: cfg}}
+	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, ssTableManager: &SSTableManager{manifest: mw, versionSet: vs, config: cfg}}
 
 	// Below threshold
 	require.NoError(t, rin.maybeRotateManifest(ctx))
-	require.Equal(t, fs.Path(), rin.manifestPath)
+	require.Equal(t, fs.Path(), rin.manifest.Path())
 
 	// Exceed threshold
 	_, err = fs.Write([]byte(strings.Repeat("x", int(cfg.manifestSizeThreshold+1))))
 	require.NoError(t, err)
 	require.NoError(t, rin.maybeRotateManifest(ctx))
-	require.NotEqual(t, fs.Path(), rin.manifestPath)
+	require.NotEqual(t, fs.Path(), rin.manifest.Path())
 }
 
 type manifestWriterMock struct{ *FileSystem }
@@ -73,3 +73,4 @@ func NewManifestWriterMock(fs *FileSystem) *manifestWriterMock { return &manifes
 func (m *manifestWriterMock) Append(VersionEdit) error { return nil }
 func (m *manifestWriterMock) Sync() error              { return nil }
 func (m *manifestWriterMock) Close() error             { return m.FileSystem.Close() }
+func (m *manifestWriterMock) Path() string             { return m.FileSystem.Path() }
