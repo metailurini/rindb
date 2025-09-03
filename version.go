@@ -49,7 +49,7 @@ func (vs *VersionSet) ensureLevel(level int) {
 
 // coalesceNonZero returns newVal if it's not the zero value for its type,
 // otherwise returns existing.
-func coalesceNonZero[T uint | uint64 | int | int32 | int64 | float32 | float64 | string](existing, newVal T) T {
+func coalesceNonZero[T comparable](existing, newVal T) T {
 	var zero T
 	if newVal != zero {
 		return newVal

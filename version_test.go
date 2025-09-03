@@ -51,3 +51,108 @@ func TestVersionEdit(t *testing.T) {
 		require.Equal(t, uint64(4), vs.PrevLogNumber)
 	})
 }
+
+func TestCoalesceNonZero(t *testing.T) {
+	type args[T comparable] struct {
+		existing T
+		new      T
+	}
+	type testCase[T comparable] struct {
+		name string
+		args args[T]
+		want T
+	}
+
+	// --- int tests ---
+	intTests := []testCase[int]{
+		{
+			name: "int: existing is zero, new is non-zero",
+			args: args[int]{existing: 0, new: 5},
+			want: 5,
+		},
+		{
+			name: "int: existing is non-zero, new is zero",
+			args: args[int]{existing: 10, new: 0},
+			want: 10,
+		},
+		{
+			name: "int: both are non-zero",
+			args: args[int]{existing: 10, new: 5},
+			want: 5,
+		},
+		{
+			name: "int: both are zero",
+			args: args[int]{existing: 0, new: 0},
+			want: 0,
+		},
+	}
+	for _, tt := range intTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := coalesceNonZero(tt.args.existing, tt.args.new); got != tt.want {
+				t.Errorf("CoalesceNonZero() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// --- string tests ---
+	stringTests := []testCase[string]{
+		{
+			name: "string: existing is empty, new is non-empty",
+			args: args[string]{existing: "", new: "hello"},
+			want: "hello",
+		},
+		{
+			name: "string: existing is non-empty, new is empty",
+			args: args[string]{existing: "world", new: ""},
+			want: "world",
+		},
+		{
+			name: "string: both are non-empty",
+			args: args[string]{existing: "world", new: "hello"},
+			want: "hello",
+		},
+		{
+			name: "string: both are empty",
+			args: args[string]{existing: "", new: ""},
+			want: "",
+		},
+	}
+	for _, tt := range stringTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := coalesceNonZero(tt.args.existing, tt.args.new); got != tt.want {
+				t.Errorf("CoalesceNonZero() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// --- float64 tests ---
+	float64Tests := []testCase[float64]{
+		{
+			name: "float64: existing is zero, new is non-zero",
+			args: args[float64]{existing: 0.0, new: 5.5},
+			want: 5.5,
+		},
+		{
+			name: "float64: existing is non-zero, new is zero",
+			args: args[float64]{existing: 10.1, new: 0.0},
+			want: 10.1,
+		},
+		{
+			name: "float64: both are non-zero",
+			args: args[float64]{existing: 10.1, new: 5.5},
+			want: 5.5,
+		},
+		{
+			name: "float64: both are zero",
+			args: args[float64]{existing: 0.0, new: 0.0},
+			want: 0.0,
+		},
+	}
+	for _, tt := range float64Tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := coalesceNonZero(tt.args.existing, tt.args.new); got != tt.want {
+				t.Errorf("CoalesceNonZero() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
