@@ -362,10 +362,6 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			WARN(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
 		}
 
-		if err := r.maybeRotateManifest(ctx); err != nil {
-			return err
-		}
-
 		// Clear the memtable and clean the WAL *after* successful flush and registration
 		r.memtable.Clear()
 		snapMin := r.minSnapshotSeq()
@@ -382,11 +378,11 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		// Capture the sequence number at flush time for later cleanup.
 		flushSeq := r.sequenceNumber
 
-		// Trigger compaction in a goroutine *after* flushing
+		// Trigger compaction and manifest rotation in a goroutine *after* flushing
 		INFO(ctx, "Triggering background compaction check.")
 		r.wg.Add(1)
 		compactionCtx := trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx))
-		go func(ctx context.Context) {
+		go func(ctx context.Context, flushSeq uint64) {
 			defer r.wg.Done()
 			INFO(ctx, "Background compaction goroutine started.")
 			if err := r.ssTableManager.Compact(ctx); err != nil {
@@ -395,11 +391,14 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 				INFO(ctx, "Background compaction goroutine finished.")
 			}
 			r.mu.Lock()
+			if err := r.maybeRotateManifest(ctx); err != nil {
+				ERROR(ctx, "Manifest rotation failed: %v", err)
+			}
 			if err := r.cleanupObsoleteLocked(ctx, flushSeq); err != nil {
 				ERROR(ctx, "Post-compaction cleanup failed: %v", err)
 			}
 			r.mu.Unlock()
-		}(compactionCtx)
+		}(compactionCtx, flushSeq)
 	}
 
 	r.mu.Unlock()
