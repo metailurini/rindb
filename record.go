@@ -11,7 +11,6 @@ const (
 type Record interface {
 	GetKey() Bytes
 	GetValue() Bytes
-	GetSize() int
 	GetSequenceNumber() uint64
 	GetType() RecordType
 }
@@ -41,11 +40,6 @@ func (r RecordImpl) GetKey() Bytes {
 // GetValue implements Record.
 func (r RecordImpl) GetValue() Bytes {
 	return r.Value
-}
-
-// GetSize implements Record.
-func (r RecordImpl) GetSize() int {
-	return len(r.GetKey()) + len(r.GetValue())
 }
 
 // GetSequenceNumber implements Record.

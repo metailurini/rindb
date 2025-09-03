@@ -257,7 +257,7 @@ func TestWAL_LoadChecksumMismatch(t *testing.T) {
 
 	info, err := fs.file.Stat()
 	assert.NoError(t, err)
-	_, err = fs.file.WriteAt([]byte{0}, info.Size()-1)
+	_, err = fs.WriteAt([]byte{0}, info.Size()-1)
 	assert.NoError(t, err)
 
 	_, err = w.Load(context.Background())

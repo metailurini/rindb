@@ -521,7 +521,7 @@ func TestSStableChecksumMismatch(t *testing.T) {
 	require.NotZero(t, meta.Number)
 
 	offset := int64(CalOnDiskSize(rec)) - checksumSize
-	_, err = fs.file.WriteAt([]byte{0}, offset)
+	_, err = fs.WriteAt([]byte{0}, offset)
 	assert.NoError(t, err)
 
 	_, err = sstable.GetValue(ctx, Bytes("a"))
