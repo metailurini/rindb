@@ -21,6 +21,7 @@ type failingManifest struct{}
 func (failingManifest) Append(VersionEdit) error { return errors.New("append fail") }
 func (failingManifest) Sync() error              { return nil }
 func (failingManifest) Close() error             { return nil }
+func (failingManifest) Path() string             { return "" }
 
 func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	cfg := testConfig()

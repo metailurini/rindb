@@ -25,7 +25,6 @@ type Rindb struct {
 	ssTableManager    *SSTableManager
 	versionSet        *VersionSet
 	manifest          ManifestWriter
-	manifestPath      string
 	config            Config
 	shutdownTelemetry func(context.Context) error
 	mu                sync.RWMutex   // Mutex for thread-safe access
@@ -146,7 +145,6 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		ssTableManager:    ssTableManager,
 		versionSet:        vs,
 		manifest:          mw,
-		manifestPath:      manifestPath,
 		config:            cfg,
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,

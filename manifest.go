@@ -17,6 +17,7 @@ type ManifestWriter interface {
 	Append(VersionEdit) error
 	Sync() error
 	Close() error
+	Path() string
 }
 
 // ManifestReader iterates over manifest records.
@@ -66,6 +67,7 @@ func (w *fileManifestWriter) Append(edit VersionEdit) error {
 
 func (w *fileManifestWriter) Sync() error  { return w.fs.Sync() }
 func (w *fileManifestWriter) Close() error { return w.fs.Close() }
+func (w *fileManifestWriter) Path() string { return w.fs.Path() }
 
 // NewManifestReader opens a reader for the manifest at path.
 func NewManifestReader(ctx context.Context, path string) (ManifestReader, error) {
