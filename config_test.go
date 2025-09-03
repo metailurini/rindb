@@ -2,6 +2,8 @@ package rindb
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestDefaultConfig verifies that DefaultConfig returns the expected default values.
@@ -189,6 +191,43 @@ func TestNewConfigWithOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := NewConfig(tt.opts...)
 			tt.verify(t, cfg)
+		})
+	}
+}
+
+func TestConfigValidatePanics(t *testing.T) {
+	base := DefaultConfig()
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"empty databaseDir", func(c *Config) { c.databaseDir = "" }},
+		{"zero maxMemtableSize", func(c *Config) { c.maxMemtableSize = 0 }},
+		{"non-positive level0CompactionThreshold", func(c *Config) { c.level0CompactionThreshold = 0 }},
+		{"non-positive baseCompactionSizeMB", func(c *Config) { c.baseCompactionSizeMB = 0 }},
+		{"non-positive levelSizeMultiplier", func(c *Config) { c.levelSizeMultiplier = 0 }},
+		{"negative writeRateTrigger", func(c *Config) { c.writeRateTrigger = -1 }},
+		{"ioLoadMax out of range", func(c *Config) { c.ioLoadMax = 2 }},
+		{"bloomFalsePositiveRate out of range", func(c *Config) { c.bloomFalsePositiveRate = 1 }},
+		{"skipListDefaultLevel zero", func(c *Config) { c.skipListDefaultLevel = 0 }},
+		{"skipListMaxLevel zero", func(c *Config) { c.skipListMaxLevel = 0 }},
+		{"skipListDefaultLevel greater than max", func(c *Config) { c.skipListDefaultLevel = 5; c.skipListMaxLevel = 4 }},
+		{"skipListP out of range", func(c *Config) { c.skipListP = 1 }},
+		{"telemetry enabled without endpoint", func(c *Config) { c.enableTelemetry = true; c.exporterEndpoint = "" }},
+		{"telemetrySamplingRate out of range", func(c *Config) { c.telemetrySamplingRate = 1.1 }},
+		{"nil newWALFunc", func(c *Config) { c.newWALFunc = nil }},
+		{"nil newSSTableManagerFunc", func(c *Config) { c.newSSTableManagerFunc = nil }},
+		{"nil fileNumberAllocator", func(c *Config) { c.fileNumberAllocator = nil }},
+		{"nil newFileNumberAllocatorFunc", func(c *Config) { c.newFileNumberAllocatorFunc = nil }},
+		{"nil newManifestWriterFunc", func(c *Config) { c.newManifestWriterFunc = nil }},
+		{"manifestSizeThreshold non-positive", func(c *Config) { c.manifestSizeThreshold = 0 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			tt.mutate(&cfg)
+			assert.Panics(t, func() { cfg.Validate() })
 		})
 	}
 }
