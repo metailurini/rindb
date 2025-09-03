@@ -1359,6 +1359,38 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 		assert.ErrorIs(t, err, ErrTombstoneFound)
 	})
 
+	t.Run("keeps tombstone when higher level exists", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		// Add dummy file to higher level to force bottom=false
+		ts.Manager.versionSet.ensureLevel(2)
+		ts.Manager.versionSet.Levels[2] = []FileMeta{{Number: 99, Level: 2, Smallest: InternalKey{UserKey: Bytes("x")}, Largest: InternalKey{UserKey: Bytes("x")}}}
+
+		fs := ts.newSSTableFS(0)
+		mem := InitMemtable(*ts.Config)
+		mem.Put(newRecord(Bytes("a"), nil, 1))
+		sst, _, err := flush(ctx, *ts.Config, mem, fs)
+		require.NoError(t, err)
+		ts.AddSSTable(0, &sst)
+		require.NoError(t, sst.Close())
+
+		ts.Manager.minSnapshotSeq = 2
+
+		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
+		require.NoError(t, err)
+
+		meta := ts.Manager.versionSet.Levels[1][0]
+		fsMerged, err := OpenExistingFS(ctx, path.Join(ts.Manager.config.databaseDir, sstPath(meta.Number)))
+		require.NoError(t, err)
+		merged, err := NewSSTable(ctx, cfg, fsMerged)
+		require.NoError(t, err)
+
+		_, err = merged.GetValue(ctx, Bytes("a"))
+		assert.ErrorIs(t, err, ErrTombstoneFound)
+	})
+
 	t.Run("no-op on empty sources", func(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
@@ -1500,6 +1532,19 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		assert.Nil(t, overlaps)
 	})
 
+	t.Run("Only empty source sstables", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		ts.Manager.versionSet.ensureLevel(1)
+		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
+
+		empty := FileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
+		overlaps, err := ts.Manager.findOverlaps(ctx, 1, []FileMeta{empty})
+		require.NoError(t, err)
+		assert.Nil(t, overlaps)
+	})
+
 	t.Run("With empty and non-empty source sstables", func(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
@@ -1517,20 +1562,51 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 }
 
 func TestRemoveFiles(t *testing.T) {
-	dir := t.TempDir()
-	paths := []string{
-		filepath.Join(dir, sstPath(1)),
-		filepath.Join(dir, sstPath(2)),
-	}
-	for _, p := range paths {
-		f, err := os.Create(p)
+	t.Run("ignores missing files", func(t *testing.T) {
+		dir := t.TempDir()
+		paths := []string{
+			filepath.Join(dir, sstPath(1)),
+			filepath.Join(dir, sstPath(2)),
+		}
+		for _, p := range paths {
+			f, err := os.Create(p)
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
+		}
+		files := []FileMeta{{Number: 1}, {Number: 2}, {Number: 3}}
+		require.NoError(t, removeFiles(dir, files))
+		for _, p := range paths {
+			_, err := os.Stat(p)
+			require.ErrorIs(t, err, os.ErrNotExist)
+		}
+	})
+
+	t.Run("returns first error", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create a non-empty directory for file 1 so os.Remove fails.
+		errDir := filepath.Join(dir, sstPath(1))
+		require.NoError(t, os.Mkdir(errDir, 0o755))
+		f, err := os.Create(filepath.Join(errDir, "child"))
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
-	}
-	files := []FileMeta{{Number: 1}, {Number: 2}, {Number: 3}}
-	require.NoError(t, removeFiles(dir, files))
-	for _, p := range paths {
-		_, err := os.Stat(p)
-		require.ErrorIs(t, err, os.ErrNotExist)
-	}
+
+		// Create a regular file for file 2 which should be removed.
+		okPath := filepath.Join(dir, sstPath(2))
+		f, err = os.Create(okPath)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		files := []FileMeta{{Number: 1}, {Number: 2}}
+		err = removeFiles(dir, files)
+		assert.Error(t, err)
+
+		// File 2 should be removed
+		_, statErr := os.Stat(okPath)
+		assert.ErrorIs(t, statErr, os.ErrNotExist)
+
+		// Directory for file 1 should remain
+		_, statErr = os.Stat(errDir)
+		assert.NoError(t, statErr)
+	})
 }
