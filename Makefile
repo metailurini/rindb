@@ -1,4 +1,4 @@
-export GOTOOLCHAIN ?=go1.25.0
+export GOTOOLCHAIN ?= go1.25.0
 GO = go
 
 check:
