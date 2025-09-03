@@ -79,15 +79,17 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 	if fi.Size() <= r.config.manifestSizeThreshold {
 		return nil
 	}
+
+	r.ssTableManager.mu.Lock()
 	mw, newPath, err := rotateManifest(ctx, r.config, r.versionSet, r.manifestPath)
 	if err != nil {
+		r.ssTableManager.mu.Unlock()
 		return err
 	}
 
 	old := r.manifest
 	r.manifest = mw
 	r.manifestPath = newPath
-	r.ssTableManager.mu.Lock()
 	r.ssTableManager.manifest = mw
 	r.ssTableManager.mu.Unlock()
 	if old != nil {
