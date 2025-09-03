@@ -19,19 +19,16 @@ func cleanupTemp(fs *FileSystem, p string) {
 	_ = os.Remove(p)
 }
 
-var (
-	walWriteRecord = WriteRecord
-	walTxCommit    = func(tx *Transaction, ctx context.Context, w io.Writer) error {
-		return tx.Commit(ctx, w)
-	}
-)
-
 type WAL struct {
 	*FileSystem
 	tm      *TransactionManager
 	config  Config
 	records atomic.Uint64
 	bytes   atomic.Uint64
+
+	// injected for testing
+	writeRecord func(tx *Transaction, rec Record) error
+	txCommit    func(tx *Transaction, ctx context.Context, w io.Writer) error
 }
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
@@ -65,9 +62,13 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 
 func NewWAL(config Config, fs *FileSystem) *WAL {
 	return &WAL{
-		FileSystem: fs,
-		tm:         NewTransactionManager(),
-		config:     config,
+		FileSystem:  fs,
+		tm:          NewTransactionManager(),
+		config:      config,
+		writeRecord: WriteRecord,
+		txCommit: func(tx *Transaction, ctx context.Context, w io.Writer) error {
+			return tx.Commit(ctx, w)
+		},
 	}
 }
 
@@ -233,11 +234,11 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 			continue
 		}
 		tx := w.tm.Begin()
-		if err := walWriteRecord(tx, rec); err != nil {
+		if err := w.writeRecord(tx, rec); err != nil {
 			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 		}
-		if err := walTxCommit(tx, ctx, tmpFS); err != nil {
+		if err := w.txCommit(tx, ctx, tmpFS); err != nil {
 			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to commit WAL transaction: %w", err)
 		}
