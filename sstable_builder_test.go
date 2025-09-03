@@ -58,6 +58,31 @@ func TestSSTableBuilder(t *testing.T) {
 		assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 	})
 
+	t.Run("BuildWithNilBloom", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := testConfig()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+
+		recs := []Record{
+			newRecord(Bytes("a"), Bytes("1"), 1),
+			newRecord(Bytes("b"), Bytes("2"), 2),
+		}
+		builder, err := NewSSTableBuilder(ctx, cfg, fs, 0)
+		assert.NoError(t, err)
+		for _, r := range recs {
+			assert.NoError(t, builder.Add(r))
+		}
+
+		sst, _, _, err := builder.Build(ctx)
+		assert.NoError(t, err)
+		for _, r := range recs {
+			assert.True(t, sst.Bloom.Lookup(r.GetKey()))
+		}
+		assert.False(t, sst.Bloom.Lookup(Bytes("z")))
+	})
+
 	t.Run("AddEnforcesOrder", func(t *testing.T) {
 		ctx := context.Background()
 		cfg := testConfig()

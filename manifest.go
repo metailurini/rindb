@@ -108,18 +108,18 @@ func WriteCURRENT(ctx context.Context, dir, manifest string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fs.Write([]byte(manifest + "\n")); err != nil {
+	defer func() {
 		_ = fs.Close()
 		_ = os.Remove(tmp)
+	}()
+
+	if _, err := fs.Write([]byte(manifest + "\n")); err != nil {
 		return err
 	}
 	if err := fs.Sync(); err != nil {
-		_ = fs.Close()
-		_ = os.Remove(tmp)
 		return err
 	}
 	if err := fs.Rename(filepath.Join(dir, CurrentFile)); err != nil {
-		_ = os.Remove(tmp)
 		return err
 	}
 	return syncDir(dir)
