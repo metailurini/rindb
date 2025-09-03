@@ -23,14 +23,14 @@ func (vs *VersionSet) SnapshotEdit() VersionEdit {
 }
 
 // rotateManifest writes a snapshot of vs to a new manifest file and updates the
-// CURRENT file to point to it. It returns an open ManifestWriter for further
-// edits and the path to the new manifest.
-func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath string) (ManifestWriter, string, error) {
+// CURRENT file to point to it. It returns an open ManifestWriter for further edits.
+func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, current ManifestWriter) (ManifestWriter, error) {
+	currentPath := current.Path()
 	dir := filepath.Dir(currentPath)
 	base := filepath.Base(currentPath)
 	num, err := manifestNum(base)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	num++
 	newBase := manifestPath(num)
@@ -38,7 +38,7 @@ func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath
 
 	w, err := cfg.newManifestWriterFunc(ctx, newPath)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	success := false
@@ -51,27 +51,27 @@ func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, currentPath
 
 	snap := vs.SnapshotEdit()
 	if err = w.Append(snap); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if err = w.Sync(); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if err = WriteCURRENT(ctx, dir, newBase); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	success = true
-	return w, newPath, nil
+	return w, nil
 }
 
 // maybeRotateManifest checks the current manifest size and triggers rotation if
 // it exceeds the configured threshold. It swaps r.manifest and updates related
 // fields atomically.
 func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
-	if r.manifestPath == "" {
+	if r.manifest == nil || r.manifest.Path() == "" {
 		return nil
 	}
-	fi, err := os.Stat(r.manifestPath)
+	fi, err := os.Stat(r.manifest.Path())
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 	}
 
 	r.ssTableManager.mu.Lock()
-	mw, newPath, err := rotateManifest(ctx, r.config, r.versionSet, r.manifestPath)
+	mw, err := rotateManifest(ctx, r.config, r.versionSet, r.manifest)
 	if err != nil {
 		r.ssTableManager.mu.Unlock()
 		return err
@@ -88,7 +88,6 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 
 	old := r.manifest
 	r.manifest = mw
-	r.manifestPath = newPath
 	r.ssTableManager.manifest = mw
 	r.ssTableManager.mu.Unlock()
 	if old != nil {
