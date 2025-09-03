@@ -97,7 +97,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, err
 	}
 	if manifestPath == "" {
-		manifestFile := defaultManifestFile
+		manifestFile := DefaultManifestFile
 		manifestPath = path.Join(cfg.databaseDir, manifestFile)
 		if err := WriteCURRENT(ctx, cfg.databaseDir, manifestFile); err != nil {
 			return nil, err

@@ -1,23 +1,29 @@
 package rindb
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestFilePathHelpers(t *testing.T) {
-	if walPath(1) != "000001"+walExt {
-		t.Fatalf("walPath unexpected")
-	}
-	if sstPath(2) != "000002"+sstExt {
-		t.Fatalf("sstPath unexpected")
-	}
-	if manifestPath(3) != "MANIFEST-000003" {
-		t.Fatalf("manifestPath unexpected")
-	}
-	n, err := fileNum("/path/000123" + sstExt)
-	if err != nil || n != 123 {
-		t.Fatalf("fileNum failed: %v %d", err, n)
-	}
-	mn, err := manifestNum("MANIFEST-000007")
-	if err != nil || mn != 7 {
-		t.Fatalf("manifestNum failed: %v %d", err, mn)
-	}
+	t.Run("walPath", func(t *testing.T) {
+		require.Equal(t, "000001"+walExt, walPath(1))
+	})
+	t.Run("sstPath", func(t *testing.T) {
+		require.Equal(t, "000002"+sstExt, sstPath(2))
+	})
+	t.Run("manifestPath", func(t *testing.T) {
+		require.Equal(t, "MANIFEST-000003", manifestPath(3))
+	})
+	t.Run("fileNum", func(t *testing.T) {
+		n, err := fileNum("/path/000123" + sstExt)
+		require.NoError(t, err)
+		require.Equal(t, uint64(123), n)
+	})
+	t.Run("manifestNum", func(t *testing.T) {
+		mn, err := manifestNum("MANIFEST-000007")
+		require.NoError(t, err)
+		require.Equal(t, 7, mn)
+	})
 }

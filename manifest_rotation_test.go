@@ -30,10 +30,10 @@ func TestManifestRotation(t *testing.T) {
 	}
 	rin.wg.Wait()
 
-	data, err := os.ReadFile(filepath.Join(dir, currentFile))
+	data, err := os.ReadFile(filepath.Join(dir, CurrentFile))
 	require.NoError(t, err)
 	mf := strings.TrimSpace(string(data))
-	require.NotEqual(t, defaultManifestFile, mf)
+	require.NotEqual(t, DefaultManifestFile, mf)
 
 	r, err := NewManifestReader(ctx, filepath.Join(dir, mf))
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestMaybeRotateManifest(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
-	fs, err := OpenFS(ctx, filepath.Join(dir, defaultManifestFile))
+	fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
 	require.NoError(t, err)
 	mw := NewManifestWriterMock(fs)
 	vs := &VersionSet{}

@@ -11,9 +11,9 @@ const (
 	walExt              = ".wal"
 	sstExt              = ".sst"
 	manifestFmt         = "MANIFEST-%06d"
-	currentFile         = "CURRENT"
-	currentTmp          = "CURRENT.tmp"
-	defaultManifestFile = "MANIFEST-000001"
+	CurrentFile         = "CURRENT"
+	CurrentTmp          = "CURRENT.tmp"
+	DefaultManifestFile = "MANIFEST-000001"
 )
 
 func walPath(num uint64) string { return fmt.Sprintf("%06d%s", num, walExt) }

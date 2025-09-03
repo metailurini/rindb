@@ -101,7 +101,7 @@ func (r *fileManifestReader) Close() error { return r.fs.Close() }
 
 // WriteCURRENT atomically updates the CURRENT file to point to manifest.
 func WriteCURRENT(ctx context.Context, dir, manifest string) error {
-	tmp := filepath.Join(dir, currentTmp)
+	tmp := filepath.Join(dir, CurrentTmp)
 	fs, err := OpenFS(ctx, tmp)
 	if err != nil {
 		return err
@@ -116,7 +116,7 @@ func WriteCURRENT(ctx context.Context, dir, manifest string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := fs.Rename(filepath.Join(dir, currentFile)); err != nil {
+	if err := fs.Rename(filepath.Join(dir, CurrentFile)); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
@@ -136,7 +136,7 @@ func syncDir(dir string) error {
 // updates the allocator with any NextFileNumber entries.
 func RecoverVersionSet(ctx context.Context, dir string, a *FileNumberAllocator) (*VersionSet, string, error) {
 	vs := &VersionSet{}
-	curr := filepath.Join(dir, currentFile)
+	curr := filepath.Join(dir, CurrentFile)
 	data, err := os.ReadFile(curr)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
