@@ -1,5 +1,6 @@
 export GOTOOLCHAIN ?= go1.25.0
 GO = go
+UNAME_S := $(shell uname -s)
 
 check:
 	@$(MAKE) check-spanname
@@ -40,4 +41,10 @@ test-pprof:
 
 view-coverage:
 	@$(GO) tool cover -html=coverage.txt -o coverage.html
+ifeq ($(OS),Windows_NT)
+	@start coverage.html
+else ifeq ($(UNAME_S),Linux)
+	@xdg-open coverage.html
+else ifeq ($(UNAME_S),Darwin)
 	@open coverage.html
+endif
