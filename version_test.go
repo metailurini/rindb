@@ -27,6 +27,17 @@ func TestVersionEdit(t *testing.T) {
 		require.Empty(t, vs.Levels[1])
 	})
 
+	t.Run("AddFilesSorted", func(t *testing.T) {
+		vs := &VersionSet{}
+		fm1 := FileMeta{Number: 1, Level: 0, Smallest: InternalKey{UserKey: Bytes("b"), Seq: 1, Type: TypeValue}}
+		fm2 := FileMeta{Number: 2, Level: 0, Smallest: InternalKey{UserKey: Bytes("a"), Seq: 1, Type: TypeValue}}
+		edit := VersionEdit{AddFiles: []FileMeta{fm1, fm2}}
+		require.NoError(t, edit.Apply(vs))
+		require.Len(t, vs.Levels[0], 2)
+		require.Equal(t, uint64(2), vs.Levels[0][0].Number)
+		require.Equal(t, uint64(1), vs.Levels[0][1].Number)
+	})
+
 	t.Run("DeleteNonExistent", func(t *testing.T) {
 		vs := &VersionSet{}
 		edit := VersionEdit{DeleteFiles: []DeletedFileMeta{{Level: 2, Number: 5}}}

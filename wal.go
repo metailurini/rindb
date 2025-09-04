@@ -259,6 +259,9 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to replace WAL: %w", err)
 	}
+	if err := tmpFS.Close(); err != nil {
+		return fmt.Errorf("failed to close temp WAL: %w", err)
+	}
 	if err := w.Open(ctx); err != nil {
 		return fmt.Errorf("failed to reopen WAL: %w", err)
 	}

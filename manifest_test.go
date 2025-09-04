@@ -44,13 +44,13 @@ func TestManifest(t *testing.T) {
 
 		f, err := os.OpenFile(mf, os.O_RDWR, 0)
 		require.NoError(t, err)
-		_, err = f.Seek(8, io.SeekStart)
+		_, err = f.Seek(int64(manifestRecordHeaderSize), io.SeekStart)
 		require.NoError(t, err)
 		b := []byte{0}
 		_, err = f.Read(b)
 		require.NoError(t, err)
 		b[0] ^= 0xff
-		_, err = f.Seek(8, io.SeekStart)
+		_, err = f.Seek(int64(manifestRecordHeaderSize), io.SeekStart)
 		require.NoError(t, err)
 		_, err = f.Write(b)
 		require.NoError(t, err)

@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-const manifestRecordHeaderSize = 2 * checksumSize
+const (
+	manifestRecordLengthSize = 8
+	manifestRecordHeaderSize = manifestRecordLengthSize + checksumSize
+)
 
 // ManifestWriter appends edits to a MANIFEST file.
 type ManifestWriter interface {
@@ -60,9 +63,9 @@ func (w *fileManifestWriter) Append(edit VersionEdit) error {
 	}
 	data := w.buf.Bytes()
 	var header [manifestRecordHeaderSize]byte
-	byteOrder.PutUint32(header[0:checksumSize], uint32(len(data)))
+	byteOrder.PutUint64(header[0:manifestRecordLengthSize], uint64(len(data)))
 	crc := checksum(data)
-	byteOrder.PutUint32(header[checksumSize:manifestRecordHeaderSize], crc)
+	byteOrder.PutUint32(header[manifestRecordLengthSize:], crc)
 	if _, err := w.fs.Write(header[:]); err != nil {
 		return err
 	}
@@ -90,9 +93,9 @@ func (r *fileManifestReader) Next() (VersionEdit, error) {
 	if _, err := io.ReadFull(r.fs, header[:]); err != nil {
 		return VersionEdit{}, err
 	}
-	n := byteOrder.Uint32(header[0:checksumSize])
-	crc := byteOrder.Uint32(header[checksumSize:manifestRecordHeaderSize])
-	data := make([]byte, n)
+	n := byteOrder.Uint64(header[0:manifestRecordLengthSize])
+	crc := byteOrder.Uint32(header[manifestRecordLengthSize:])
+	data := make([]byte, int(n))
 	if _, err := io.ReadFull(r.fs, data); err != nil {
 		return VersionEdit{}, err
 	}
