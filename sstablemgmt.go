@@ -567,10 +567,12 @@ func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 	return &sst, nil
 }
 
-// GetRelevantSSTables gathers file numbers whose ranges overlap [startKey, endKey].
+// GetRelevantSSTables gathers SSTables whose ranges overlap [startKey, endKey].
 // Level 0 files are returned in newest-first order while higher levels retain
-// their existing ordering.
-func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) []uint64 {
+// their existing ordering. If an SSTable referenced in the current version is
+// missing on disk, the function returns the error so callers can retry with a
+// fresh view.
+func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*SStable, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
@@ -580,9 +582,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}()
 
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	var out []uint64
+	nums := make([]uint64, 0)
 	for lvl, files := range h.versionSet.Levels {
 		if len(files) == 0 {
 			continue
@@ -593,7 +593,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 				if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
 					info, err := h.sstInfo(f.Number)
 					if err == nil && info.Size() > 0 {
-						out = append(out, f.Number)
+						nums = append(nums, f.Number)
 					}
 				}
 			}
@@ -603,13 +603,27 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
 				info, err := h.sstInfo(f.Number)
 				if err == nil && info.Size() > 0 {
-					out = append(out, f.Number)
+					nums = append(nums, f.Number)
 				}
 			}
 		}
 	}
+	h.mu.RUnlock()
+
+	out := make([]*SStable, 0, len(nums))
+	for _, num := range nums {
+		sst, err := h.openByNumber(ctx, num)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+			WARN(ctx, "Failed to open SSTable %d: %v", num, err)
+			continue
+		}
+		out = append(out, sst)
+	}
 	getRelevantSSTables.Add(ctx, int64(len(out)))
-	return out
+	return out, nil
 }
 
 func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -622,19 +636,15 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 	const maxRetries = 2
 
 	for retries := 0; retries <= maxRetries; retries++ {
-		nums := h.GetRelevantSSTables(ctx, key, key)
-		missing := false
-		for _, num := range nums {
-			sst, err := h.openByNumber(ctx, num)
-			if err != nil {
-				WARN(ctx, "Failed to open SSTable %d: %v", num, err)
-				if errors.Is(err, os.ErrNotExist) {
-					// SSTable was removed, likely due to a concurrent compaction.
-					missing = true
-					break
-				}
+		ssts, err := h.GetRelevantSSTables(ctx, key, key)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// SSTable was removed, likely due to a concurrent compaction.
 				continue
 			}
+			return nil, err
+		}
+		for _, sst := range ssts {
 			val, err := sst.GetValue(ctx, key, maxSeq)
 			if err == nil {
 				return val, nil
@@ -646,9 +656,7 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 				return nil, err
 			}
 		}
-		if !missing {
-			return nil, ErrKeyNotFound
-		}
+		return nil, ErrKeyNotFound
 	}
 	return nil, ErrKeyNotFound
 }

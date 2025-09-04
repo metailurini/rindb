@@ -255,8 +255,11 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	iterators := []Iterator[Record]{r.memtable.IRange(start, end, maxSeq)}
 
-	nums := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
-	var opened []*SStable
+	ssts, err := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
+	if err != nil {
+		return nil, err
+	}
+	opened := ssts
 
 	cleanupOpened := func() {
 		for _, o := range opened {
@@ -264,13 +267,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 		}
 	}
 
-	for _, n := range nums {
-		sst, err := r.ssTableManager.openByNumber(ctx, n)
-		if err != nil {
-			cleanupOpened()
-			return nil, err
-		}
-		opened = append(opened, sst)
+	for _, sst := range ssts {
 		rangeIter, err := sst.IRange(start, end, maxSeq)
 		if err != nil {
 			cleanupOpened()
