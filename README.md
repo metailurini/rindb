@@ -29,7 +29,7 @@
 
 ## Installation
 
-RinDB is written in Go and requires Go 1.23.0 or later. To include it in your project:
+RinDB is written in Go and requires Go 1.25.0 or later. To include it in your project:
 
 ```bash
 go get github.com/metailurini/rindb
