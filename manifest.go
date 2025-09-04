@@ -28,7 +28,9 @@ type ManifestReader interface {
 }
 
 type fileManifestWriter struct {
-	fs *FileSystem
+	fs  *FileSystem
+	buf bytes.Buffer
+	enc *gob.Encoder
 }
 
 type fileManifestReader struct {
@@ -49,11 +51,14 @@ func NewManifestWriter(ctx context.Context, path string) (ManifestWriter, error)
 }
 
 func (w *fileManifestWriter) Append(edit VersionEdit) error {
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(edit); err != nil {
+	w.buf.Reset()
+	// gob.Encoder caches type information, so create a new encoder per record to
+	// ensure each entry is self-contained.
+	w.enc = gob.NewEncoder(&w.buf)
+	if err := w.enc.Encode(edit); err != nil {
 		return err
 	}
-	data := buf.Bytes()
+	data := w.buf.Bytes()
 	var header [manifestRecordHeaderSize]byte
 	byteOrder.PutUint32(header[0:checksumSize], uint32(len(data)))
 	crc := checksum(data)
