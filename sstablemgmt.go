@@ -400,7 +400,7 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 		if len(picked) == 0 {
 			continue
 		}
-		overlaps, err := h.findOverlaps(ctx, lvl+1, picked)
+		overlaps, err := h.findOverlaps(lvl+1, picked)
 		if err != nil {
 			return err
 		}
@@ -411,7 +411,7 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 	return nil
 }
 
-func (h *SSTableManager) findOverlaps(ctx context.Context, level int, inputs []FileMeta) ([]FileMeta, error) {
+func (h *SSTableManager) findOverlaps(level int, inputs []FileMeta) ([]FileMeta, error) {
 	if level >= len(h.versionSet.Levels) {
 		return nil, nil
 	}

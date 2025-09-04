@@ -38,7 +38,7 @@ func TestSSTableManager_openAndLoadSSTable(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, sst.Close())
 
-fsToLoad := &FileSystem{filePath: sst.Path()}
+		fsToLoad := &FileSystem{filePath: sst.Path()}
 		loaded, err := mgr.openAndLoadSSTable(ctx, fsToLoad)
 		require.NoError(t, err)
 		require.NotNil(t, loaded)
@@ -1150,7 +1150,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, non.Close())
 
 		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
+		overlaps, err := ts.Manager.findOverlaps(1, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
 		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
@@ -1201,7 +1201,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		defer os.Remove(overlap.FileSystem.Path())
 
 		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
+		overlaps, err := ts.Manager.findOverlaps(1, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
 		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
@@ -1245,7 +1245,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, non.Close())
 
 		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 2, picked)
+		overlaps, err := ts.Manager.findOverlaps(2, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
 		err = ts.Manager.mergeIntoLevel(ctx, 2, inputs)
@@ -1277,7 +1277,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, l2.Close())
 
 		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 2, picked)
+		overlaps, err := ts.Manager.findOverlaps(2, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
 		err = ts.Manager.mergeIntoLevel(ctx, 2, inputs)
@@ -1325,7 +1325,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		defer os.Remove(overlap.FileSystem.Path())
 
 		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 2, picked)
+		overlaps, err := ts.Manager.findOverlaps(2, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
 		err = ts.Manager.mergeIntoLevel(ctx, 2, inputs)
@@ -1480,7 +1480,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 5, inputs)
+		overlaps, err := ts.Manager.findOverlaps(5, inputs)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
 	})
@@ -1496,7 +1496,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts.Manager.versionSet.Levels[2] = nil
 
 		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 2, inputs)
+		overlaps, err := ts.Manager.findOverlaps(2, inputs)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
 	})
@@ -1512,7 +1512,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts.Manager.versionSet.Levels[1] = []FileMeta{}
 
 		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, inputs)
+		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
 	})
@@ -1530,7 +1530,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts.Manager.versionSet.Levels[1] = append([]FileMeta(nil), lvl1...)
 
 		inputs := []FileMeta{{Number: 4, Level: 0, Smallest: ik("b"), Largest: ik("f")}}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, inputs)
+		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		require.Len(t, overlaps, 2)
 		var nums []uint64
@@ -1554,7 +1554,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts.Manager.versionSet.Levels[1] = append([]FileMeta(nil), lvl1...)
 
 		inputs := []FileMeta{{Number: 3, Level: 0, Smallest: ik("c"), Largest: ik("d")}}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, inputs)
+		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		assert.Empty(t, overlaps)
 	})
@@ -1574,7 +1574,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		require.NoError(t, non.Close())
 
 		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, picked)
+		overlaps, err := ts.Manager.findOverlaps(1, picked)
 		require.NoError(t, err)
 		require.Len(t, overlaps, 1)
 
@@ -1593,7 +1593,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts.Manager.versionSet.ensureLevel(1)
 		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
 
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, nil)
+		overlaps, err := ts.Manager.findOverlaps(1, nil)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
 	})
@@ -1606,7 +1606,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
 
 		empty := FileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, []FileMeta{empty})
+		overlaps, err := ts.Manager.findOverlaps(1, []FileMeta{empty})
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
 	})
@@ -1620,7 +1620,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 
 		empty := FileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
 		nonEmpty := FileMeta{Smallest: ik("b"), Largest: ik("d")}
-		overlaps, err := ts.Manager.findOverlaps(ctx, 1, []FileMeta{empty, nonEmpty})
+		overlaps, err := ts.Manager.findOverlaps(1, []FileMeta{empty, nonEmpty})
 		require.NoError(t, err)
 		require.Len(t, overlaps, 1)
 		assert.Equal(t, uint64(5), overlaps[0].Number)
