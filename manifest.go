@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +96,9 @@ func (r *fileManifestReader) Next() (VersionEdit, error) {
 		return VersionEdit{}, err
 	}
 	n := byteOrder.Uint64(header[0:manifestRecordLengthSize])
+	if n > uint64(math.MaxInt) {
+		return VersionEdit{}, fmt.Errorf("manifest record size %d exceeds max slice size on this architecture", n)
+	}
 	crc := byteOrder.Uint32(header[manifestRecordLengthSize:])
 	data := make([]byte, int(n))
 	if _, err := io.ReadFull(r.fs, data); err != nil {
