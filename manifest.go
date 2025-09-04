@@ -1,8 +1,9 @@
 package rindb
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/gob"
 	"errors"
 	"io"
 	"os"
@@ -48,10 +49,11 @@ func NewManifestWriter(ctx context.Context, path string) (ManifestWriter, error)
 }
 
 func (w *fileManifestWriter) Append(edit VersionEdit) error {
-	data, err := json.Marshal(edit)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(edit); err != nil {
 		return err
 	}
+	data := buf.Bytes()
 	var header [manifestRecordHeaderSize]byte
 	byteOrder.PutUint32(header[0:checksumSize], uint32(len(data)))
 	crc := checksum(data)
@@ -93,7 +95,7 @@ func (r *fileManifestReader) Next() (VersionEdit, error) {
 		return VersionEdit{}, ErrChecksumMismatch
 	}
 	var edit VersionEdit
-	if err := json.Unmarshal(data, &edit); err != nil {
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&edit); err != nil {
 		return VersionEdit{}, err
 	}
 	return edit, nil

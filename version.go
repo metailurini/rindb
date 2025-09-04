@@ -21,14 +21,14 @@ type DeletedFileMeta struct {
 
 // VersionEdit describes a change to the VersionSet.
 type VersionEdit struct {
-	ComparatorName string `json:",omitempty"`
-	LastSequence   uint64 `json:",omitempty"`
-	NextFileNumber uint64 `json:",omitempty"`
-	LogNumber      uint64 `json:",omitempty"`
-	PrevLogNumber  uint64 `json:",omitempty"`
+	ComparatorName string
+	LastSequence   uint64
+	NextFileNumber uint64
+	LogNumber      uint64
+	PrevLogNumber  uint64
 
-	AddFiles    []FileMeta        `json:",omitempty"`
-	DeleteFiles []DeletedFileMeta `json:",omitempty"`
+	AddFiles    []FileMeta
+	DeleteFiles []DeletedFileMeta
 }
 
 // VersionSet represents the in-memory state of levels and file numbering.
