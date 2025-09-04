@@ -218,7 +218,6 @@ func TestConfigValidatePanics(t *testing.T) {
 		{"nil newWALFunc", func(c *Config) { c.newWALFunc = nil }},
 		{"nil newSSTableManagerFunc", func(c *Config) { c.newSSTableManagerFunc = nil }},
 		{"nil fileNumberAllocator", func(c *Config) { c.fileNumberAllocator = nil }},
-		{"nil newFileNumberAllocatorFunc", func(c *Config) { c.newFileNumberAllocatorFunc = nil }},
 		{"nil newManifestWriterFunc", func(c *Config) { c.newManifestWriterFunc = nil }},
 		{"manifestSizeThreshold non-positive", func(c *Config) { c.manifestSizeThreshold = 0 }},
 	}

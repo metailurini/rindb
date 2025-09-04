@@ -76,9 +76,6 @@ type Config struct {
 	// fileNumberAllocator provides sequential identifiers for WAL and SSTable files.
 	fileNumberAllocator *FileNumberAllocator
 
-	// newFileNumberAllocatorFunc constructs a FileNumberAllocator seeded with the given start.
-	newFileNumberAllocatorFunc func(start uint64) *FileNumberAllocator
-
 	// newManifestWriterFunc allows custom ManifestWriter initialization.
 	newManifestWriterFunc func(ctx context.Context, path string) (ManifestWriter, error)
 
@@ -103,28 +100,27 @@ func NewConfig(opts ...Option) Config {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
-		databaseDir:                "rindat",
-		maxMemtableSize:            1000,
-		level0CompactionThreshold:  2,
-		baseCompactionSizeMB:       10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
-		levelSizeMultiplier:        10, // Default: Level N threshold = base * (multiplier^N)
-		writeRateTrigger:           0,
-		ioLoadMax:                  0,
-		bloomFalsePositiveRate:     0.01,
-		skipListDefaultLevel:       2,
-		skipListMaxLevel:           32,
-		skipListP:                  0.5,
-		enableTelemetry:            false,
-		exporterEndpoint:           "",
-		exporterInsecure:           false,
-		telemetrySamplingRate:      0.1, // Default to sample 10% of traces
-		newWALFunc:                 DefaultNewWALFunc,
-		newSSTableManagerFunc:      InitSSTableManager,
-		fileNumberAllocator:        NewFileNumberAllocator(1),
-		newFileNumberAllocatorFunc: NewFileNumberAllocator,
-		newManifestWriterFunc:      NewManifestWriter,
-		manifestSizeThreshold:      1 << 20, // 1MiB
-		repairMode:                 false,
+		databaseDir:               "rindat",
+		maxMemtableSize:           1000,
+		level0CompactionThreshold: 2,
+		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
+		levelSizeMultiplier:       10, // Default: Level N threshold = base * (multiplier^N)
+		writeRateTrigger:          0,
+		ioLoadMax:                 0,
+		bloomFalsePositiveRate:    0.01,
+		skipListDefaultLevel:      2,
+		skipListMaxLevel:          32,
+		skipListP:                 0.5,
+		enableTelemetry:           false,
+		exporterEndpoint:          "",
+		exporterInsecure:          false,
+		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
+		newWALFunc:                DefaultNewWALFunc,
+		newSSTableManagerFunc:     InitSSTableManager,
+		fileNumberAllocator:       NewFileNumberAllocator(1),
+		newManifestWriterFunc:     NewManifestWriter,
+		manifestSizeThreshold:     1 << 20, // 1MiB
+		repairMode:                false,
 	}
 }
 
@@ -180,9 +176,6 @@ func (c Config) Validate() {
 	}
 	if c.fileNumberAllocator == nil {
 		panic("fileNumberAllocator cannot be nil")
-	}
-	if c.newFileNumberAllocatorFunc == nil {
-		panic("newFileNumberAllocatorFunc cannot be nil")
 	}
 	if c.newManifestWriterFunc == nil {
 		panic("newManifestWriterFunc cannot be nil")
@@ -294,11 +287,6 @@ func WithNewSSTableManagerFunc(f NewSSTableManagerFunc) Option {
 // WithFileNumberAllocator sets a custom FileNumberAllocator.
 func WithFileNumberAllocator(a *FileNumberAllocator) Option {
 	return func(c *Config) { c.fileNumberAllocator = a }
-}
-
-// WithNewFileNumberAllocatorFunc provides a custom constructor for FileNumberAllocator.
-func WithNewFileNumberAllocatorFunc(f func(start uint64) *FileNumberAllocator) Option {
-	return func(c *Config) { c.newFileNumberAllocatorFunc = f }
 }
 
 // WithNewManifestWriterFunc sets the constructor for ManifestWriter implementations.
