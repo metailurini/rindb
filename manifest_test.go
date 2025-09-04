@@ -3,6 +3,7 @@ package rindb
 import (
 	"context"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,6 +82,27 @@ func TestManifest(t *testing.T) {
 		require.NoError(t, err)
 		_, err = r.Next()
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+		require.NoError(t, r.Close())
+	})
+
+	t.Run("ReaderLengthOverflow", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		mf := filepath.Join(dir, DefaultManifestFile)
+		f, err := os.Create(mf)
+		require.NoError(t, err)
+		var header [manifestRecordHeaderSize]byte
+		byteOrder.PutUint64(header[0:manifestRecordLengthSize], uint64(math.MaxInt)+1)
+		byteOrder.PutUint32(header[manifestRecordLengthSize:], 0)
+		_, err = f.Write(header[:])
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		r, err := NewManifestReader(ctx, mf)
+		require.NoError(t, err)
+		_, err = r.Next()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exceeds max slice size")
 		require.NoError(t, r.Close())
 	})
 
