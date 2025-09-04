@@ -607,8 +607,8 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		assert.NoError(t, os.Remove(sst.Path()))
 
 		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
-		require.NoError(t, err)
-		assert.Len(t, ssts, 0)
+		require.ErrorIs(t, err, os.ErrNotExist)
+		require.Nil(t, ssts)
 	})
 
 	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
