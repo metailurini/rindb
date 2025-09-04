@@ -38,8 +38,8 @@ func TestSSTableManager_openAndLoadSSTable(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, sst.Close())
 
-		fs = &FileSystem{filePath: sst.Path()}
-		loaded, err := mgr.openAndLoadSSTable(ctx, fs)
+fsToLoad := &FileSystem{filePath: sst.Path()}
+		loaded, err := mgr.openAndLoadSSTable(ctx, fsToLoad)
 		require.NoError(t, err)
 		require.NotNil(t, loaded)
 		assert.True(t, loaded.IsOpened())
