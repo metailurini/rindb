@@ -592,7 +592,15 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 				f := files[i]
 				if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
 					info, err := h.sstInfo(f.Number)
-					if err == nil && info.Size() > 0 {
+					if err != nil {
+						h.mu.RUnlock()
+						if errors.Is(err, os.ErrNotExist) {
+							return nil, err
+						}
+						WARN(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
+						return nil, fmt.Errorf("failed to stat SSTable %d: %w", f.Number, err)
+					}
+					if info.Size() > 0 {
 						nums = append(nums, f.Number)
 					}
 				}
@@ -602,7 +610,15 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 		for _, f := range files {
 			if endKey.Compare(f.Smallest.UserKey) >= 0 && startKey.Compare(f.Largest.UserKey) <= 0 {
 				info, err := h.sstInfo(f.Number)
-				if err == nil && info.Size() > 0 {
+				if err != nil {
+					h.mu.RUnlock()
+					if errors.Is(err, os.ErrNotExist) {
+						return nil, err
+					}
+					WARN(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
+					return nil, fmt.Errorf("failed to stat SSTable %d: %w", f.Number, err)
+				}
+				if info.Size() > 0 {
 					nums = append(nums, f.Number)
 				}
 			}
@@ -614,11 +630,14 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	for _, num := range nums {
 		sst, err := h.openByNumber(ctx, num)
 		if err != nil {
+			for _, s := range out {
+				_ = s.Close()
+			}
 			if errors.Is(err, os.ErrNotExist) {
 				return nil, err
 			}
 			WARN(ctx, "Failed to open SSTable %d: %v", num, err)
-			continue
+			return nil, fmt.Errorf("failed to open SSTable %d: %w", num, err)
 		}
 		out = append(out, sst)
 	}

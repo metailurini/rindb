@@ -18,6 +18,9 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, start, end Int
             if !end.Before(f.Smallest) && !start.After(f.Largest) {
                 sst, err := h.openByNumber(ctx, f.Number)
                 if err != nil {
+                    for _, s := range out {
+                        _ = s.Close()
+                    }
                     return nil, err
                 }
                 out = append(out, sst)
