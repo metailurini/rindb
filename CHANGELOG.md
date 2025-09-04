@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.7.0](https://github.com/metailurini/rindb/compare/v0.6.0...v0.7.0) (2025-09-04)
+
+
+### Features
+
+* add manifest rotation and snapshot support ([c85a5f6](https://github.com/metailurini/rindb/commit/c85a5f6867fd63f31a1ca14cb16643f9d73f4e16))
+* add repair mode option and conditional level loading ([d567358](https://github.com/metailurini/rindb/commit/d567358a942b545828f9bcf4d47ee33bb744f884))
+* introduce file path helpers ([4396cfc](https://github.com/metailurini/rindb/commit/4396cfc213854aea7c4d96e4e3d3c1311969e371))
+* manifest integration plan ([dabd035](https://github.com/metailurini/rindb/commit/dabd035ced4d5d0e6823d4041345851a9216b7d9))
+* register SSTables via manifest ([f36bad7](https://github.com/metailurini/rindb/commit/f36bad74e58798886aad131a7e760dfc186cc5f7))
+* track file numbers from version edits ([02f22bf](https://github.com/metailurini/rindb/commit/02f22bf585b381b78f84654512d53c8ca0404e61))
+
+
+### Bug Fixes
+
+* clean up partial manifest rotation on error ([6535f6f](https://github.com/metailurini/rindb/commit/6535f6f5cdf78909d0e7060be2b8088412e3563f))
+* delay sstable deletion until metadata is persisted ([0590edd](https://github.com/metailurini/rindb/commit/0590edd995d0251822115155abd33c3c924e0fb6))
+* guard against manifest record length overflow ([9368f6c](https://github.com/metailurini/rindb/commit/9368f6ce95ccb7061698906da04d27854731769c))
+* guard manifest rotation with sstable manager lock ([4d74e44](https://github.com/metailurini/rindb/commit/4d74e44c2f8f2b1e4a72d8da13579c55ac31465f))
+* handle empty inputs in findOverlaps ([a73157f](https://github.com/metailurini/rindb/commit/a73157fbdc31873d22aa0ec7f6ab18c6e839bfda))
+* handle WAL directory read errors ([6503657](https://github.com/metailurini/rindb/commit/65036574eec4c0f3594fde1a27feb6fa2a67e9ad))
+* improve compaction metadata and tests ([73ef931](https://github.com/metailurini/rindb/commit/73ef931d615c5b7ca5ea4580fa774c25b2ee2586))
+* propagate errors when opening SSTables ([ac0b08f](https://github.com/metailurini/rindb/commit/ac0b08fde06d4efdf8f5e7349ee6da5cfe94e10a))
+* protect opened file map with mutex ([ddc142a](https://github.com/metailurini/rindb/commit/ddc142a9f1d9e2bb44db5910ef2a7d6a5e03f4ca))
+* Provide file number allocator in RecoverVersionSet ([13e86e6](https://github.com/metailurini/rindb/commit/13e86e64b20f4abde5e71b67ef7e2c31f206dbc0))
+* remove redundant tombstone check ([9e54764](https://github.com/metailurini/rindb/commit/9e54764f80b47f2b51dbe683b18205795c11a302))
+* restore telemetry and concurrency safety ([7e5d193](https://github.com/metailurini/rindb/commit/7e5d193bb18c078262a95b9b31b6bea0b4f04eee))
+* retry search on missing sstable ([d320319](https://github.com/metailurini/rindb/commit/d3203196989cd9ac9231060cedfbdbb9c01a47b4))
+* reuse existing WAL on startup ([99964d2](https://github.com/metailurini/rindb/commit/99964d23bf5fbe5848fbf9a71745e4d631351e09))
+* tidy CURRENT temp file and optimize deletions ([c94fa3f](https://github.com/metailurini/rindb/commit/c94fa3fd48955efe2ad164c69009fedbde4ead2e))
+* update compaction metadata and snapshot cleanup ([c4fdbff](https://github.com/metailurini/rindb/commit/c4fdbff38ad13b626b51fde67cb8687d90d56276))
+* Use FileSystem accessors for writing ([0e2232a](https://github.com/metailurini/rindb/commit/0e2232a1ad34a9cd2143a0bcbc69aff2a9619035))
+* validate AddSSTable sequence and log close errors ([c13a2e9](https://github.com/metailurini/rindb/commit/c13a2e91fe84b7f10fdd6c805bab782b36d32363))
+* validate versionset and test repair mode scanning ([a467924](https://github.com/metailurini/rindb/commit/a467924776658d6b9dac3e0109324ae8268b52e6))
+
+
+### Performance Improvements
+
+* reuse manifest writer buffer ([c59c50c](https://github.com/metailurini/rindb/commit/c59c50cc7849fefe42eaf45bd79ee37d5e12739b))
+* rotate manifest in background ([49a39c0](https://github.com/metailurini/rindb/commit/49a39c0c052392c7915664c023f2e8951a331812))
+
 ## [0.6.0](https://github.com/metailurini/rindb/compare/v0.5.0...v0.6.0) (2025-08-30)
 
 
