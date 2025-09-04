@@ -136,6 +136,28 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ---
 
+### Manifest and Version Management
+
+**Goal**: Enhance manifest and version management for improved reliability and recovery.
+
+- **Tasks**:
+  - [x] Add manifest rotation and snapshot support.
+  - [x] Add repair mode option and conditional level loading.
+  - [x] Introduce file path helpers.
+  - [x] Manifest integration plan.
+  - [x] Register SSTables via manifest.
+  - [x] Track file numbers from version edits.
+
+- **Deliverables**:
+  - Robust manifest management.
+  - Improved recovery.
+  - Consistent file tracking.
+
+- **Version**: `v0.7.0`
+  - **Rationale**: These features significantly enhance the database's internal consistency, recovery mechanisms, and overall reliability, justifying a minor version bump.
+
+---
+
 ### Production Readiness
 
 **Goal**: Ensure reliability and completeness for real-world use.
@@ -198,5 +220,6 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 - **`v0.4.0`**: Performance Optimization (benchmarks, read/write optimizations, memory management).
 - **`v0.5.0`**: Snapshot and Concurrency (point-in-time snapshots, stability improvements).
 - **`v0.6.0`**: SSTable Enhancements and Reliability (SSTable builder, checksums, bug fixes).
+- **`v0.7.0`**: Manifest and Version Management (manifest rotation, repair mode, file tracking).
 - **`v1.0.0`**: Production Readiness (replication, backup, advanced transactions, full CLI, packaging).
 - **`v1.1.0`**: Ecosystem and Community (bindings, plugins, community engagement, optional time-series).
