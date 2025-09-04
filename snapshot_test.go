@@ -108,8 +108,8 @@ func TestTombstoneRemovedAfterSnapshotRelease(t *testing.T) {
 	require.NoError(t, rin.Put(ctx, Bytes("k2"), large))
 	require.NoError(t, rin.Put(ctx, Bytes("k3"), large))
 	require.Eventually(t, func() bool {
-		nums := rin.ssTableManager.GetRelevantSSTables(ctx, Bytes("k"), Bytes("k"))
-		return len(nums) == 0
+		ssts, err := rin.ssTableManager.GetRelevantSSTables(ctx, Bytes("k"), Bytes("k"))
+		return err == nil && len(ssts) == 0
 	}, 5*time.Second, 100*time.Millisecond)
 }
 

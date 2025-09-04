@@ -595,7 +595,13 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		nNewer, err := fileNum(newer.Path())
 		require.NoError(t, err)
 
-		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		require.NoError(t, err)
+		nums := make([]uint64, len(ssts))
+		for i, s := range ssts {
+			nums[i], err = fileNum(s.Path())
+			require.NoError(t, err)
+		}
 		assert.Equal(t, []uint64{nNewer, nOlder}, nums)
 	})
 
@@ -614,7 +620,13 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		nNewer, err := fileNum(newer.Path())
 		require.NoError(t, err)
 
-		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("b"), Bytes("d"))
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("b"), Bytes("d"))
+		require.NoError(t, err)
+		nums := make([]uint64, len(ssts))
+		for i, s := range ssts {
+			nums[i], err = fileNum(s.Path())
+			require.NoError(t, err)
+		}
 		assert.Equal(t, []uint64{nOlder, nNewer}, nums)
 	})
 
@@ -626,8 +638,9 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		sst := ts.createSSTable(1, map[string]string{"x": "1"})
 		ts.AddSSTable(1, sst)
 
-		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("b"))
-		assert.Len(t, nums, 0)
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("b"))
+		require.NoError(t, err)
+		assert.Len(t, ssts, 0)
 	})
 
 	t.Run("Error opening SSTable", func(t *testing.T) {
@@ -639,8 +652,9 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ts.AddSSTable(1, sst)
 		assert.NoError(t, os.Remove(sst.Path()))
 
-		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
-		assert.Len(t, nums, 0)
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		require.NoError(t, err)
+		assert.Len(t, ssts, 0)
 	})
 
 	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
@@ -667,7 +681,13 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		nL1, err := fileNum(l1Overlap.Path())
 		require.NoError(t, err)
 
-		nums := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("d"))
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("d"))
+		require.NoError(t, err)
+		nums := make([]uint64, len(ssts))
+		for i, s := range ssts {
+			nums[i], err = fileNum(s.Path())
+			require.NoError(t, err)
+		}
 		assert.Equal(t, []uint64{nL0b, nL0a, nL1}, nums)
 	})
 }

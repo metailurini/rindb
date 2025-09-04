@@ -3,31 +3,38 @@
 Now that `VersionSet` tracks SSTables, migrate lookup helpers to operate on its metadata rather than legacy linked lists. The prose-to-code ratio is roughly 3:7.
 
 ## Plan
-- Iterate `VersionSet.Levels` and return file numbers overlapping a key range.
+- Iterate `VersionSet.Levels` and return opened SSTables overlapping a key range.
 - Track open files by number instead of pointer identity.
 - Drop linked-list based bookkeeping.
 
 ```go
-// GetRelevantSSTables gathers file numbers whose ranges overlap [start, end].
-func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, start, end InternalKey) []uint64 {
+// GetRelevantSSTables gathers SSTables whose ranges overlap [start, end].
+func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, start, end InternalKey) ([]*SSTable, error) {
     h.mu.RLock()
     defer h.mu.RUnlock()
-    var out []uint64
+    var out []*SSTable
     for _, level := range h.versionSet.Levels {
         for _, f := range level {
             if !end.Before(f.Smallest) && !start.After(f.Largest) {
-                out = append(out, f.Number)
+                sst, err := h.openByNumber(ctx, f.Number)
+                if err != nil {
+                    return nil, err
+                }
+                out = append(out, sst)
             }
         }
     }
-    return out
+    return out, nil
 }
 
 // searchKey walks the candidates and stops at the first match.
 func (h *SSTableManager) searchKey(ctx context.Context, key InternalKey) ([]byte, error) {
-    for _, num := range h.GetRelevantSSTables(ctx, key, key) {
-        fs := h.openByNumber(num)
-        if v, ok := fs.Lookup(key); ok {
+    ssts, err := h.GetRelevantSSTables(ctx, key, key)
+    if err != nil {
+        return nil, err
+    }
+    for _, sst := range ssts {
+        if v, err := sst.Lookup(key); err == nil {
             return v, nil
         }
     }
