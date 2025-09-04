@@ -1,6 +1,9 @@
 package rindb
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // FileMeta holds metadata about an SSTable file.
 type FileMeta struct {
@@ -69,9 +72,12 @@ func (e VersionEdit) Apply(vs *VersionSet) error {
 	vs.NextFileNumber = coalesceNonZero(vs.NextFileNumber, e.NextFileNumber)
 	vs.LogNumber = coalesceNonZero(vs.LogNumber, e.LogNumber)
 	vs.PrevLogNumber = coalesceNonZero(vs.PrevLogNumber, e.PrevLogNumber)
+
+	affected := make(map[int]struct{})
 	for _, f := range e.AddFiles {
 		vs.ensureLevel(f.Level)
 		vs.Levels[f.Level] = append(vs.Levels[f.Level], f)
+		affected[f.Level] = struct{}{}
 	}
 	if len(e.DeleteFiles) > 0 {
 		deletionsByLevel := make(map[int]map[uint64]struct{})
@@ -87,14 +93,23 @@ func (e VersionEdit) Apply(vs *VersionSet) error {
 				continue
 			}
 			files := vs.Levels[level]
-			filtered := files[:0]
+			filtered := make([]FileMeta, 0, len(files))
 			for _, f := range files {
 				if _, ok := toDelete[f.Number]; !ok {
 					filtered = append(filtered, f)
 				}
 			}
 			vs.Levels[level] = filtered
+			affected[level] = struct{}{}
 		}
+	}
+
+	for level := range affected {
+		files := vs.Levels[level]
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].Smallest.Compare(files[j].Smallest) == CmpLess
+		})
+		vs.Levels[level] = files
 	}
 	return nil
 }

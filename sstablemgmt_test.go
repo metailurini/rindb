@@ -1224,6 +1224,27 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		assert.Error(t, err)
 		_ = os.Remove(path.Join(ts.Config.databaseDir, sstPath(next)))
 	})
+
+	t.Run("cleans up target on compaction error", func(t *testing.T) {
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		l0a := ts.createSSTable(0, map[string]string{"a": "1"})
+		l0b := ts.createSSTable(0, map[string]string{"b": "2"})
+		ts.AddSSTable(0, l0a)
+		ts.AddSSTable(0, l0b)
+		require.NoError(t, l0a.Close())
+		require.NoError(t, l0b.Close())
+
+		next := ts.Manager.config.fileNumberAllocator.Peek()
+		cancelCtx, cancel := context.WithCancel(ctx)
+		cancel()
+		err := ts.Manager.Compact(cancelCtx)
+		assert.Error(t, err)
+
+		_, statErr := os.Stat(path.Join(ts.Config.databaseDir, sstPath(next)))
+		assert.True(t, os.IsNotExist(statErr), "orphaned target file exists: %v", statErr)
+	})
 }
 
 func TestSSTableManager_compactHigherLevel(t *testing.T) {
