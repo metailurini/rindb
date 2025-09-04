@@ -23,6 +23,52 @@ func (failingManifest) Sync() error              { return nil }
 func (failingManifest) Close() error             { return nil }
 func (failingManifest) Path() string             { return "" }
 
+func TestSSTableManager_openAndLoadSSTable(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	mgr := &SSTableManager{config: cfg}
+
+	t.Run("loads valid sstable", func(t *testing.T) {
+		dir := t.TempDir()
+		fs, err := OpenFS(ctx, filepath.Join(dir, sstPath(1)))
+		require.NoError(t, err)
+		mem := InitMemtable(cfg)
+		mem.Put(newRecord(Bytes("k"), Bytes("v"), 1))
+		sst, _, err := flush(ctx, cfg, mem, fs)
+		require.NoError(t, err)
+		require.NoError(t, sst.Close())
+
+		fs = &FileSystem{filePath: sst.Path()}
+		loaded, err := mgr.openAndLoadSSTable(ctx, fs)
+		require.NoError(t, err)
+		require.NotNil(t, loaded)
+		assert.True(t, loaded.IsOpened())
+		val, err := loaded.GetValue(ctx, Bytes("k"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v"), val)
+		require.NoError(t, loaded.Close())
+	})
+
+	t.Run("fs open failure", func(t *testing.T) {
+		fs := &FileSystem{filePath: filepath.Join(t.TempDir(), "no", "dir", sstPath(2))}
+		sst, err := mgr.openAndLoadSSTable(ctx, fs)
+		assert.Nil(t, sst)
+		assert.Error(t, err)
+		assert.False(t, fs.IsOpened())
+	})
+
+	t.Run("sstable creation failure closes fs", func(t *testing.T) {
+		dir := t.TempDir()
+		badPath := filepath.Join(dir, sstPath(3))
+		require.NoError(t, os.WriteFile(badPath, []byte("bad"), 0o644))
+		fs := &FileSystem{filePath: badPath}
+		sst, err := mgr.openAndLoadSSTable(ctx, fs)
+		assert.Nil(t, sst)
+		assert.Error(t, err)
+		assert.False(t, fs.IsOpened())
+	})
+}
+
 func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	cfg := testConfig()
 	ctx := context.Background()
