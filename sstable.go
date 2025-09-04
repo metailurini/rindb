@@ -102,7 +102,17 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	offset, err := s.SparseIndex.GetOffset(key)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, ErrKeyNotFound) {
+			return nil, err
+		}
+		idx := sort.Search(len(s.SparseIndex), func(i int) bool {
+			return Compare(s.SparseIndex[i].key, key) >= 0
+		})
+		if idx > 0 {
+			offset = s.SparseIndex[idx-1].offset
+		} else {
+			offset = 0
+		}
 	}
 
 	reader := newOffsetReader(s.FileSystem, offset)
@@ -128,7 +138,11 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
 		bytesRead += CalOnDiskSize(record)
-		if record.GetKey().Compare(key) != CmpEqual {
+		cmp := record.GetKey().Compare(key)
+		if cmp == CmpLess {
+			continue
+		}
+		if cmp != CmpEqual {
 			return nil, ErrKeyNotFound
 		}
 		if record.GetSequenceNumber() <= maxSeq {
@@ -148,27 +162,6 @@ func (s SStable) GetKeyRange() (Bytes, Bytes) {
 	minKey := s.SparseIndex[0].key
 	maxKey := s.SparseIndex[len(s.SparseIndex)-1].key
 	return minKey, maxKey
-}
-
-// Overlaps checks if the SSTable’s key range overlaps with the given range [min, max].
-// Overlap occurs if sstable.min <= max AND sstable.max >= min.
-func (s SStable) Overlaps(min, max Bytes) bool {
-	sstMin, sstMax := s.GetKeyRange()
-	if sstMin == nil || sstMax == nil {
-		return false // Empty sstable cannot overlap
-	}
-
-	// Check if sstable range is entirely before the given range
-	if sstMax.Compare(min) < 0 {
-		return false
-	}
-	// Check if sstable range is entirely after the given range
-	if sstMin.Compare(max) > 0 {
-		return false
-	}
-
-	// Otherwise, there is an overlap
-	return true
 }
 
 func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
@@ -266,10 +259,11 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 	return maxSeqNum, nil
 }
 
-func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, error) {
+func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, FileMeta, error) {
 	ctx, span := sstableTracer.Start(ctx, "flush")
 	start := time.Now()
 	var written int
+	var meta FileMeta
 	defer func() {
 		span.End()
 		flushLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
@@ -285,29 +279,30 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 
 	builder, err := NewSSTableBuilder(ctx, config, fs, int(mem.data.Len()))
 	if err != nil {
-		return SStable{}, fmt.Errorf("failed to create sstable builder: %w", err)
+		return SStable{}, FileMeta{}, fmt.Errorf("failed to create sstable builder: %w", err)
 	}
 	defer builder.Close(ctx)
 
 	for r := mem.data.Head().Next(); r != nil; r = r.Next() {
 		if err := builder.Add(r.Value); err != nil {
-			return SStable{}, fmt.Errorf("failed to add record to builder: %w", err)
+			return SStable{}, FileMeta{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
 	}
 
 	var sst SStable
-	sst, written, err = builder.Build(ctx)
+	sst, meta, written, err = builder.Build(ctx)
 	if err != nil {
 		written = 0
-		return SStable{}, err
+		return SStable{}, FileMeta{}, err
 	}
+	meta.Level = 0
 	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged
 	mem.Clear()
 
-	return sst, nil
+	return sst, meta, nil
 }
 
 var _ Iterator[Record] = (*sstableIterator)(nil)

@@ -37,6 +37,36 @@ func TestRindb_Put(t *testing.T) {
 	})
 }
 
+func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithLevel0CompactionThreshold(1), WithMaxMemtableSize(20))
+	defer cleanup()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		require.NoError(t, rin.ssTableManager.Compact(ctx))
+	}()
+
+	for i := 0; i < 20; i++ {
+		key := Bytes(fmt.Sprintf("k%d", i))
+		require.NoError(t, rin.Put(ctx, key, Bytes("v")))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock detected")
+	}
+}
+
 // TestRindb_Get tests the Get operation of Rindb.
 func TestRindb_Get(t *testing.T) {
 	ctx := context.Background()
@@ -75,17 +105,19 @@ func TestRindb_IRange(t *testing.T) {
 	mem1 := InitMemtable(cfg)
 	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
 	mem1.Put(newRecord(Bytes("b"), Bytes("sstB"), 2))
-	sst1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
+	sst1, meta1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
-	ts.AddSSTableToLevel(0, &sst1)
+	require.NotZero(t, meta1.Number)
+	ts.AddSSTable(0, &sst1)
 
 	// Create SSTable with tombstone and another record
 	mem2 := InitMemtable(cfg)
 	mem2.Put(newRecord(Bytes("k"), nil, 3)) // tombstone
 	mem2.Put(newRecord(Bytes("z"), Bytes("sstZ"), 4))
-	sst2, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
+	sst2, meta2, err := flush(ctx, cfg, mem2, ts.newSSTableFS(0))
 	assert.NoError(t, err)
-	ts.AddSSTableToLevel(0, &sst2)
+	require.NotZero(t, meta2.Number)
+	ts.AddSSTable(0, &sst2)
 
 	// Memtable with latest updates
 	mem := ts.RinDB.memtable
@@ -226,7 +258,7 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
-	newSStable, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
+	newSStable, _, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
 	assert.NoError(t, err)
 	err = rin.wal.Clean(ctx, math.MaxUint64)
 	assert.NoError(t, err)
@@ -244,22 +276,23 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	// SSTableManager is now part of rin
-	fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0) // Create FS for the initial SSTable
+	fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
 	assert.NoError(t, err)
-	// Defer close for the FS used in the test setup
 	defer func() {
 		if fs.IsOpened() {
 			assert.NoError(t, fs.Close())
 		}
 	}()
-	_ = createSSTable(t, rin.config, fs, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
-	// Ensure level 0 exists before pushing back
-	if len(rin.ssTableManager.levels) == 0 {
-		rin.ssTableManager.levels = append(rin.ssTableManager.levels, InitLinkedList[*FileSystem]())
-	} else if rin.ssTableManager.levels[0] == nil {
-		rin.ssTableManager.levels[0] = InitLinkedList[*FileSystem]()
-	}
-	rin.ssTableManager.levels[0].PushBack(fs)        // Add the newly created SSTable FS to the manager
+	sst := createSSTable(t, rin.config, fs, [2]Bytes{Bytes("k1"), Bytes("v1-sst")})
+	num, err := fileNum(fs.Path())
+	assert.NoError(t, err)
+	info, err := os.Stat(fs.Path())
+	assert.NoError(t, err)
+	small, large := sst.GetKeyRange()
+	seqHi, err := sst.MaxSequenceNumber()
+	assert.NoError(t, err)
+	meta := FileMeta{Number: num, Level: 0, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
+	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, seqHi))
 	err = rin.Put(ctx, Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(ctx, Bytes("k1"))
@@ -356,23 +389,26 @@ func TestConcurrentGetPut(t *testing.T) {
 // when its estimated byte size exceeds the configured limit during a Put operation.
 func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	ctx := context.Background()
-	// Configure a small maxMemtableSize (in bytes) to trigger the flush easily.
-	// The estimated size is calculated as len(key) + len(value) + 16 bytes overhead per entry.
-	// key1 ("key1", 4 bytes) + value1 ("value1-loooooooooong", 20 bytes) + 16 = 40 bytes
-	// key2 ("key2", 4 bytes) + value2 ("value2-loooooooooong", 20 bytes) + 16 = 40 bytes
-	// Total estimated size after key1 and key2 = 40 + 40 = 80 bytes.
-	// key3 ("key3", 4 bytes) + value3 ("value3-loooooooooong", 20 bytes) + 16 = 40 bytes
-	// Total estimated size after key3 = 80 + 40 = 120 bytes.
-	// Set maxMemtableSize to 80. The memtable will reach its limit after key2 is added.
-	// The Put operation for key3 should then trigger the flush.
-	smallMemtableOpts := []Option{WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(80)}
+
+	// Each memtable entry adds len(key) + len(value) bytes plus metadata
+	// from the skiplist node and internal key suffix.
+	entryOverhead := slNodeOverhead + internalKeySuffixLen
+	key1, val1 := Bytes("key1"), Bytes("value1-loooooooooong")
+	key2, val2 := Bytes("key2"), Bytes("value2-loooooooooong")
+	key3, val3 := Bytes("key3"), Bytes("value3-loooooooooong")
+	entrySize := len(key1) + len(val1) + entryOverhead
+
+	// Configure a maxMemtableSize slightly above two entries so the third
+	// Put exceeds the limit and triggers a flush.
+	maxMemtableSize := uint(entrySize*2 + 1)
+	smallMemtableOpts := []Option{WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(maxMemtableSize)}
 	rin, cleanup := initRinDBWithCleanup(t, smallMemtableOpts...)
 	defer cleanup()
 
 	// Add data that will exceed the small memtable size limit
-	err := rin.Put(ctx, Bytes("key1"), Bytes("value1-loooooooooong"))
+	err := rin.Put(ctx, key1, val1)
 	assert.NoError(t, err)
-	err = rin.Put(ctx, Bytes("key2"), Bytes("value2-loooooooooong"))
+	err = rin.Put(ctx, key2, val2)
 	assert.NoError(t, err)
 
 	// Check size before the Put that should trigger the flush
@@ -380,7 +416,7 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	assert.LessOrEqual(t, uint(sizeBeforeFlush), rin.config.maxMemtableSize, "Size should be below threshold before triggering put")
 
 	// This Put should trigger the flush
-	err = rin.Put(ctx, Bytes("key3"), Bytes("value3-loooooooooong"))
+	err = rin.Put(ctx, key3, val3)
 	assert.NoError(t, err)
 
 	// Assertions after the flush should have occurred
@@ -390,29 +426,24 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	// 2. At least one SSTable should have been created on disk.
 	//    Compaction may move flushed SSTables to higher levels, so we count across all levels
 	//    instead of asserting on a specific level.
-	rin.ssTableManager.mu.RLock() // Lock needed to safely access levels
+	//    versionSet modifications are guarded by rin.mu, so use the same lock here.
+	rin.mu.RLock()
 	total := 0
-	for _, lvl := range rin.ssTableManager.levels {
-		if lvl != nil {
-			total += lvl.Len()
-		}
+	for _, lvl := range rin.versionSet.Levels {
+		total += len(lvl)
 	}
-	rin.ssTableManager.mu.RUnlock()
+	rin.mu.RUnlock()
 	assert.GreaterOrEqual(t, total, 1, "There should be at least one SSTable after flush")
 
 	// 3. Verify data exists and is retrievable (implicitly checks SSTable content)
 	// We can Get the keys back to ensure they were persisted correctly
-	val1, err := rin.Get(ctx, Bytes("key1"))
+	got1, err := rin.Get(ctx, key1)
 	assert.NoError(t, err)
-	assert.Equal(t, Bytes("value1-loooooooooong"), val1)
+	assert.Equal(t, val1, got1)
 
-	val2, err := rin.Get(ctx, Bytes("key2"))
+	got3, err := rin.Get(ctx, key3)
 	assert.NoError(t, err)
-	assert.Equal(t, Bytes("value2-loooooooooong"), val2)
-
-	val3, err := rin.Get(ctx, Bytes("key3"))
-	assert.NoError(t, err)
-	assert.Equal(t, Bytes("value3-loooooooooong"), val3)
+	assert.Equal(t, val3, got3)
 }
 
 // TestInitRinDB_MaxSequenceNumber tests the sequence number initialization logic.
@@ -435,9 +466,9 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		ctx := context.Background()
 		// Manually create WAL and add records to simulate memtable content
-		walPath := path.Join(databaseDir, "WAL")
-		_ = os.RemoveAll(walPath) // delete WAL directory if it exists
-		fs, err := OpenFS(ctx, walPath)
+		wp := path.Join(databaseDir, walPath(1))
+		_ = os.RemoveAll(wp) // delete WAL directory if it exists
+		fs, err := OpenFS(ctx, wp)
 		assert.NoError(t, err)
 		wal := NewWAL(DefaultConfig(), fs)
 		defer func() { _ = wal.Close() }()
@@ -476,13 +507,14 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem := InitMemtable(rin.config)
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 50))
 		mem.Put(newRecord(Bytes("sk2"), Bytes("sv2"), 60))
-		_, err = flush(ctx, rin.config, mem, fs)
+		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
+		assert.NoError(t, fs.Close())
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
-		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(ctx, walPath)
+		wp := path.Join(rin.config.databaseDir, walPath(1))
+		walFs, err := OpenFS(ctx, wp)
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()
@@ -514,14 +546,15 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		mem := InitMemtable(rin.config)
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 70))
-		_, err = flush(ctx, rin.config, mem, fs)
+		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, 0, fs))
+		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
+		assert.NoError(t, fs.Close())
 
 		// Create a WAL with the same highest sequence number
 		// The database directory is already created by initRinDBWithCleanup
-		walPath := path.Join(rin.config.databaseDir, "WAL")
-		walFs, err := OpenFS(ctx, walPath)
+		wp := path.Join(rin.config.databaseDir, walPath(1))
+		walFs, err := OpenFS(ctx, wp)
 		assert.NoError(t, err)
 		wal := NewWAL(rin.config, walFs)
 		defer func() { _ = wal.Close() }()

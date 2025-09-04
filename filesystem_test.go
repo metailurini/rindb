@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //nolint:funlen
@@ -41,6 +43,38 @@ func TestFileSystem(t *testing.T) {
 
 		assert.NoError(t, fs.Close())
 		assert.NoError(t, emptyFs.Close())
+	})
+
+	t.Run("Rename file", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+
+		fs := fss[0]
+		newPath := fs.Path() + "-renamed"
+
+		assert.NoError(t, fs.Rename(newPath))
+		assert.Equal(t, newPath, fs.Path())
+	})
+
+	t.Run("Rename and append content", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		ctx := context.Background()
+
+		_, err := fs.Write([]byte("A"))
+		require.NoError(t, err)
+		newPath := filepath.Join(filepath.Dir(fs.Path()), "file")
+		require.NoError(t, fs.Rename(newPath))
+		require.NoError(t, fs.Open(ctx))
+		_, err = fs.Seek(0, io.SeekEnd)
+		require.NoError(t, err)
+		_, err = fs.Write([]byte("B"))
+		require.NoError(t, err)
+		require.NoError(t, fs.Close())
+		data, err := os.ReadFile(newPath)
+		require.NoError(t, err)
+		require.Equal(t, []byte("AB"), data)
 	})
 }
 
@@ -140,5 +174,34 @@ func TestFileSystem_CursorPos(t *testing.T) {
 		position, err := fs.CursorPos()
 		assert.NoError(t, err)
 		assert.Equal(t, int64(5), position)
+	})
+}
+
+func TestOpenExistingFS(t *testing.T) {
+	t.Run("missing file returns error and remains absent", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "missing.sst")
+
+		fs, err := OpenExistingFS(ctx, filePath)
+		assert.Error(t, err)
+		assert.Nil(t, fs)
+
+		_, statErr := os.Stat(filePath)
+		assert.True(t, os.IsNotExist(statErr))
+	})
+
+	t.Run("opens existing file", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "existing.sst")
+		f, err := os.Create(filePath)
+		assert.NoError(t, err)
+		assert.NoError(t, f.Close())
+
+		fs, err := OpenExistingFS(ctx, filePath)
+		assert.NoError(t, err)
+		assert.NotNil(t, fs)
+		assert.NoError(t, fs.Close())
 	})
 }

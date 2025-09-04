@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // validateWALFormat validates that the WAL records are well-formed according to
@@ -70,10 +72,7 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		_, err = io.ReadFull(file, checksumBytes[:])
 		assert.NoError(t, err)
 		expected := byteOrder.Uint32(checksumBytes[:])
-		hasher := crc32.NewIEEE()
-		_, _ = hasher.Write(keyBytes)
-		_, _ = hasher.Write(valueBytes)
-		actual := hasher.Sum32()
+		actual := checksum(keyBytes, valueBytes)
 		assert.Equal(t, expected, actual)
 
 		_ = seq // silence unused warning if seq not used otherwise
@@ -99,6 +98,59 @@ func TestWAL_Clean(t *testing.T) {
 	assert.Empty(t, mem.data.Len())
 	err = w.Close()
 	assert.NoError(t, err)
+}
+
+func TestWAL_CleanErrors(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("ChecksumMismatch", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		info, err := fs.file.Stat()
+		require.NoError(t, err)
+		_, err = fs.file.WriteAt([]byte{0}, info.Size()-1)
+		require.NoError(t, err)
+
+		err = w.Clean(ctx, 0)
+		assert.ErrorIs(t, err, ErrChecksumMismatch)
+	})
+
+	t.Run("WriteRecordFailure", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		w.writeRecord = func(tx *Transaction, rec Record) error { return errors.New("write fail") }
+
+		err := w.Clean(ctx, 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to write record")
+	})
+
+	t.Run("CommitFailure", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		w.txCommit = func(tx *Transaction, ctx context.Context, w io.Writer) error {
+			return errors.New("commit fail")
+		}
+
+		err := w.Clean(ctx, 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to commit")
+	})
 }
 
 // TestWAL_AppendAndLoad tests appending and loading records from the WAL.
@@ -175,6 +227,18 @@ func TestWALCrashRecovery(t *testing.T) {
 	assert.Equal(t, Bytes("v2"), v2)
 }
 
+func TestDefaultNewWALFunc_ReadDirError(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "notadir")
+	assert.NoError(t, os.WriteFile(file, []byte(""), 0o644))
+
+	cfg := testConfig()
+	cfg.databaseDir = file
+
+	_, err := DefaultNewWALFunc(context.Background(), cfg)
+	assert.Error(t, err)
+}
+
 // TestWALCrashRecovery_PartialWrite tests WAL recovery after a crash during a partial write.
 func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	cfg := testConfig()
@@ -247,7 +311,7 @@ func TestWAL_LoadChecksumMismatch(t *testing.T) {
 
 	info, err := fs.file.Stat()
 	assert.NoError(t, err)
-	_, err = fs.file.WriteAt([]byte{0}, info.Size()-1)
+	_, err = fs.WriteAt([]byte{0}, info.Size()-1)
 	assert.NoError(t, err)
 
 	_, err = w.Load(context.Background())

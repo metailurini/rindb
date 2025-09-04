@@ -32,6 +32,15 @@ func OpenFS(ctx context.Context, filePath string) (*FileSystem, error) {
 	return fs, nil
 }
 
+// OpenExistingFS opens a file system for an existing file without creating it if missing.
+func OpenExistingFS(ctx context.Context, filePath string) (*FileSystem, error) {
+	fs := &FileSystem{filePath: filePath}
+	if err := fs.OpenExisting(ctx); err != nil {
+		return nil, err
+	}
+	return fs, nil
+}
+
 func NewFS(file *os.File) *FileSystem {
 	return &FileSystem{filePath: file.Name(), file: file}
 }
@@ -52,6 +61,25 @@ func (fs *FileSystem) Open(ctx context.Context) error {
 	}
 
 	file, err := os.OpenFile(filepath.Clean(fs.filePath), os.O_RDWR|os.O_CREATE, fileSystemPermission)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", fs.filePath, err)
+	}
+	fs.file = file
+	return nil
+}
+
+// OpenExisting opens the file system assuming the file already exists.
+// It returns an error if the file does not exist.
+func (fs *FileSystem) OpenExisting(ctx context.Context) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file != nil {
+		WARN(ctx, "File %s is already opened. Consider close and re-open again", fs.Path())
+		return nil
+	}
+
+	file, err := os.OpenFile(filepath.Clean(fs.filePath), os.O_RDWR, fileSystemPermission)
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", fs.filePath, err)
 	}
@@ -85,6 +113,25 @@ func (fs *FileSystem) Close() error {
 		return err
 	}
 	fs.file = nil
+	return nil
+}
+
+// Rename moves the underlying file to newPath.
+// It closes the file if it's open and updates the internal path.
+func (fs *FileSystem) Rename(newPath string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if fs.file != nil {
+		if err := fs.file.Close(); err != nil {
+			return err
+		}
+		fs.file = nil
+	}
+	if err := os.Rename(fs.filePath, newPath); err != nil {
+		return err
+	}
+	fs.filePath = newPath
 	return nil
 }
 

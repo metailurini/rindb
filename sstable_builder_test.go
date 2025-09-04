@@ -22,7 +22,7 @@ func TestSSTableBuilder(t *testing.T) {
 		builder, err := NewSSTableBuilder(ctx, cfg, fs, 0)
 		assert.NoError(t, err)
 
-		_, _, err = builder.Build(ctx)
+		_, _, _, err = builder.Build(ctx)
 		assert.EqualError(t, err, "no records to build")
 	})
 
@@ -44,8 +44,9 @@ func TestSSTableBuilder(t *testing.T) {
 			assert.NoError(t, builder.Add(r))
 		}
 
-		sst, _, err := builder.Build(ctx)
+		sst, meta, _, err := builder.Build(ctx)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 
 		var offset int64
 		for i, r := range recs {
@@ -53,6 +54,31 @@ func TestSSTableBuilder(t *testing.T) {
 			assert.Equal(t, offset, sst.SparseIndex[i].offset)
 			assert.True(t, sst.Bloom.Lookup(r.GetKey()))
 			offset += int64(CalOnDiskSize(r))
+		}
+		assert.False(t, sst.Bloom.Lookup(Bytes("z")))
+	})
+
+	t.Run("BuildWithNilBloom", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := testConfig()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+
+		recs := []Record{
+			newRecord(Bytes("a"), Bytes("1"), 1),
+			newRecord(Bytes("b"), Bytes("2"), 2),
+		}
+		builder, err := NewSSTableBuilder(ctx, cfg, fs, 0)
+		assert.NoError(t, err)
+		for _, r := range recs {
+			assert.NoError(t, builder.Add(r))
+		}
+
+		sst, _, _, err := builder.Build(ctx)
+		assert.NoError(t, err)
+		for _, r := range recs {
+			assert.True(t, sst.Bloom.Lookup(r.GetKey()))
 		}
 		assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 	})
@@ -85,7 +111,7 @@ func TestSSTableBuilder(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
 
-		_, written, err := builder.Build(ctx)
+		_, _, written, err := builder.Build(ctx)
 		assert.NoError(t, err)
 
 		info, err := os.Stat(fs.Path())
@@ -106,7 +132,7 @@ func TestSSTableBuilder(t *testing.T) {
 		rec := newRecord(Bytes("a"), Bytes("1"), 1)
 		assert.NoError(t, builder.Add(rec))
 
-		_, _, err = builder.Build(ctx)
+		_, _, _, err = builder.Build(ctx)
 		assert.NoError(t, err)
 
 		t.Run("AddAfterBuild", func(t *testing.T) {
@@ -115,7 +141,7 @@ func TestSSTableBuilder(t *testing.T) {
 		})
 
 		t.Run("BuildTwice", func(t *testing.T) {
-			_, _, err := builder.Build(ctx)
+			_, _, _, err := builder.Build(ctx)
 			assert.ErrorIs(t, err, ErrSSTableAlreadyBuilt)
 		})
 	})
@@ -140,7 +166,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 		require.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
 
-		_, _, err = builder.Build(ctx)
+		_, _, _, err = builder.Build(ctx)
 		require.Error(t, err)
 
 		info, statErr := os.Stat(path)

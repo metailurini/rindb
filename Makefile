@@ -1,11 +1,12 @@
-export GOTOOLCHAIN ?= go1.23.4
+export GOTOOLCHAIN ?= go1.25.0
 GO = go
+UNAME_S := $(shell uname -s)
 
 check:
 	@$(MAKE) check-spanname
 	@$(GO) fmt ./...
 	@echo "Running staticcheck..."
-	@$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.5.0 ./...
+	@$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
 	@echo "Done."
 
 check-spanname:
@@ -37,3 +38,13 @@ test-coverage: clean-testdata
 
 test-pprof:
 	@./scripts/run-pprof-tests.sh
+
+view-coverage:
+	@$(GO) tool cover -html=coverage.txt -o coverage.html
+ifeq ($(OS),Windows_NT)
+	@start coverage.html
+else ifeq ($(UNAME_S),Linux)
+	@xdg-open coverage.html
+else ifeq ($(UNAME_S),Darwin)
+	@open coverage.html
+endif

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRangeIterator(t *testing.T) {
@@ -86,20 +87,23 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	mem1 := InitMemtable(cfg)
 	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
-	sst1, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
+	sst1, meta, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
 	assert.NoError(t, err)
-	ts.AddSSTableToLevel(0, &sst1)
+	require.NotZero(t, meta.Number)
+	ts.AddSSTable(0, &sst1)
 
 	iter, err := ts.RinDB.IRange(ctx, Bytes("a"), Bytes("z"))
 	assert.NoError(t, err)
 
-	if iter.HasNext() {
-		_, err = iter.Next()
-		assert.NoError(t, err)
-	}
-	assert.True(t, sst1.IsOpened())
+	num, err := fileNum(sst1.Path())
+	require.NoError(t, err)
+	ts.Manager.mu.RLock()
+	opened := ts.Manager.openedByNum[num]
+	ts.Manager.mu.RUnlock()
+	assert.NotNil(t, opened)
+	assert.True(t, opened.IsOpened())
 	assert.NoError(t, iter.Close())
-	assert.False(t, sst1.IsOpened())
+	assert.False(t, opened.IsOpened())
 }
 
 func TestRangeIteratorPrepare(t *testing.T) {

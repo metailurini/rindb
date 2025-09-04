@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSStable tests the SStable functionality.
@@ -22,8 +23,7 @@ func TestSStable(t *testing.T) {
 		defer closer()
 		fs := fss[0]
 		mem := InitMemtable(cfg)
-		_, err := flush(context.Background(), cfg, mem, fs)
-		assert.NoError(t, err)
+		_, _, _ = flush(context.Background(), cfg, mem, fs)
 	})
 	t.Run("FlushWithElements", func(t *testing.T) {
 		ctx := context.Background()
@@ -44,8 +44,9 @@ func TestSStable(t *testing.T) {
 		for i, v := range data {
 			mem.Put(newRecord(v.key, v.value, uint64(i)))
 		}
-		sstable, err := flush(ctx, cfg, mem, fs)
+		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
 		assert.NoError(t, err)
 		reader := newOffsetReader(sstable.FileSystem, tailSSTableOffset)
@@ -84,8 +85,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-		sstable1, err := flush(ctx, cfg, mem, fs)
+		sstable1, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		sstable2, err := NewSSTable(ctx, cfg, fs)
 		assert.NoError(t, err)
 		assert.Equal(t, sstable1.SparseIndex, sstable2.SparseIndex)
@@ -99,8 +101,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-		_, err := flush(ctx, cfg, mem, fs)
+		_, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		sstable, err := NewSSTable(ctx, cfg, fs)
 		assert.NoError(t, err)
 		sparseIndex := sstable.SparseIndex
@@ -122,8 +125,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
 		assert.Equal(t, uint(3), mem.data.Len())
-		sstable, err := flush(ctx, cfg, mem, fs)
+		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		assert.Equal(t, uint(0), mem.data.Len())
 		value, err := sstable.GetValue(ctx, Bytes("2"))
 		assert.NoError(t, err)
@@ -146,8 +150,9 @@ func TestSStable(t *testing.T) {
 		mem := InitMemtable(cfg)
 		mem.Put(newRecord(Bytes("a"), Bytes("old"), 1))
 		mem.Put(newRecord(Bytes("a"), Bytes("new"), 2))
-		sstable, err := flush(ctx, cfg, mem, fs)
+		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		value, err := sstable.GetValue(ctx, Bytes("a"), 1)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("old"), value)
@@ -163,8 +168,9 @@ func TestSStable(t *testing.T) {
 		mem.Put(newRecord(Bytes("2"), Bytes("3"), 1))
 		mem.Put(newRecord(Bytes("1"), Bytes("2"), 2))
 		mem.Put(newRecord(Bytes("3"), Bytes("4"), 3))
-		sstable, err := flush(context.Background(), cfg, mem, fs)
+		sstable, meta, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 		iterator, err := sstable.Iterator()
 		assert.NoError(t, err)
 		assert.True(t, iterator.HasNext())
@@ -209,8 +215,9 @@ func TestSStable(t *testing.T) {
 		for i, v := range data {
 			mem.Put(newRecord(v.key, v.value, uint64(i)))
 		}
-		sstable, err := flush(context.Background(), cfg, mem, fs)
+		sstable, meta, err := flush(context.Background(), cfg, mem, fs)
 		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
 
 		tests := []struct {
 			name         string
@@ -331,6 +338,84 @@ func TestSStable(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestSStable_GetValueSparseIndexFallback ensures GetValue can retrieve keys
+// when they are absent from the sparse index by scanning from the nearest
+// preceding entry.
+func TestSStable_GetValueSparseIndexFallback(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	data := []struct{ key, value Bytes }{
+		{Bytes("a"), Bytes("1")},
+		{Bytes("b"), Bytes("2")},
+		{Bytes("c"), Bytes("3")},
+		{Bytes("d"), Bytes("4")},
+		{Bytes("e"), Bytes("5")},
+	}
+	mem := InitMemtable(cfg)
+	for i, v := range data {
+		mem.Put(newRecord(v.key, v.value, uint64(i)))
+	}
+	sst, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	// Reduce sparse index to only a subset of keys to simulate sparsity.
+	orig := sst.SparseIndex
+	sst.SparseIndex = SparseIndex{}
+	for _, ko := range orig {
+		if Compare(ko.key, Bytes("c")) == CmpEqual || Compare(ko.key, Bytes("e")) == CmpEqual {
+			sst.SparseIndex = append(sst.SparseIndex, ko)
+		}
+	}
+
+	// Insert a non-existent key into the Bloom filter to force a scan.
+	sst.Bloom.Insert(Bytes("da"))
+
+	tests := []struct {
+		name    string
+		key     Bytes
+		value   Bytes
+		wantErr error
+	}{
+		{
+			name:  "existing key before first index entry",
+			key:   Bytes("a"),
+			value: Bytes("1"),
+		},
+		{
+			name:  "existing key between index entries",
+			key:   Bytes("d"),
+			value: Bytes("4"),
+		},
+		{
+			name:    "missing key between index entries",
+			key:     Bytes("da"),
+			wantErr: ErrKeyNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			off, err := sst.SparseIndex.GetOffset(tt.key)
+			assert.ErrorIs(t, err, ErrKeyNotFound)
+			assert.Equal(t, int64(0), off)
+
+			val, err := sst.GetValue(ctx, tt.key)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, val)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.value, val)
+			}
+		})
+	}
 }
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
@@ -467,8 +552,9 @@ func TestFlushWithTombstones(t *testing.T) {
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(k1, Bytes("v1"), 1))
 	mem.Put(newRecord(k2, nil, 2))
-	sstable, err := flush(ctx, cfg, mem, fs)
+	sstable, meta, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 	v1, err := sstable.GetValue(ctx, k1)
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v1)
@@ -486,8 +572,9 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 	fs := fss[0]
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("k1"), Bytes("v1"), 2))
-	sstable, err := flush(ctx, cfg, mem, fs)
+	sstable, meta, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 	posBefore, err := fs.CursorPos()
 	assert.NoError(t, err)
 	_, err = sstable.GetValue(ctx, Bytes("k2"))
@@ -507,11 +594,12 @@ func TestSStableChecksumMismatch(t *testing.T) {
 	mem := InitMemtable(cfg)
 	rec := newRecord(Bytes("a"), Bytes("1"), 1)
 	mem.Put(rec)
-	sstable, err := flush(ctx, cfg, mem, fs)
+	sstable, meta, err := flush(ctx, cfg, mem, fs)
 	assert.NoError(t, err)
+	require.NotZero(t, meta.Number)
 
 	offset := int64(CalOnDiskSize(rec)) - checksumSize
-	_, err = fs.file.WriteAt([]byte{0}, offset)
+	_, err = fs.WriteAt([]byte{0}, offset)
 	assert.NoError(t, err)
 
 	_, err = sstable.GetValue(ctx, Bytes("a"))

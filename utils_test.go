@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,7 +52,6 @@ type testRindbSetup struct {
 	Config       *Config
 	Manager      *SSTableManager
 	TempDir      string
-	Levels       []*LinkedList[*FileSystem]
 	RinDB        *Rindb
 	CleanupFuncs []func()
 }
@@ -64,15 +62,10 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	defaultCfg := DefaultConfig() // Get default values
 
 	if cfg == nil {
-		// If no config provided, use the default one with the temp dir
 		finalCfg = defaultCfg
 	} else {
-		// If a config is provided, copy it and override the databaseDir
-		finalCfg = *cfg // Copy the provided config
+		finalCfg = *cfg
 
-		// Ensure essential default values are applied if the provided config missed them
-		// (e.g., if a user created a Config struct manually without using NewConfig)
-		// Check against zero values and assign defaults if necessary.
 		if finalCfg.maxMemtableSize == 0 {
 			finalCfg.maxMemtableSize = defaultCfg.maxMemtableSize
 		}
@@ -102,32 +95,19 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	tempDir := t.TempDir()
 	finalCfg.databaseDir = tempDir
 
-	manager, err := InitSSTableManager(ctx, finalCfg)
-	assert.NoError(t, err)
-
-	// Ensure at least 3 levels exist for common test requirements.
-	// This loop correctly handles cases where manager.levels might be initialized
-	// with some levels already loaded from disk.
-	minLevels := 3
-	if len(manager.levels) < minLevels {
-		needed := minLevels - len(manager.levels)
-		for range needed {
-			manager.levels = append(manager.levels, InitLinkedList[*FileSystem]())
-		}
-	}
-	// Ensure existing levels up to minLevels are not nil
-	for i := 0; i < minLevels && i < len(manager.levels); i++ {
-		if manager.levels[i] == nil {
-			manager.levels[i] = InitLinkedList[*FileSystem]()
-		}
-	}
-
-	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config) (*SSTableManager, error) {
-		return manager, nil
+	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
+		return InitSSTableManager(ctx, cfg, vs, mw)
 	}
 
 	db, err := InitRinDB(ctx, WithConfig(finalCfg))
 	assert.NoError(t, err)
+
+	manager := db.ssTableManager
+	if manager.versionSet == nil {
+		manager.versionSet = &VersionSet{}
+	}
+	// Ensure at least three levels exist for tests
+	manager.versionSet.ensureLevel(2)
 
 	cleanup := func() {
 		assert.NoError(t, db.Close(), "Failed to close RinDB")
@@ -140,7 +120,6 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 		RinDB:        db,
 		Manager:      manager,
 		TempDir:      tempDir,
-		Levels:       manager.levels,
 		CleanupFuncs: []func(){cleanup},
 	}
 }
@@ -174,7 +153,7 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 		seqNum++
 		mem.Put(newRecord(Bytes(k), Bytes(v), seqNum))
 	}
-	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
+	sstable, _, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
@@ -188,27 +167,27 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 		mem.Put(newRecord(Bytes(k), Bytes(v), seqNum))
 		seqNum++
 	}
-	sstable, err := flush(context.Background(), *ts.Config, mem, fs)
+	sstable, _, err := flush(context.Background(), *ts.Config, mem, fs)
 	assert.NoError(ts.T, err)
 	return &sstable
 }
 
-// AddSSTableToLevel adds an SSTable to the specified level.
-func (ts *testRindbSetup) AddSSTableToLevel(level int, sstable *SStable) {
-	fs := sstable.FileSystem
-	ts.Levels[level].PushBack(fs)
-}
+// AddSSTable registers an SSTable at the specified level.
+func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
+	if ts.Manager.versionSet == nil {
+		ts.Manager.versionSet = &VersionSet{}
+	}
+	ts.Manager.versionSet.ensureLevel(level)
 
-// createDummyFile creates a dummy file of specified size in MB for testing compaction.
-func createDummyFile(t *testing.T, dir, name string, sizeMB int) string {
-	path := filepath.Join(dir, name)
-	f, err := os.Create(path)
-	assert.NoError(t, err)
-	defer f.Close()
-	data := make([]byte, sizeMB*1024*1024)
-	_, err = f.Write(data)
-	assert.NoError(t, err)
-	return path
+	num, err := fileNum(sstable.Path())
+	assert.NoError(ts.T, err)
+	info, err := os.Stat(sstable.Path())
+	assert.NoError(ts.T, err)
+	small, large := sstable.GetKeyRange()
+	seqHi, err := sstable.MaxSequenceNumber()
+	assert.NoError(ts.T, err)
+	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
+	assert.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta, seqHi))
 }
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
@@ -222,7 +201,8 @@ func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*File
 	fss := make([]*FileSystem, 0, n)
 	tempDir := t.TempDir()
 	for i := 0; i < n; i++ {
-		fs, err := OpenFS(context.Background(), fmt.Sprintf("%s/test-%d", tempDir, i))
+		name := sstPath(uint64(i + 1))
+		fs, err := OpenFS(context.Background(), fmt.Sprintf("%s/%s", tempDir, name))
 		assert.NoError(t, err)
 
 		// Write initial content if provided for this index
@@ -281,7 +261,7 @@ func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
 func createSSTable(t *testing.T, cfg Config, fs *FileSystem, pairs ...[2]Bytes) SStable {
 	t.Helper() // Mark this as a test helper function
 	mem := populateMemtable(cfg, pairs...)
-	sstable, err := flush(context.Background(), cfg, mem, fs)
+	sstable, _, err := flush(context.Background(), cfg, mem, fs)
 	assert.NoError(t, err, "Failed to flush memtable to create SSTable")
 	return sstable
 }
@@ -334,13 +314,6 @@ func initRinDBWithCleanup(t *testing.T, opts ...Option) (*Rindb, func()) {
 	}
 
 	return rin, cleanup
-}
-
-// assertFileExists checks if a file exists at the given path and fails the test if not.
-func assertFileExists(t *testing.T, path string) {
-	t.Helper()
-	_, err := os.Stat(path)
-	assert.NoError(t, err, "Expected file '%s' to exist, but got error: %v", path, err)
 }
 
 // assertFileNotExists checks if a file does not exist at the given path and fails the test if it does.

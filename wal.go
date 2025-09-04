@@ -8,10 +8,16 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"sync/atomic"
 )
+
+func cleanupTemp(fs *FileSystem, p string) {
+	_ = fs.Close()
+	_ = os.Remove(p)
+}
 
 type WAL struct {
 	*FileSystem
@@ -19,23 +25,50 @@ type WAL struct {
 	config  Config
 	records atomic.Uint64
 	bytes   atomic.Uint64
+
+	// injected for testing
+	writeRecord func(tx *Transaction, rec Record) error
+	txCommit    func(tx *Transaction, ctx context.Context, w io.Writer) error
 }
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
 func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
-	walPath := path.Join(cfg.databaseDir, "WAL")
-	fs, err := OpenFS(ctx, walPath)
+	// Attempt to reuse the highest-numbered WAL if it exists.
+	entries, err := os.ReadDir(cfg.databaseDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open WAL file %s: %w", walPath, err)
+		return nil, fmt.Errorf("failed to read database directory %s: %w", cfg.databaseDir, err)
+	}
+
+	var maxID uint64
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasSuffix(name, walExt) {
+			if n, nerr := fileNum(name); nerr == nil && n > maxID {
+				maxID = n
+			}
+		}
+	}
+	id := maxID
+	if id == 0 {
+		id = cfg.fileNumberAllocator.Next()
+	}
+	wp := path.Join(cfg.databaseDir, walPath(id))
+	fs, err := OpenFS(ctx, wp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open WAL file %s: %w", wp, err)
 	}
 	return NewWAL(cfg, fs), nil
 }
 
 func NewWAL(config Config, fs *FileSystem) *WAL {
 	return &WAL{
-		FileSystem: fs,
-		tm:         NewTransactionManager(),
-		config:     config,
+		FileSystem:  fs,
+		tm:          NewTransactionManager(),
+		config:      config,
+		writeRecord: WriteRecord,
+		txCommit: func(tx *Transaction, ctx context.Context, w io.Writer) error {
+			return tx.Commit(ctx, w)
+		},
 	}
 }
 
@@ -191,8 +224,7 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			_ = tmpFS.Close()
-			_ = os.Remove(tmpPath)
+			cleanupTemp(tmpFS, tmpPath)
 			if errors.Is(err, ErrChecksumMismatch) {
 				return fmt.Errorf("checksum mismatch while reading WAL: %w", err)
 			}
@@ -202,14 +234,12 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 			continue
 		}
 		tx := w.tm.Begin()
-		if err := WriteRecord(tx, rec); err != nil {
-			_ = tmpFS.Close()
-			_ = os.Remove(tmpPath)
+		if err := w.writeRecord(tx, rec); err != nil {
+			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 		}
-		if err := tx.Commit(ctx, tmpFS); err != nil {
-			_ = tmpFS.Close()
-			_ = os.Remove(tmpPath)
+		if err := w.txCommit(tx, ctx, tmpFS); err != nil {
+			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to commit WAL transaction: %w", err)
 		}
 		keptRecords++
@@ -217,22 +247,20 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 	}
 
 	if err := tmpFS.Sync(); err != nil {
-		_ = tmpFS.Close()
-		_ = os.Remove(tmpPath)
+		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to sync WAL: %w", err)
-	}
-	if err := tmpFS.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("failed to close temp WAL: %w", err)
 	}
 
 	if err := w.Close(); err != nil {
-		_ = os.Remove(tmpPath)
+		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to close WAL: %w", err)
 	}
-	if err := os.Rename(tmpPath, w.Path()); err != nil {
-		_ = os.Remove(tmpPath)
+	if err := tmpFS.Rename(w.Path()); err != nil {
+		cleanupTemp(tmpFS, tmpPath)
 		return fmt.Errorf("failed to replace WAL: %w", err)
+	}
+	if err := tmpFS.Close(); err != nil {
+		return fmt.Errorf("failed to close temp WAL: %w", err)
 	}
 	if err := w.Open(ctx); err != nil {
 		return fmt.Errorf("failed to reopen WAL: %w", err)
