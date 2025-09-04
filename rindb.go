@@ -373,13 +373,14 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			go func(ctx context.Context, flushSeq uint64) {
 				defer r.wg.Done()
 				INFO(ctx, "Background compaction goroutine started.")
-				r.mu.Lock()
-				defer r.mu.Unlock()
 				if err := r.ssTableManager.Compact(ctx); err != nil {
 					ERROR(ctx, "Background compaction failed: %v", err)
 				} else {
 					INFO(ctx, "Background compaction goroutine finished.")
 				}
+
+				r.mu.Lock()
+				defer r.mu.Unlock()
 
 				if err := r.maybeRotateManifest(ctx); err != nil {
 					ERROR(ctx, "Manifest rotation failed: %v", err)
