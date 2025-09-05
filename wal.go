@@ -73,7 +73,7 @@ func NewWAL(config Config, fs *FileSystem) *wal {
 }
 
 func (w *wal) Load(ctx context.Context) (memtable, error) {
-	ctx, span := walTracer.Start(ctx, "WAL.Load")
+	ctx, span := walTracer.Start(ctx, "wal.Load")
 	start := time.Now()
 	defer func() {
 		walLoadDuration.Record(ctx, float64(time.Since(start).Milliseconds()))
@@ -104,7 +104,7 @@ func (w *wal) Load(ctx context.Context) (memtable, error) {
 }
 
 func (w *wal) Append(ctx context.Context, record Record) error {
-	ctx, span := walTracer.Start(ctx, "WAL.Append")
+	ctx, span := walTracer.Start(ctx, "wal.Append")
 	start := time.Now()
 	defer func() {
 		walAppendDuration.Record(ctx, float64(time.Since(start).Milliseconds()))
@@ -148,7 +148,7 @@ func (w *wal) Append(ctx context.Context, record Record) error {
 }
 
 func (w *wal) AppendMany(ctx context.Context, records []Record) error {
-	ctx, span := walTracer.Start(ctx, "WAL.AppendMany")
+	ctx, span := walTracer.Start(ctx, "wal.AppendMany")
 	start := time.Now()
 	defer func() {
 		walAppendManyDuration.Record(ctx, float64(time.Since(start).Milliseconds()))
@@ -202,7 +202,7 @@ func (w *wal) AppendMany(ctx context.Context, records []Record) error {
 // It rewrites the WAL preserving only the records with sequence numbers >= minSeq.
 // The method resets internal counters based on the remaining records.
 func (w *wal) Clean(ctx context.Context, minSeq uint64) error {
-	ctx, span := walTracer.Start(ctx, "WAL.Clean")
+	ctx, span := walTracer.Start(ctx, "wal.Clean")
 	defer span.End()
 
 	reader := newOffsetReader(w.FileSystem, 0)
