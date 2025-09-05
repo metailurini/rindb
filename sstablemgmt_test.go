@@ -144,7 +144,7 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 	})
 }
 
-func TestBuildversionSetFromDisk(t *testing.T) {
+func TestBuildVersionSetFromDisk(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
 
