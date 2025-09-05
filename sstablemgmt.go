@@ -283,7 +283,7 @@ func (h *ssTableManager) dynamicTriggerHit() bool {
 // addSSTable registers a new SSTable's metadata, persists it to the manifest,
 // and updates the in-memory versionSet.
 func (h *ssTableManager) addSSTable(ctx context.Context, meta fileMeta, lastSeq uint64) error {
-	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
+	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.addSSTable")
 	start := time.Now()
 	defer func() {
 		span.End()
@@ -379,7 +379,7 @@ func (h *ssTableManager) shouldCompact(ctx context.Context, levelNumb int, files
 }
 
 func (h *ssTableManager) Compact(ctx context.Context) error {
-	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.Compact")
+	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.Compact")
 	start := time.Now()
 	defer func() {
 		span.End()
@@ -573,7 +573,7 @@ func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 // missing on disk, the function returns the error so callers can retry with a
 // fresh view.
 func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*SStable, error) {
-	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.GetRelevantSSTables")
+	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
 		span.End()
