@@ -13,7 +13,7 @@ func isRunningTests() bool {
 	return flag.Lookup("test.v") != nil
 }
 
-func LOG(ctx context.Context, logType string, msg string, args ...any) {
+func logMsg(ctx context.Context, logType string, msg string, args ...any) {
 	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
 		sc := span.SpanContext()
 		log.Printf("[%s] trace_id=%s span_id=%s "+msg+"\n", append([]any{logType, sc.TraceID().String(), sc.SpanID().String()}, args...)...)
@@ -22,11 +22,12 @@ func LOG(ctx context.Context, logType string, msg string, args ...any) {
 	log.Printf("[%s] "+msg+"\n", append([]any{logType}, args...)...)
 }
 
-func DEBUG(ctx context.Context, msg string, args ...any) {
+func debug(ctx context.Context, msg string, args ...any) {
 	if isRunningTests() {
-		LOG(ctx, "DEBUG", msg, args...)
+		logMsg(ctx, "debug", msg, args...)
 	}
 }
-func INFO(ctx context.Context, msg string, args ...any)  { LOG(ctx, "INFO", msg, args...) }
-func WARN(ctx context.Context, msg string, args ...any)  { LOG(ctx, "WARN", msg, args...) }
-func ERROR(ctx context.Context, msg string, args ...any) { LOG(ctx, "ERROR", msg, args...) }
+
+func info(ctx context.Context, msg string, args ...any)   { logMsg(ctx, "info", msg, args...) }
+func warn(ctx context.Context, msg string, args ...any)   { logMsg(ctx, "warn", msg, args...) }
+func errorf(ctx context.Context, msg string, args ...any) { logMsg(ctx, "errorf", msg, args...) }

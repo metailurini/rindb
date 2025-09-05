@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // isTempoEndpointResolvable checks if tempo.magpie-gopher.ts.net is resolvable via DNS.
@@ -95,7 +96,7 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	tempDir := t.TempDir()
 	finalCfg.databaseDir = tempDir
 
-	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
+	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *versionSet, mw manifestWriter) (*SSTableManager, error) {
 		return InitSSTableManager(ctx, cfg, vs, mw)
 	}
 
@@ -104,7 +105,7 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 
 	manager := db.ssTableManager
 	if manager.versionSet == nil {
-		manager.versionSet = &VersionSet{}
+		manager.versionSet = &versionSet{}
 	}
 	// Ensure at least three levels exist for tests
 	manager.versionSet.ensureLevel(2)
@@ -175,7 +176,7 @@ func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]st
 // AddSSTable registers an SSTable at the specified level.
 func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	if ts.Manager.versionSet == nil {
-		ts.Manager.versionSet = &VersionSet{}
+		ts.Manager.versionSet = &versionSet{}
 	}
 	ts.Manager.versionSet.ensureLevel(level)
 
@@ -186,7 +187,7 @@ func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	small, large := sstable.GetKeyRange()
 	seqHi, err := sstable.MaxSequenceNumber()
 	assert.NoError(ts.T, err)
-	meta := FileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
+	meta := fileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
 	assert.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta, seqHi))
 }
 
@@ -325,15 +326,15 @@ func assertFileNotExists(t *testing.T, path string) {
 
 // debugSkipList prints the contents of a SkipList for debugging.
 func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
-	DEBUG(context.Background(), "--header--: %v", list.headNote)
+	debug(context.Background(), "--header--: %v", list.headNote)
 	r := list.headNote.Next()
 	for r != nil {
-		DEBUG(context.Background(), "[%v<>%v] ", r.Key, r.Value)
+		debug(context.Background(), "[%v<>%v] ", r.Key, r.Value)
 		for _, v := range r.forwards {
 			if v == nil {
 				continue
 			}
-			DEBUG(context.Background(), "[%v<>%v] ", v.Key, v.Value)
+			debug(context.Background(), "[%v<>%v] ", v.Key, v.Value)
 		}
 		fmt.Println()
 		r = r.Next()
@@ -363,30 +364,16 @@ func assertIteratorRecords(t *testing.T, iter Iterator[Record], expected []Recor
 	}
 }
 
-// assertIteratorValues iterates through a generic Iterator[T] and asserts that the values match the expected slice.
-func assertIteratorValues[T comparable](t *testing.T, iter Iterator[T], expected []T) {
+// assertLinkedListContents checks if the contents of a linkedList match the expected slice.
+func assertLinkedListContents[T comparable](t *testing.T, l *linkedList[T], expected []T) {
 	t.Helper()
-	idx := 0
-	for iter.HasNext() {
-		value, err := iter.Next()
-		assert.NoError(t, err, "Iterator Next() returned an unexpected error at index %d", idx)
-		if idx >= len(expected) {
-			assert.Failf(t, "Iterator returned more values than expected", "Got extra value: %v", value)
-			return // Stop further checks if lengths mismatch
-		}
-		assert.Equal(t, expected[idx], value, "Value mismatch at index %d", idx)
-		idx++
+	assert.Equal(t, len(expected), l.size(), "linkedList length does not match expected length")
+	it := l.iterator()
+	for _, exp := range expected {
+		v, err := it.next()
+		require.NoError(t, err)
+		assert.Equal(t, exp, v)
 	}
-	assert.Equal(t, len(expected), idx, "Number of values iterated does not match expected count")
-	_, err := iter.Next()
-	assert.ErrorIs(t, err, EOI, "Iterator should return EOI after iterating through all expected values")
-}
-
-// assertLinkedListContents checks if the contents of a LinkedList match the expected slice.
-func assertLinkedListContents[T comparable](t *testing.T, l *LinkedList[T], expected []T) {
-	t.Helper()
-	assert.Equal(t, len(expected), l.Len(), "LinkedList length does not match expected length")
-	assertIteratorValues(t, l.Iterator(), expected)
 }
 
 // newRecord is a helper function to create a RecordImpl instance for tests.

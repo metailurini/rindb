@@ -2,38 +2,38 @@ package rindb
 
 import "sync/atomic"
 
-// FileNumberAllocator issues sequential file numbers.
-type FileNumberAllocator struct {
-	// next is the next file number to be allocated.
+// fileNumberAllocator issues sequential file numbers.
+type fileNumberAllocator struct {
+	// nxt is the next file number to be allocated.
 	// It must be 64-bit aligned for atomic operations on 32-bit platforms.
 	// Go guarantees this for struct fields.
-	next uint64
+	nxt uint64
 }
 
-// NewFileNumberAllocator returns an allocator starting at start.
-// The first call to Next will return start.
-func NewFileNumberAllocator(start uint64) *FileNumberAllocator {
-	return &FileNumberAllocator{next: start}
+// newFileNumberAllocator returns an allocator starting at start.
+// The first call to next will return start.
+func newFileNumberAllocator(start uint64) *fileNumberAllocator {
+	return &fileNumberAllocator{nxt: start}
 }
 
-// Next returns the current file number and increments the allocator.
-func (a *FileNumberAllocator) Next() uint64 {
-	return atomic.AddUint64(&a.next, 1) - 1
+// next returns the current file number and increments the allocator.
+func (a *fileNumberAllocator) next() uint64 {
+	return atomic.AddUint64(&a.nxt, 1) - 1
 }
 
-// Set updates the next file number to v.
-func (a *FileNumberAllocator) Set(v uint64) {
-	atomic.StoreUint64(&a.next, v)
+// set updates the next file number to v.
+func (a *fileNumberAllocator) set(v uint64) {
+	atomic.StoreUint64(&a.nxt, v)
 }
 
-// Peek returns the next number without incrementing.
-func (a *FileNumberAllocator) Peek() uint64 {
-	return atomic.LoadUint64(&a.next)
+// peek returns the next number without incrementing.
+func (a *fileNumberAllocator) peek() uint64 {
+	return atomic.LoadUint64(&a.nxt)
 }
 
-// Apply updates the allocator using the NextFileNumber from edit if present.
-func (a *FileNumberAllocator) Apply(edit VersionEdit) {
+// apply updates the allocator using the nextFileNumber from edit if present.
+func (a *fileNumberAllocator) apply(edit versionEdit) {
 	if edit.NextFileNumber != 0 {
-		a.Set(edit.NextFileNumber)
+		a.set(edit.NextFileNumber)
 	}
 }

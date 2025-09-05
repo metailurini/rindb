@@ -15,6 +15,9 @@ const slNodeOverhead = 83
 
 var _ CmpType = (*Bytes)(nil)
 
+// Bytes is a convenience wrapper around a byte slice that implements the
+// CmpType interface. It is exported so callers can use it with generic
+// collections like SkipList.
 type Bytes []byte
 
 func (b Bytes) Compare(other any) int {

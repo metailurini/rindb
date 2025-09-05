@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 )
 
-// SnapshotEdit returns a VersionEdit that captures the full state of the
-// VersionSet. The edit can be written as a manifest snapshot.
-func (vs *VersionSet) SnapshotEdit() VersionEdit {
-	edit := VersionEdit{
+// snapshotEdit returns a versionEdit that captures the full state of the
+// versionSet. The edit can be written as a manifest snapshot.
+func (vs *versionSet) snapshotEdit() versionEdit {
+	edit := versionEdit{
 		ComparatorName: vs.Comparator,
 		LastSequence:   vs.LastSequence,
 		NextFileNumber: vs.NextFileNumber,
@@ -23,8 +23,8 @@ func (vs *VersionSet) SnapshotEdit() VersionEdit {
 }
 
 // rotateManifest writes a snapshot of vs to a new manifest file and updates the
-// CURRENT file to point to it. It returns an open ManifestWriter for further edits.
-func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, current ManifestWriter) (ManifestWriter, error) {
+// CURRENT file to point to it. It returns an open manifestWriter for further edits.
+func rotateManifest(ctx context.Context, cfg Config, vs *versionSet, current manifestWriter) (manifestWriter, error) {
 	currentPath := current.Path()
 	dir := filepath.Dir(currentPath)
 	base := filepath.Base(currentPath)
@@ -49,14 +49,14 @@ func rotateManifest(ctx context.Context, cfg Config, vs *VersionSet, current Man
 		}
 	}()
 
-	snap := vs.SnapshotEdit()
+	snap := vs.snapshotEdit()
 	if err = w.Append(snap); err != nil {
 		return nil, err
 	}
 	if err = w.Sync(); err != nil {
 		return nil, err
 	}
-	if err = WriteCURRENT(ctx, dir, newBase); err != nil {
+	if err = writeCurrent(ctx, dir, newBase); err != nil {
 		return nil, err
 	}
 

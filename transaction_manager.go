@@ -8,25 +8,25 @@ import (
 	"sync"
 )
 
-// TransactionManager manages transactions with a mutex for safe creation.
-type TransactionManager struct {
+// transactionManager manages transactions with a mutex for safe creation.
+type transactionManager struct {
 	mu         sync.Mutex
-	activeTxns map[*Transaction]struct{}
+	activeTxns map[*transaction]struct{}
 }
 
-// NewTransactionManager creates a new TransactionManager.
-func NewTransactionManager() *TransactionManager {
-	return &TransactionManager{
-		activeTxns: make(map[*Transaction]struct{}),
+// newTransactionManager creates a new transactionManager.
+func newTransactionManager() *transactionManager {
+	return &transactionManager{
+		activeTxns: make(map[*transaction]struct{}),
 	}
 }
 
 // Begin starts a new transaction, ensuring thread-safe creation.
-func (tm *TransactionManager) Begin() *Transaction {
+func (tm *transactionManager) begin() *transaction {
 	tm.mu.Lock()
 	defer tm.mu.Unlock() // Unlock after creating the transaction
 
-	txn := &Transaction{
+	txn := &transaction{
 		buffer:  bytes.NewBuffer(nil),
 		manager: tm,
 		state:   "active",
@@ -35,16 +35,16 @@ func (tm *TransactionManager) Begin() *Transaction {
 	return txn
 }
 
-// Transaction represents a single transaction with its own state.
-type Transaction struct {
+// transaction represents a single transaction with its own state.
+type transaction struct {
 	buffer  *bytes.Buffer
-	manager *TransactionManager // Reference to the manager.
+	manager *transactionManager // Reference to the manager.
 	mu      sync.Mutex          // Per-transaction lock for thread safety.
 	state   string              // "active", "committed", or "rolledback".
 }
 
-// Write writes data to the transaction buffer, ensuring thread safety.
-func (t *Transaction) Write(p []byte) (int, error) {
+// write writes data to the transaction buffer, ensuring thread safety.
+func (t *transaction) write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -54,8 +54,8 @@ func (t *Transaction) Write(p []byte) (int, error) {
 	return t.buffer.Write(p)
 }
 
-// Commit writes the buffered data to the provided writer and marks the transaction as committed.
-func (t *Transaction) Commit(ctx context.Context, w io.Writer) error {
+// commit writes the buffered data to the provided writer and marks the transaction as committed.
+func (t *transaction) commit(ctx context.Context, w io.Writer) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -74,12 +74,12 @@ func (t *Transaction) Commit(ctx context.Context, w io.Writer) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	INFO(ctx, "Transaction committed successfully")
+	info(ctx, "Transaction committed successfully")
 	return nil
 }
 
-// Rollback discards the transaction's buffer and marks it as rolled back.
-func (t *Transaction) Rollback(ctx context.Context) error {
+// rollback discards the transaction's buffer and marks it as rolled back.
+func (t *transaction) rollback(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -93,12 +93,12 @@ func (t *Transaction) Rollback(ctx context.Context) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	INFO(ctx, "Transaction rolled back successfully")
+	info(ctx, "Transaction rolled back successfully")
 	return nil
 }
 
-// IsActive checks if the transaction is still active (optional utility method).
-func (t *Transaction) IsActive() bool {
+// isActive checks if the transaction is still active (optional utility method).
+func (t *transaction) isActive() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.state == "active"

@@ -23,8 +23,8 @@ type Rindb struct {
 	wal               *WAL
 	memtable          Memtable
 	ssTableManager    *SSTableManager
-	versionSet        *VersionSet
-	manifest          ManifestWriter
+	versionSet        *versionSet
+	manifest          manifestWriter
 	config            Config
 	shutdownTelemetry func(context.Context) error
 	mu                sync.RWMutex   // Mutex for thread-safe access
@@ -91,14 +91,14 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
-	vs, manifestPath, err := RecoverVersionSet(ctx, cfg.databaseDir, cfg.fileNumberAllocator)
+	vs, manifestPath, err := recoverVersionSet(ctx, cfg.databaseDir, cfg.fileNumberAllocator)
 	if err != nil {
 		return nil, err
 	}
 	if manifestPath == "" {
 		manifestFile := DefaultManifestFile
 		manifestPath = path.Join(cfg.databaseDir, manifestFile)
-		if err := WriteCURRENT(ctx, cfg.databaseDir, manifestFile); err != nil {
+		if err := writeCurrent(ctx, cfg.databaseDir, manifestFile); err != nil {
 			return nil, err
 		}
 	}
@@ -138,7 +138,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
 
-	INFO(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
+	info(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
 	rin := &Rindb{
 		wal:               wal,
 		memtable:          memtable,
@@ -325,28 +325,28 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		if uint(memSize) >= r.config.maxMemtableSize {
 			flushCount.Add(ctx, 1)
 			r.flushCount.Add(1)
-			INFO(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
+			info(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
 			fs, err := r.ssTableManager.NewSSTableFS(ctx, 0)
 			if err != nil {
-				ERROR(ctx, "Failed to create new SSTable file system: %v", err)
+				errorf(ctx, "Failed to create new SSTable file system: %v", err)
 				return fmt.Errorf("failed to create new SSTable file system: %w", err)
 			}
 
 			_, meta, err := flush(ctx, r.config, r.memtable, fs)
 			if err != nil {
 				_ = fs.Close()
-				ERROR(ctx, "Failed to flush memtable: %v", err)
+				errorf(ctx, "Failed to flush memtable: %v", err)
 				return fmt.Errorf("failed to flush memtable: %w", err)
 			}
 
 			if err := r.ssTableManager.AddSSTable(ctx, meta, r.sequenceNumber); err != nil {
 				_ = fs.Close()
-				ERROR(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
+				errorf(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 				return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
 			}
 			if err := fs.Close(); err != nil {
-				WARN(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
+				warn(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
 			}
 
 			r.memtable.Clear()
@@ -357,34 +357,34 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			}
 
 			if err := r.wal.Clean(ctx, walThreshold); err != nil {
-				ERROR(ctx, "Failed to clean WAL after memtable flush: %v", err)
+				errorf(ctx, "Failed to clean WAL after memtable flush: %v", err)
 				return fmt.Errorf("failed to clean WAL: %w", err)
 			}
 
 			r.ssTableManager.setMinSnapshotSeq(snapMin)
 			flushSeq := r.sequenceNumber
-			INFO(ctx, "Triggering background compaction check.")
+			info(ctx, "Triggering background compaction check.")
 			r.wg.Add(1)
 			compactionCtx := trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx))
 
 			go func(ctx context.Context, flushSeq uint64) {
 				defer r.wg.Done()
-				INFO(ctx, "Background compaction goroutine started.")
+				info(ctx, "Background compaction goroutine started.")
 				if err := r.ssTableManager.Compact(ctx); err != nil {
-					ERROR(ctx, "Background compaction failed: %v", err)
+					errorf(ctx, "Background compaction failed: %v", err)
 				} else {
-					INFO(ctx, "Background compaction goroutine finished.")
+					info(ctx, "Background compaction goroutine finished.")
 				}
 
 				r.mu.Lock()
 				defer r.mu.Unlock()
 
 				if err := r.maybeRotateManifest(ctx); err != nil {
-					ERROR(ctx, "Manifest rotation failed: %v", err)
+					errorf(ctx, "Manifest rotation failed: %v", err)
 				}
 
 				if err := r.cleanupObsoleteLocked(ctx, flushSeq); err != nil {
-					ERROR(ctx, "Post-compaction cleanup failed: %v", err)
+					errorf(ctx, "Post-compaction cleanup failed: %v", err)
 				}
 			}(compactionCtx, flushSeq)
 		}
@@ -455,11 +455,11 @@ func (r *Rindb) Close() error {
 	r.mu.Unlock() // Unlock while waiting for goroutines
 
 	// Wait for any background operations (like compaction) to complete
-	INFO(ctx, "Waiting for background operations to finish...")
+	info(ctx, "Waiting for background operations to finish...")
 	waitStart := time.Now()
 	r.wg.Wait()
 	closeBackgroundWaitDuration.Record(ctx, float64(time.Since(waitStart).Milliseconds()))
-	INFO(ctx, "Background operations finished.")
+	info(ctx, "Background operations finished.")
 
 	// Re-acquire lock to safely close resources
 	r.mu.Lock()
@@ -468,30 +468,30 @@ func (r *Rindb) Close() error {
 	// Close the WAL
 	if err := r.wal.Close(); err != nil {
 		// Log the error but attempt to close SSTableManager anyway
-		ERROR(ctx, "Error closing WAL: %v", err)
+		errorf(ctx, "Error closing WAL: %v", err)
 		// Optionally return the WAL error immediately, or collect errors
 		// return fmt.Errorf("error closing WAL: %w", err)
 	} else {
-		INFO(ctx, "WAL closed successfully.")
+		info(ctx, "WAL closed successfully.")
 	}
 
 	// Close the SSTableManager
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
 	r.ssTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
-	INFO(ctx, "SSTableManager closed.")
+	info(ctx, "SSTableManager closed.")
 
 	if r.manifest != nil {
 		if err := r.manifest.Close(); err != nil {
-			ERROR(ctx, "Error closing manifest: %v", err)
+			errorf(ctx, "Error closing manifest: %v", err)
 		}
 	}
 
 	if err := r.shutdownTelemetry(ctx); err != nil {
-		ERROR(ctx, "Error shutting down telemetry: %v", err)
+		errorf(ctx, "Error shutting down telemetry: %v", err)
 	} else {
-		INFO(ctx, "Telemetry shutdown completed.")
+		info(ctx, "Telemetry shutdown completed.")
 	}
 
-	INFO(ctx, "RinDB closed successfully")
+	info(ctx, "RinDB closed successfully")
 	return nil
 }

@@ -15,7 +15,7 @@ func getMaxSeq(seq ...uint64) uint64 {
 // getMaxSequenceNumber loads the WAL and compares its highest sequence with
 // the manifest's LastSequence. It returns the larger of the two along with the
 // loaded memtable.
-func getMaxSequenceNumber(ctx context.Context, vs *VersionSet, wal *WAL) (uint64, Memtable, error) {
+func getMaxSequenceNumber(ctx context.Context, vs *versionSet, wal *WAL) (uint64, Memtable, error) {
 	mem, err := wal.Load(ctx)
 	if err != nil {
 		return 0, Memtable{}, err

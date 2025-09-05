@@ -22,7 +22,7 @@ func Test_getMaxSequenceNumber(t *testing.T) {
 		require.NoError(t, wal.Append(ctx, newRecord(Bytes("k1"), Bytes("v1"), 1)))
 		require.NoError(t, wal.Append(ctx, newRecord(Bytes("k2"), Bytes("v2"), 5)))
 
-		vs := &VersionSet{LastSequence: 3}
+		vs := &versionSet{LastSequence: 3}
 
 		seq, mem, err := getMaxSequenceNumber(ctx, vs, wal)
 		require.NoError(t, err)
@@ -41,7 +41,7 @@ func Test_getMaxSequenceNumber(t *testing.T) {
 
 		require.NoError(t, wal.Append(ctx, newRecord(Bytes("k1"), Bytes("v1"), 1)))
 
-		vs := &VersionSet{LastSequence: 10}
+		vs := &versionSet{LastSequence: 10}
 
 		seq, _, err := getMaxSequenceNumber(ctx, vs, wal)
 		require.NoError(t, err)

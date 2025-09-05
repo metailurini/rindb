@@ -18,7 +18,7 @@ import (
 
 type failingManifest struct{}
 
-func (failingManifest) Append(VersionEdit) error { return errors.New("append fail") }
+func (failingManifest) Append(versionEdit) error { return errors.New("append fail") }
 func (failingManifest) Sync() error              { return nil }
 func (failingManifest) Close() error             { return nil }
 func (failingManifest) Path() string             { return "" }
@@ -112,7 +112,7 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fs2.Close())
 
-	vs := &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}}
+	vs := &versionSet{Levels: [][]fileMeta{{{Number: 1, Level: 0}}}}
 
 	t.Run("normal startup uses manifest", func(t *testing.T) {
 		sm, err := InitSSTableManager(ctx, cfg, vs, nil)
@@ -144,7 +144,7 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 	})
 }
 
-func TestBuildVersionSetFromDisk(t *testing.T) {
+func TestBuildversionSetFromDisk(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
 
@@ -526,7 +526,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		level1Paths := make([]string, numFiles)
 		var totalSize int64
 
-		INFO(ctx, "Creating SSTables for Level 1 (target > 2MB total)...")
+		info(ctx, "Creating SSTables for Level 1 (target > 2MB total)...")
 		for i := 0; i < numFiles; i++ {
 			// Use ts.CreateSSTable which uses the manager's config and FS creation
 			kvs := make(map[string]string)
@@ -538,25 +538,25 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			ts.AddSSTable(1, sstable)
 
 			level1Paths[i] = sstable.Path()
-			info, statErr := os.Stat(sstable.Path())
+			fi, statErr := os.Stat(sstable.Path())
 			assert.NoError(t, statErr)
-			totalSize += info.Size()
-			INFO(ctx, "Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), info.Size())
+			totalSize += fi.Size()
+			info(ctx, "Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), fi.Size())
 		}
 
 		// Calculate the threshold used in this test
 		level1ThresholdBytes := int64(cfg.baseCompactionSizeMB) * int64(math.Pow(float64(cfg.levelSizeMultiplier), 1.0)) * 1024 * 1024
-		INFO(ctx, "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
+		info(ctx, "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
 			totalSize, float64(totalSize)/(1024*1024),
 			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
 		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
 		assert.Equal(t, numFiles, len(ts.Manager.versionSet.Levels[1]))
 
-		INFO(ctx, "Calling Compact()...")
+		info(ctx, "Calling Compact()...")
 		err := ts.Manager.Compact(ctx)
 		assert.NoError(t, err)
-		INFO(ctx, "Compact() finished.")
+		info(ctx, "Compact() finished.")
 
 		assert.Equal(t, 0, len(ts.Manager.versionSet.Levels[1]))
 		if assert.GreaterOrEqual(t, len(ts.Manager.versionSet.Levels), 3) {
@@ -572,7 +572,7 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		meta := ts.Manager.versionSet.Levels[2][0]
 		mergedInfo, err := os.Stat(path.Join(ts.Manager.config.databaseDir, sstPath(meta.Number)))
 		assert.NoError(t, err)
-		INFO(ctx, "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
+		info(ctx, "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
 		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
 }
@@ -715,7 +715,7 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			ioVal := uint64(0)
 
 			sm := &SSTableManager{
-				versionSet:     &VersionSet{Levels: [][]FileMeta{{{Number: 1, Level: 0}}}},
+				versionSet:     &versionSet{Levels: [][]fileMeta{{{Number: 1, Level: 0}}}},
 				config:         cfg,
 				now:            func() time.Time { return current },
 				diskSampler:    func() (uint64, error) { return ioVal, nil },
@@ -745,21 +745,21 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 	t.Run("Level0 below threshold", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
 		sm := &SSTableManager{config: cfg}
-		files := make([]FileMeta, 3)
+		files := make([]fileMeta, 3)
 		assert.False(t, sm.shouldCompact(ctx, 0, files))
 	})
 
 	t.Run("Level0 at threshold", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
 		sm := &SSTableManager{config: cfg}
-		files := make([]FileMeta, 4)
+		files := make([]fileMeta, 4)
 		assert.True(t, sm.shouldCompact(ctx, 0, files))
 	})
 
 	t.Run("Level0 above threshold", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
 		sm := &SSTableManager{config: cfg}
-		files := make([]FileMeta, 5)
+		files := make([]fileMeta, 5)
 		assert.True(t, sm.shouldCompact(ctx, 0, files))
 	})
 
@@ -769,7 +769,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithLevelSizeMultiplier(2),
 		)
 		sm := &SSTableManager{config: cfg}
-		files := []FileMeta{{Size: mb}}
+		files := []fileMeta{{Size: mb}}
 		assert.False(t, sm.shouldCompact(ctx, 1, files))
 	})
 
@@ -779,7 +779,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithLevelSizeMultiplier(2),
 		)
 		sm := &SSTableManager{config: cfg}
-		files := []FileMeta{{Size: 2 * mb}}
+		files := []fileMeta{{Size: 2 * mb}}
 		assert.True(t, sm.shouldCompact(ctx, 1, files))
 	})
 
@@ -789,7 +789,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithLevelSizeMultiplier(2),
 		)
 		sm := &SSTableManager{config: cfg}
-		files := []FileMeta{{Size: 2*mb + 1}}
+		files := []fileMeta{{Size: 2*mb + 1}}
 		assert.True(t, sm.shouldCompact(ctx, 1, files))
 	})
 
@@ -799,7 +799,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithLevelSizeMultiplier(2),
 		)
 		sm := &SSTableManager{config: cfg}
-		files := []FileMeta{{Size: 3 * mb}}
+		files := []fileMeta{{Size: 3 * mb}}
 		assert.False(t, sm.shouldCompact(ctx, 2, files))
 	})
 
@@ -809,7 +809,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithLevelSizeMultiplier(2),
 		)
 		sm := &SSTableManager{config: cfg}
-		files := []FileMeta{{Size: 4 * mb}}
+		files := []fileMeta{{Size: 4 * mb}}
 		assert.True(t, sm.shouldCompact(ctx, 2, files))
 	})
 
@@ -819,7 +819,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithLevelSizeMultiplier(2),
 		)
 		sm := &SSTableManager{config: cfg}
-		files := []FileMeta{{Size: 4*mb + 1}}
+		files := []fileMeta{{Size: 4*mb + 1}}
 		assert.True(t, sm.shouldCompact(ctx, 2, files))
 	})
 
@@ -835,7 +835,7 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		ctx := context.Background()
 		cfg := testConfig()
 		cfg.databaseDir = t.TempDir()
-		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{}, nil)
+		sm, err := InitSSTableManager(ctx, cfg, &versionSet{}, nil)
 		assert.NoError(t, err)
 		defer sm.Close(ctx)
 
@@ -858,7 +858,7 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		ctx := context.Background()
 		cfg := testConfig()
 		cfg.databaseDir = t.TempDir()
-		sm, err := InitSSTableManager(ctx, cfg, &VersionSet{}, nil)
+		sm, err := InitSSTableManager(ctx, cfg, &versionSet{}, nil)
 		assert.NoError(t, err)
 
 		var mu sync.Mutex
@@ -1126,7 +1126,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 
 		ts.Manager.versionSet.Levels = ts.Manager.versionSet.Levels[:1]
 
-		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err := ts.Manager.mergeIntoLevel(ctx, 1, picked)
 		require.NoError(t, err)
 
@@ -1149,7 +1149,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())
 
-		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		overlaps, err := ts.Manager.findOverlaps(1, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
@@ -1181,7 +1181,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, os.Mkdir(l0.FileSystem.Path(), 0o700))
 		defer os.Remove(l0.FileSystem.Path())
 
-		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err := ts.Manager.mergeIntoLevel(ctx, 1, picked)
 		assert.Error(t, err)
 	})
@@ -1200,7 +1200,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
 		defer os.Remove(overlap.FileSystem.Path())
 
-		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		overlaps, err := ts.Manager.findOverlaps(1, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
@@ -1216,10 +1216,10 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		ts.AddSSTable(0, l0)
 		require.NoError(t, l0.Close())
 
-		next := ts.Manager.config.fileNumberAllocator.Peek()
+		next := ts.Manager.config.fileNumberAllocator.peek()
 		err := os.Mkdir(path.Join(ts.Config.databaseDir, sstPath(next)), 0o700)
 		require.NoError(t, err)
-		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err = ts.Manager.mergeIntoLevel(ctx, 1, picked)
 		assert.Error(t, err)
 		_ = os.Remove(path.Join(ts.Config.databaseDir, sstPath(next)))
@@ -1236,7 +1236,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, l0a.Close())
 		require.NoError(t, l0b.Close())
 
-		next := ts.Manager.config.fileNumberAllocator.Peek()
+		next := ts.Manager.config.fileNumberAllocator.peek()
 		cancelCtx, cancel := context.WithCancel(ctx)
 		cancel()
 		err := ts.Manager.Compact(cancelCtx)
@@ -1265,7 +1265,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())
 
-		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
+		picked := []fileMeta{ts.Manager.versionSet.Levels[1][0]}
 		overlaps, err := ts.Manager.findOverlaps(2, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
@@ -1297,7 +1297,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, src.Close())
 		require.NoError(t, l2.Close())
 
-		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
+		picked := []fileMeta{ts.Manager.versionSet.Levels[1][0]}
 		overlaps, err := ts.Manager.findOverlaps(2, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
@@ -1326,7 +1326,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, os.Mkdir(src.FileSystem.Path(), 0o700))
 		defer os.Remove(src.FileSystem.Path())
 
-		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
+		picked := []fileMeta{ts.Manager.versionSet.Levels[1][0]}
 		err := ts.Manager.mergeIntoLevel(ctx, 2, picked)
 		assert.Error(t, err)
 	})
@@ -1345,7 +1345,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
 		defer os.Remove(overlap.FileSystem.Path())
 
-		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
+		picked := []fileMeta{ts.Manager.versionSet.Levels[1][0]}
 		overlaps, err := ts.Manager.findOverlaps(2, picked)
 		require.NoError(t, err)
 		inputs := append(overlaps, picked...)
@@ -1361,10 +1361,10 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		ts.AddSSTable(1, src)
 		require.NoError(t, src.Close())
 
-		next := ts.Manager.config.fileNumberAllocator.Peek()
+		next := ts.Manager.config.fileNumberAllocator.peek()
 		err := os.Mkdir(path.Join(ts.Config.databaseDir, sstPath(next)), 0o700)
 		require.NoError(t, err)
-		picked := []FileMeta{ts.Manager.versionSet.Levels[1][0]}
+		picked := []fileMeta{ts.Manager.versionSet.Levels[1][0]}
 		err = ts.Manager.mergeIntoLevel(ctx, 2, picked)
 		assert.Error(t, err)
 		_ = os.Remove(path.Join(ts.Config.databaseDir, sstPath(next)))
@@ -1386,7 +1386,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 
 		ts.Manager.versionSet.Levels = ts.Manager.versionSet.Levels[:1]
 
-		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		inputs := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err := ts.Manager.mergeIntoLevel(ctx, 1, inputs)
 		require.NoError(t, err)
 
@@ -1409,7 +1409,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 
 		ts.Manager.manifest = failingManifest{}
 
-		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		inputs := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err := ts.Manager.mergeIntoLevel(ctx, 1, inputs)
 		assert.Error(t, err)
 
@@ -1432,7 +1432,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 
 		ts.Manager.minSnapshotSeq = 1
 
-		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		inputs := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
 		require.NoError(t, err)
 
@@ -1452,7 +1452,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 
 		// Add dummy file to higher level to force bottom=false
 		ts.Manager.versionSet.ensureLevel(2)
-		ts.Manager.versionSet.Levels[2] = []FileMeta{{Number: 99, Level: 2, Smallest: InternalKey{UserKey: Bytes("x")}, Largest: InternalKey{UserKey: Bytes("x")}}}
+		ts.Manager.versionSet.Levels[2] = []fileMeta{{Number: 99, Level: 2, Smallest: InternalKey{UserKey: Bytes("x")}, Largest: InternalKey{UserKey: Bytes("x")}}}
 
 		fs := ts.newSSTableFS(0)
 		mem := InitMemtable(*ts.Config)
@@ -1464,7 +1464,7 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 
 		ts.Manager.minSnapshotSeq = 2
 
-		inputs := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		inputs := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		err = ts.Manager.mergeIntoLevel(ctx, 1, inputs)
 		require.NoError(t, err)
 
@@ -1500,7 +1500,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
 
-		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
+		inputs := []fileMeta{{Smallest: ik("a"), Largest: ik("b")}}
 		overlaps, err := ts.Manager.findOverlaps(5, inputs)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
@@ -1511,12 +1511,12 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		if ts.Manager.versionSet == nil {
-			ts.Manager.versionSet = &VersionSet{}
+			ts.Manager.versionSet = &versionSet{}
 		}
 		ts.Manager.versionSet.ensureLevel(2)
 		ts.Manager.versionSet.Levels[2] = nil
 
-		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
+		inputs := []fileMeta{{Smallest: ik("a"), Largest: ik("b")}}
 		overlaps, err := ts.Manager.findOverlaps(2, inputs)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
@@ -1527,12 +1527,12 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		if ts.Manager.versionSet == nil {
-			ts.Manager.versionSet = &VersionSet{}
+			ts.Manager.versionSet = &versionSet{}
 		}
 		ts.Manager.versionSet.ensureLevel(1)
-		ts.Manager.versionSet.Levels[1] = []FileMeta{}
+		ts.Manager.versionSet.Levels[1] = []fileMeta{}
 
-		inputs := []FileMeta{{Smallest: ik("a"), Largest: ik("b")}}
+		inputs := []fileMeta{{Smallest: ik("a"), Largest: ik("b")}}
 		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
@@ -1543,14 +1543,14 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		ts.Manager.versionSet.ensureLevel(1)
-		lvl1 := []FileMeta{
+		lvl1 := []fileMeta{
 			{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("c")},
 			{Number: 2, Level: 1, Smallest: ik("e"), Largest: ik("g")},
 			{Number: 3, Level: 1, Smallest: ik("h"), Largest: ik("j")},
 		}
-		ts.Manager.versionSet.Levels[1] = append([]FileMeta(nil), lvl1...)
+		ts.Manager.versionSet.Levels[1] = append([]fileMeta(nil), lvl1...)
 
-		inputs := []FileMeta{{Number: 4, Level: 0, Smallest: ik("b"), Largest: ik("f")}}
+		inputs := []fileMeta{{Number: 4, Level: 0, Smallest: ik("b"), Largest: ik("f")}}
 		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		require.Len(t, overlaps, 2)
@@ -1568,13 +1568,13 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		ts.Manager.versionSet.ensureLevel(1)
-		lvl1 := []FileMeta{
+		lvl1 := []fileMeta{
 			{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")},
 			{Number: 2, Level: 1, Smallest: ik("e"), Largest: ik("f")},
 		}
-		ts.Manager.versionSet.Levels[1] = append([]FileMeta(nil), lvl1...)
+		ts.Manager.versionSet.Levels[1] = append([]fileMeta(nil), lvl1...)
 
-		inputs := []FileMeta{{Number: 3, Level: 0, Smallest: ik("c"), Largest: ik("d")}}
+		inputs := []fileMeta{{Number: 3, Level: 0, Smallest: ik("c"), Largest: ik("d")}}
 		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		assert.Empty(t, overlaps)
@@ -1594,7 +1594,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		require.NoError(t, overlap.Close())
 		require.NoError(t, non.Close())
 
-		picked := append([]FileMeta(nil), ts.Manager.versionSet.Levels[0]...)
+		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
 		overlaps, err := ts.Manager.findOverlaps(1, picked)
 		require.NoError(t, err)
 		require.Len(t, overlaps, 1)
@@ -1612,7 +1612,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		ts.Manager.versionSet.ensureLevel(1)
-		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
+		ts.Manager.versionSet.Levels[1] = []fileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
 
 		overlaps, err := ts.Manager.findOverlaps(1, nil)
 		require.NoError(t, err)
@@ -1624,10 +1624,10 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		ts.Manager.versionSet.ensureLevel(1)
-		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
+		ts.Manager.versionSet.Levels[1] = []fileMeta{{Number: 1, Level: 1, Smallest: ik("a"), Largest: ik("b")}}
 
-		empty := FileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
-		overlaps, err := ts.Manager.findOverlaps(1, []FileMeta{empty})
+		empty := fileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
+		overlaps, err := ts.Manager.findOverlaps(1, []fileMeta{empty})
 		require.NoError(t, err)
 		assert.Nil(t, overlaps)
 	})
@@ -1637,11 +1637,11 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		defer ts.Cleanup()
 
 		ts.Manager.versionSet.ensureLevel(1)
-		ts.Manager.versionSet.Levels[1] = []FileMeta{{Number: 5, Level: 1, Smallest: ik("c"), Largest: ik("e")}}
+		ts.Manager.versionSet.Levels[1] = []fileMeta{{Number: 5, Level: 1, Smallest: ik("c"), Largest: ik("e")}}
 
-		empty := FileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
-		nonEmpty := FileMeta{Smallest: ik("b"), Largest: ik("d")}
-		overlaps, err := ts.Manager.findOverlaps(1, []FileMeta{empty, nonEmpty})
+		empty := fileMeta{Smallest: InternalKey{}, Largest: InternalKey{}}
+		nonEmpty := fileMeta{Smallest: ik("b"), Largest: ik("d")}
+		overlaps, err := ts.Manager.findOverlaps(1, []fileMeta{empty, nonEmpty})
 		require.NoError(t, err)
 		require.Len(t, overlaps, 1)
 		assert.Equal(t, uint64(5), overlaps[0].Number)
@@ -1660,7 +1660,7 @@ func TestRemoveFiles(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, f.Close())
 		}
-		files := []FileMeta{{Number: 1}, {Number: 2}, {Number: 3}}
+		files := []fileMeta{{Number: 1}, {Number: 2}, {Number: 3}}
 		require.NoError(t, removeFiles(dir, files))
 		for _, p := range paths {
 			_, err := os.Stat(p)
@@ -1684,7 +1684,7 @@ func TestRemoveFiles(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
 
-		files := []FileMeta{{Number: 1}, {Number: 2}}
+		files := []fileMeta{{Number: 1}, {Number: 2}}
 		err = removeFiles(dir, files)
 		assert.Error(t, err)
 

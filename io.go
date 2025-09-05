@@ -74,40 +74,40 @@ func ReadRecord(storage io.Reader) (Record, error) {
 	}, nil
 }
 
-func WriteNumber(tx *Transaction, number uint64) error {
+func writeNumber(tx *transaction, number uint64) error {
 	numBytes := [mdByteSize]byte{}
 	byteOrder.PutUint64(numBytes[:], number)
-	if _, err := tx.Write(numBytes[:]); err != nil {
+	if _, err := tx.write(numBytes[:]); err != nil {
 		return fmt.Errorf("failed to write number bytes: %w", err)
 	}
 	return nil
 }
 
-func WriteRecord(tx *Transaction, record Record) error {
+func writeRecord(tx *transaction, record Record) error {
 	ikey := EncodeInternalKey(record.GetKey(), record.GetSequenceNumber(), record.GetType())
 	val := record.GetValue()
 
 	checksum := checksum(ikey, val)
 
-	if err := WriteNumber(tx, uint64(len(ikey))); err != nil {
+	if err := writeNumber(tx, uint64(len(ikey))); err != nil {
 		return fmt.Errorf("failed to write internal key length: %w", err)
 	}
 
-	if err := WriteNumber(tx, uint64(len(val))); err != nil {
+	if err := writeNumber(tx, uint64(len(val))); err != nil {
 		return fmt.Errorf("failed to write value length: %w", err)
 	}
 
-	if _, err := tx.Write(ikey); err != nil {
+	if _, err := tx.write(ikey); err != nil {
 		return fmt.Errorf("failed to write internal key bytes: %w", err)
 	}
 
-	if _, err := tx.Write(val); err != nil {
+	if _, err := tx.write(val); err != nil {
 		return fmt.Errorf("failed to write value bytes: %w", err)
 	}
 
 	var checksumBytes [checksumSize]byte
 	byteOrder.PutUint32(checksumBytes[:], checksum)
-	if _, err := tx.Write(checksumBytes[:]); err != nil {
+	if _, err := tx.write(checksumBytes[:]); err != nil {
 		return fmt.Errorf("failed to write checksum: %w", err)
 	}
 

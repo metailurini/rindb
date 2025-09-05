@@ -85,7 +85,9 @@ func WithCalculatedK() BloomFilterOpt {
 	}
 }
 
-// BloomFilter represents a probabilistic data structure used for efficient membership testing.
+// BloomFilter represents a probabilistic data structure used for efficient
+// membership testing. It is exposed to allow advanced users to leverage the
+// filter independently from the rest of the database.
 type BloomFilter struct {
 	// Configuration settings for the Bloom filter
 	config bloomFilterConfig

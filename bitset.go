@@ -8,6 +8,8 @@ const (
 	bitSize = 64
 )
 
+// Bitset is a compact bit array used by BloomFilter and other components. It is
+// exported for advanced users who need a lightweight bitset implementation.
 type Bitset struct {
 	set  []uint64
 	size uint32

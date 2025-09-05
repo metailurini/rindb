@@ -3,22 +3,25 @@ package rindb
 import (
 	"bytes"
 	"context"
+	"math"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
-// TestNewTransactionManager verifies that NewTransactionManager initializes correctly.
+// TestNewTransactionManager verifies that newTransactionManager initializes correctly.
 func TestNewTransactionManager(t *testing.T) {
-	tm := NewTransactionManager()
+	tm := newTransactionManager()
 	if tm == nil {
-		t.Fatal("NewTransactionManager returned nil")
+		t.Fatal("newTransactionManager returned nil")
 	}
 }
 
 // TestBegin checks that Begin creates a valid transaction.
 func TestBegin(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
 	if txn == nil {
 		t.Fatal("Begin returned nil")
@@ -29,17 +32,17 @@ func TestBegin(t *testing.T) {
 	if txn.state != "active" {
 		t.Errorf("Expected state 'active', got %q", txn.state)
 	}
-	if !txn.IsActive() {
+	if !txn.isActive() {
 		t.Error("Expected transaction to be active")
 	}
 }
 
 // TestWrite verifies that Write works correctly on an active transaction.
 func TestWrite(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
-	n, err := txn.Write([]byte("test data"))
+	n, err := txn.write([]byte("test data"))
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
 	}
@@ -53,16 +56,16 @@ func TestWrite(t *testing.T) {
 
 // TestWriteAfterCommit ensures Write fails after committing.
 func TestWriteAfterCommit(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
-	txn.Write([]byte("data"))
+	txn.write([]byte("data"))
 	var buf bytes.Buffer
-	if err := txn.Commit(context.Background(), &buf); err != nil {
+	if err := txn.commit(context.Background(), &buf); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
-	_, err := txn.Write([]byte("more"))
+	_, err := txn.write([]byte("more"))
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}
@@ -70,12 +73,12 @@ func TestWriteAfterCommit(t *testing.T) {
 
 // TestCommit verifies that Commit writes data correctly and updates state.
 func TestCommit(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
-	txn.Write([]byte("commit me"))
+	txn.write([]byte("commit me"))
 	var buf bytes.Buffer
-	err := txn.Commit(context.Background(), &buf)
+	err := txn.commit(context.Background(), &buf)
 	if err != nil {
 		t.Errorf("Commit failed: %v", err)
 	}
@@ -92,14 +95,14 @@ func TestCommit(t *testing.T) {
 
 // TestCommitAfterCommit ensures a second Commit fails.
 func TestCommitAfterCommit(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
-	txn.Write([]byte("data"))
+	txn.write([]byte("data"))
 	var buf bytes.Buffer
-	txn.Commit(context.Background(), &buf)
+	txn.commit(context.Background(), &buf)
 
-	err := txn.Commit(context.Background(), &buf)
+	err := txn.commit(context.Background(), &buf)
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}
@@ -107,11 +110,11 @@ func TestCommitAfterCommit(t *testing.T) {
 
 // TestRollback verifies that Rollback resets the buffer and updates state.
 func TestRollback(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
-	txn.Write([]byte("rollback me"))
-	err := txn.Rollback(context.Background())
+	txn.write([]byte("rollback me"))
+	err := txn.rollback(context.Background())
 	if err != nil {
 		t.Errorf("Rollback failed: %v", err)
 	}
@@ -125,13 +128,13 @@ func TestRollback(t *testing.T) {
 
 // TestRollbackAfterRollback ensures a second Rollback fails.
 func TestRollbackAfterRollback(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 
-	txn.Write([]byte("data"))
-	txn.Rollback(context.Background())
+	txn.write([]byte("data"))
+	txn.rollback(context.Background())
 
-	err := txn.Rollback(context.Background())
+	err := txn.rollback(context.Background())
 	if err == nil || err.Error() != "transaction is not active" {
 		t.Errorf("Expected error 'transaction is not active', got %v", err)
 	}
@@ -139,17 +142,17 @@ func TestRollbackAfterRollback(t *testing.T) {
 
 // TestConcurrentBegin ensures multiple goroutines can call Begin without blocking.
 func TestConcurrentBegin(t *testing.T) {
-	tm := NewTransactionManager()
+	tm := newTransactionManager()
 	var wg sync.WaitGroup
 	const numGoroutines = 10
 
 	wg.Add(numGoroutines)
-	txns := make([]*Transaction, numGoroutines)
+	txns := make([]*transaction, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			txns[idx] = tm.Begin()
+			txns[idx] = tm.begin()
 		}(i)
 	}
 
@@ -158,7 +161,7 @@ func TestConcurrentBegin(t *testing.T) {
 		if txn == nil {
 			t.Errorf("Transaction %d is nil", i)
 		}
-		if !txn.IsActive() {
+		if !txn.isActive() {
 			t.Errorf("Transaction %d is not active", i)
 		}
 	}
@@ -166,8 +169,8 @@ func TestConcurrentBegin(t *testing.T) {
 
 // TestConcurrentWrite ensures a single transaction is thread-safe for writes.
 func TestConcurrentWrite(t *testing.T) {
-	tm := NewTransactionManager()
-	txn := tm.Begin()
+	tm := newTransactionManager()
+	txn := tm.begin()
 	var wg sync.WaitGroup
 	const numWrites = 100
 
@@ -176,7 +179,7 @@ func TestConcurrentWrite(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			data := []byte{byte(n)}
-			_, err := txn.Write(data)
+			_, err := txn.write(data)
 			if err != nil {
 				t.Errorf("Write failed in goroutine %d: %v", n, err)
 			}
@@ -187,4 +190,90 @@ func TestConcurrentWrite(t *testing.T) {
 	if txn.buffer.Len() != numWrites {
 		t.Errorf("Expected %d bytes in buffer, got %d", numWrites, txn.buffer.Len())
 	}
+}
+
+// TestTransactionManagerIntegration exercises commit and rollback paths against a real WAL.
+func TestTransactionManagerIntegration(t *testing.T) {
+	ctx := context.Background()
+	cfg := NewConfig(WithDatabaseDir(t.TempDir()))
+	w, err := DefaultNewWALFunc(ctx, cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, w.Close()) }()
+
+	tm := newTransactionManager()
+
+	t.Run("commit", func(t *testing.T) {
+		require.NoError(t, w.Clean(ctx, math.MaxUint64))
+		txn := tm.begin()
+		rec := RecordImpl{Key: Bytes("key"), Value: Bytes("value"), SequenceNumber: 1}
+		require.NoError(t, writeRecord(txn, rec))
+		require.NoError(t, txn.commit(ctx, w))
+		require.NoError(t, w.Sync())
+
+		mem, err := w.Load(ctx)
+		require.NoError(t, err)
+		got, err := mem.Get(Bytes("key"))
+		require.NoError(t, err)
+		require.Equal(t, Bytes("value"), got)
+	})
+
+	t.Run("rollback", func(t *testing.T) {
+		require.NoError(t, w.Clean(ctx, math.MaxUint64))
+		txn := tm.begin()
+		rec := RecordImpl{Key: Bytes("key2"), Value: Bytes("value2"), SequenceNumber: 1}
+		require.NoError(t, writeRecord(txn, rec))
+		require.NoError(t, txn.rollback(ctx))
+		require.NoError(t, w.Sync())
+
+		mem, err := w.Load(ctx)
+		require.NoError(t, err)
+		_, err = mem.Get(Bytes("key2"))
+		require.Error(t, err)
+	})
+}
+
+// TestTransactionCommitRollbackConcurrency commits and rolls back concurrently.
+func TestTransactionCommitRollbackConcurrency(t *testing.T) {
+	ctx := context.Background()
+	cfg := NewConfig(WithDatabaseDir(t.TempDir()))
+	w, err := DefaultNewWALFunc(ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, w.Close()) })
+
+	tm := newTransactionManager()
+
+	txnCommit := tm.begin()
+	txnRollback := tm.begin()
+
+	seq := uint64(1)
+	recCommit := RecordImpl{Key: Bytes("key"), Value: Bytes("commit"), SequenceNumber: seq}
+	seq++
+	recRollback := RecordImpl{Key: Bytes("key"), Value: Bytes("rollback"), SequenceNumber: seq}
+
+	require.NoError(t, writeRecord(txnCommit, recCommit))
+	require.NoError(t, writeRecord(txnRollback, recRollback))
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		require.NoError(t, txnCommit.commit(ctx, w))
+	}()
+
+	go func() {
+		defer wg.Done()
+		require.NoError(t, txnRollback.rollback(ctx))
+	}()
+
+	wg.Wait()
+
+	require.NoError(t, w.Sync())
+
+	mem, err := w.Load(ctx)
+	require.NoError(t, err)
+
+	val, err := mem.Get(Bytes("key"))
+	require.NoError(t, err)
+	require.Equal(t, Bytes("commit"), val)
 }

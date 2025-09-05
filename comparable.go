@@ -5,6 +5,8 @@ import (
 	"errors"
 )
 
+// CompareResult represents the outcome of a comparison between two values.
+// It follows the semantics of cmp.Compare.
 type CompareResult = int
 
 const (
@@ -18,16 +20,26 @@ const (
 	CmpGreater CompareResult = 1
 )
 
+// ErrUnsupportedType is returned when a value does not implement the CmpType
+// interface and therefore cannot be compared with Compare.
 var ErrUnsupportedType = errors.New("unsupported type: type does not implement CmpType interface")
 
+// CmpType must be implemented by types that provide their own comparison logic
+// through the Compare function.
 type CmpType interface {
 	Compare(other any) int
 }
 
+// Comparable is a union constraint that lists all types which can be compared
+// using the generic Compare function. It is exported so applications can define
+// their own comparable types.
 type Comparable interface {
 	cmp.Ordered | *CmpType | any
 }
 
+// Compare returns the ordering between a and b. It supports builtin ordered
+// types and any custom type that implements CmpType. Unsupported types return
+// UnsupportedTypeCode.
 func Compare[T Comparable](a, b T) CompareResult {
 	switch a := any(a).(type) {
 	case int:
@@ -65,6 +77,8 @@ func Compare[T Comparable](a, b T) CompareResult {
 	}
 }
 
+// ValidateCmpType verifies that the provided value is a supported Comparable
+// type. It returns ErrUnsupportedType if the value cannot be compared.
 func ValidateCmpType[T Comparable](a T) error {
 	if Compare(a, a) == UnsupportedTypeCode {
 		return ErrUnsupportedType
