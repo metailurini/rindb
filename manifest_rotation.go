@@ -79,17 +79,17 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 		return nil
 	}
 
-	r.ssTableManager.mu.Lock()
+	r.SSTableManager.mu.Lock()
 	mw, err := rotateManifest(ctx, r.config, r.versionSet, r.manifest)
 	if err != nil {
-		r.ssTableManager.mu.Unlock()
+		r.SSTableManager.mu.Unlock()
 		return err
 	}
 
 	old := r.manifest
 	r.manifest = mw
-	r.ssTableManager.manifest = mw
-	r.ssTableManager.mu.Unlock()
+	r.SSTableManager.manifest = mw
+	r.SSTableManager.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
 	}

@@ -53,7 +53,7 @@ func TestMaybeRotateManifest(t *testing.T) {
 	require.NoError(t, err)
 	mw := newManifestWriterMock(fs)
 	vs := &versionSet{}
-	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, ssTableManager: &SSTableManager{manifest: mw, versionSet: vs, config: cfg}}
+	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, SSTableManager: &ssTableManager{manifest: mw, versionSet: vs, config: cfg}}
 
 	// Below threshold
 	require.NoError(t, rin.maybeRotateManifest(ctx))

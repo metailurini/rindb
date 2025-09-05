@@ -35,13 +35,13 @@ func removeFiles(dir string, files []fileMeta) error {
 // average. A higher value weights recent samples more heavily.
 const writeRateAlpha = 0.2
 
-// SSTableManager manages SSTable storage and compaction in a leveled structure.
+// ssTableManager manages SSTable storage and compaction in a leveled structure.
 // Responsibilities:
 // - Maintains multiple levels of SSTables (L0, L1, etc.)
 // - Handles compaction across levels based on size/count thresholds
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
-type SSTableManager struct {
+type ssTableManager struct {
 	openedByNum map[uint64]*SStable // open SSTables keyed by file number
 	versionSet  *versionSet
 	manifest    manifestWriter
@@ -75,13 +75,13 @@ type SSTableManager struct {
 	diskSampler func() (uint64, error)
 }
 
-func (h *SSTableManager) sstInfo(num uint64) (os.FileInfo, error) {
+func (h *ssTableManager) sstInfo(num uint64) (os.FileInfo, error) {
 	return os.Stat(path.Join(h.config.databaseDir, sstPath(num)))
 }
 
 // openAndLoadSSTable opens a FileSystem and creates an SSTable object from it.
 // It returns the created *SSTable or an error.
-func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem) (*SStable, error) {
+func (h *ssTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem) (*SStable, error) {
 	if err := fs.Open(ctx); err != nil {
 		return nil, fmt.Errorf("failed to open sstable file %s: %w", fs.Path(), err)
 	}
@@ -150,7 +150,7 @@ func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*versionSet, erro
 	return &versionSet{Levels: [][]fileMeta{metas}}, nil
 }
 
-func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw manifestWriter) (*SSTableManager, error) {
+func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw manifestWriter) (*ssTableManager, error) {
 	if vs == nil && !config.repairMode {
 		return nil, errors.New("rindb: version set cannot be nil in non-repair mode")
 	}
@@ -163,7 +163,7 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 		}
 	}
 
-	h := &SSTableManager{
+	h := &ssTableManager{
 		openedByNum:       make(map[uint64]*SStable),
 		versionSet:        vs,
 		manifest:          mw,
@@ -195,7 +195,7 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 
 // setMinSnapshotSeq updates the minimum snapshot sequence number
 // in a thread-safe manner.
-func (h *SSTableManager) setMinSnapshotSeq(seq uint64) {
+func (h *ssTableManager) setMinSnapshotSeq(seq uint64) {
 	h.mu.Lock()
 	h.minSnapshotSeq = seq
 	h.mu.Unlock()
@@ -204,7 +204,7 @@ func (h *SSTableManager) setMinSnapshotSeq(seq uint64) {
 // recordWrite increments the write counter and, once a second has elapsed,
 // updates the moving average of writes per second using an exponential moving
 // average. It is called for every `Put`.
-func (h *SSTableManager) recordWrite() {
+func (h *ssTableManager) recordWrite() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.writeCounter++
@@ -227,7 +227,7 @@ func (h *SSTableManager) recordWrite() {
 // sampleIOLoad reads the cumulative IoTime counter and derives the fraction of
 // time the disk was busy since the last sample. If the counter decreases it is
 // assumed to have reset and the sample is skipped.
-func (h *SSTableManager) sampleIOLoad() {
+func (h *ssTableManager) sampleIOLoad() {
 	total, err := h.diskSampler()
 	if err != nil {
 		return
@@ -256,7 +256,7 @@ func (h *SSTableManager) sampleIOLoad() {
 // startIOLoadSampler periodically records disk utilization until signalled to
 // stop. It is launched in a background goroutine by `InitSSTableManager` and
 // terminates when `stopIOLoadSampler` is closed.
-func (h *SSTableManager) startIOLoadSampler() {
+func (h *ssTableManager) startIOLoadSampler() {
 	defer h.ioSamplerWG.Done()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -273,16 +273,16 @@ func (h *SSTableManager) startIOLoadSampler() {
 // dynamicTriggerHit evaluates whether the dynamic compaction conditions are
 // met: the write rate exceeds the configured trigger while disk utilization is
 // below the allowed maximum.
-func (h *SSTableManager) dynamicTriggerHit() bool {
+func (h *ssTableManager) dynamicTriggerHit() bool {
 	if h.config.writeRateTrigger <= 0 || h.config.ioLoadMax <= 0 {
 		return false
 	}
 	return h.writeRate > h.config.writeRateTrigger && h.ioLoad < h.config.ioLoadMax
 }
 
-// AddSSTable registers a new SSTable's metadata, persists it to the manifest,
+// addSSTable registers a new SSTable's metadata, persists it to the manifest,
 // and updates the in-memory versionSet.
-func (h *SSTableManager) AddSSTable(ctx context.Context, meta fileMeta, lastSeq uint64) error {
+func (h *ssTableManager) addSSTable(ctx context.Context, meta fileMeta, lastSeq uint64) error {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
 	start := time.Now()
 	defer func() {
@@ -320,7 +320,7 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta fileMeta, lastSeq 
 	return nil
 }
 
-func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*FileSystem, error) {
+func (h *ssTableManager) newSSTableFS(ctx context.Context) (*FileSystem, error) {
 	id := h.config.fileNumberAllocator.nextNumber()
 	sstableFileName := path.Join(h.config.databaseDir, sstPath(id))
 	fs, err := OpenFS(ctx, sstableFileName)
@@ -330,7 +330,7 @@ func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*File
 	return fs, nil
 }
 
-func (h *SSTableManager) Close(ctx context.Context) {
+func (h *ssTableManager) Close(ctx context.Context) {
 	if h.stopIOLoadSampler != nil {
 		close(h.stopIOLoadSampler)
 		h.ioSamplerWG.Wait()
@@ -351,7 +351,7 @@ func (h *SSTableManager) Close(ctx context.Context) {
 	}
 }
 
-func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files []fileMeta) bool {
+func (h *ssTableManager) shouldCompact(ctx context.Context, levelNumb int, files []fileMeta) bool {
 	if len(files) == 0 {
 		return false
 	}
@@ -378,7 +378,7 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files
 	return totalSize >= threshold
 }
 
-func (h *SSTableManager) Compact(ctx context.Context) error {
+func (h *ssTableManager) Compact(ctx context.Context) error {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.Compact")
 	start := time.Now()
 	defer func() {
@@ -411,7 +411,7 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 	return nil
 }
 
-func (h *SSTableManager) findOverlaps(level int, inputs []fileMeta) ([]fileMeta, error) {
+func (h *ssTableManager) findOverlaps(level int, inputs []fileMeta) ([]fileMeta, error) {
 	if level >= len(h.versionSet.Levels) {
 		return nil, nil
 	}
@@ -454,7 +454,7 @@ func (h *SSTableManager) findOverlaps(level int, inputs []fileMeta) ([]fileMeta,
 	return over, nil
 }
 
-func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []fileMeta) error {
+func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []fileMeta) error {
 	if len(inputs) == 0 {
 		return nil
 	}
@@ -470,7 +470,7 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		sources = append(sources, *sst)
 	}
 
-	newFS, err := h.NewSSTableFS(ctx, dst)
+	newFS, err := h.newSSTableFS(ctx)
 	if err != nil {
 		h.closeSSTables(ctx, sources)
 		return err
@@ -529,7 +529,7 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	return nil
 }
 
-func (h *SSTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
+func (h *ssTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
 	for i := range sstables {
 		if err := sstables[i].Close(); err != nil {
 			warn(ctx, "Error closing sstable %s: %v", sstables[i].Path(), err)
@@ -539,7 +539,7 @@ func (h *SSTableManager) closeSSTables(ctx context.Context, sstables []SStable) 
 
 // openByNumber returns an opened SSTable for the given file number. The
 // SSTable is cached so repeated lookups reuse the same handle.
-func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable, error) {
+func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*SStable, error) {
 	h.mu.RLock()
 	if sst, ok := h.openedByNum[num]; ok {
 		h.mu.RUnlock()
@@ -572,7 +572,7 @@ func (h *SSTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 // their existing ordering. If an SSTable referenced in the current version is
 // missing on disk, the function returns the error so callers can retry with a
 // fresh view.
-func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*SStable, error) {
+func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*SStable, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
@@ -645,7 +645,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	return out, nil
 }
 
-func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
+func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	maxSeq := getMaxSeq(seq...)
 
 	// Compaction may remove SSTables while a lookup is in progress. If we

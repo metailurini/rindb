@@ -5,14 +5,14 @@ import (
 )
 
 // NewWALFunc defines the signature for a function that creates a WAL instance.
-type NewWALFunc func(ctx context.Context, cfg Config) (*WAL, error)
+type NewWALFunc func(ctx context.Context, cfg Config) (*wal, error)
 
 // NewSSTableManagerFunc defines the signature for a function that creates an SSTableManager instance.
 //
 // The versionSet parameter provides metadata about existing SSTables. Callers
 // should pass the same instance used elsewhere in the database so the manager
 // can operate on consistent state.
-type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *versionSet, mw manifestWriter) (*SSTableManager, error)
+type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *versionSet, mw manifestWriter) (*ssTableManager, error)
 
 type Config struct {
 	// databaseDir specifies the directory where WAL and SSTables are stored
