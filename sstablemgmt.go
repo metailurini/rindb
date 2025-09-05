@@ -321,7 +321,7 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta fileMeta, lastSeq 
 }
 
 func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*FileSystem, error) {
-	id := h.config.fileNumberAllocator.next()
+	id := h.config.fileNumberAllocator.nextNumber()
 	sstableFileName := path.Join(h.config.databaseDir, sstPath(id))
 	fs, err := OpenFS(ctx, sstableFileName)
 	if err != nil {
