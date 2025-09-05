@@ -46,7 +46,7 @@ func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		require.NoError(t, rin.ssTableManager.Compact(ctx))
+		require.NoError(t, rin.SSTableManager.Compact(ctx))
 	}()
 
 	for i := 0; i < 20; i++ {
@@ -120,7 +120,7 @@ func TestRindb_IRange(t *testing.T) {
 	ts.AddSSTable(0, &sst2)
 
 	// Memtable with latest updates
-	mem := ts.RinDB.memtable
+	mem := ts.RinDB.Memtable
 	mem.Put(newRecord(Bytes("a"), Bytes("memA"), 5))
 	mem.Put(newRecord(Bytes("b"), nil, 6)) // delete b
 	mem.Put(newRecord(Bytes("k"), Bytes("memK"), 7))
@@ -255,12 +255,12 @@ func TestRindb_FlushMemtable(t *testing.T) {
 	assert.NoError(t, err)
 	// SSTableManager is now part of rin, no need to init separately
 	// We still need a new FS for the flush operation itself
-	newSSTableFS, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
+	newSSTableFS, err := rin.SSTableManager.newSSTableFS(ctx)
 	assert.NoError(t, err)
 	defer func() { _ = newSSTableFS.Close() }() // Ensure the FS used for flushing is closed
-	newSStable, _, err := flush(ctx, rin.config, rin.memtable, newSSTableFS)
+	newSStable, _, err := flush(ctx, rin.config, rin.Memtable, newSSTableFS)
 	assert.NoError(t, err)
-	err = rin.wal.Clean(ctx, math.MaxUint64)
+	err = rin.WAL.Clean(ctx, math.MaxUint64)
 	assert.NoError(t, err)
 	value, err := newSStable.GetValue(ctx, Bytes("rm-key"))
 	assert.ErrorIs(t, err, ErrTombstoneFound)
@@ -276,7 +276,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
 	// SSTableManager is now part of rin
-	fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
+	fs, err := rin.SSTableManager.newSSTableFS(ctx)
 	assert.NoError(t, err)
 	defer func() {
 		if fs.IsOpened() {
@@ -292,7 +292,7 @@ func TestRindb_GetPrecedence(t *testing.T) {
 	seqHi, err := sst.MaxSequenceNumber()
 	assert.NoError(t, err)
 	meta := fileMeta{Number: num, Level: 0, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
-	assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, seqHi))
+	assert.NoError(t, rin.SSTableManager.addSSTable(ctx, meta, seqHi))
 	err = rin.Put(ctx, Bytes("k1"), Bytes("v1-mem")) // Put the value into the memtable
 	assert.NoError(t, err)
 	v, err := rin.Get(ctx, Bytes("k1"))
@@ -412,7 +412,7 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check size before the Put that should trigger the flush
-	sizeBeforeFlush := rin.memtable.ByteSize()
+	sizeBeforeFlush := rin.Memtable.ByteSize()
 	assert.LessOrEqual(t, uint(sizeBeforeFlush), rin.config.maxMemtableSize, "Size should be below threshold before triggering put")
 
 	// This Put should trigger the flush
@@ -421,7 +421,7 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 
 	// Assertions after the flush should have occurred
 	// 1. Memtable should be cleared (check estimated size)
-	assert.Zero(t, rin.memtable.ByteSize(), "Memtable estimated size should be zero after flush")
+	assert.Zero(t, rin.Memtable.ByteSize(), "Memtable estimated size should be zero after flush")
 
 	// 2. At least one SSTable should have been created on disk.
 	//    Compaction may move flushed SSTables to higher levels, so we count across all levels
@@ -499,7 +499,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Manually create an SSTable with a high sequence number
 		// Use rin.ssTableManager directly
-		fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
+		fs, err := rin.SSTableManager.newSSTableFS(ctx)
 		assert.NoError(t, err)
 		defer func() { _ = fs.Close() }()
 
@@ -509,7 +509,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem.Put(newRecord(Bytes("sk2"), Bytes("sv2"), 60))
 		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
+		assert.NoError(t, rin.SSTableManager.addSSTable(ctx, meta, meta.SeqHi))
 		assert.NoError(t, fs.Close())
 
 		// Also create a WAL with a lower sequence number to ensure SSTable takes precedence
@@ -540,7 +540,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 
 		// Manually create an SSTable with a high sequence number
 		// Use rin.ssTableManager directly
-		fs, err := rin.ssTableManager.NewSSTableFS(ctx, 0)
+		fs, err := rin.SSTableManager.newSSTableFS(ctx)
 		assert.NoError(t, err)
 		defer func() { _ = fs.Close() }()
 
@@ -548,7 +548,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		mem.Put(newRecord(Bytes("sk1"), Bytes("sv1"), 70))
 		_, meta, err := flush(ctx, rin.config, mem, fs)
 		assert.NoError(t, err)
-		assert.NoError(t, rin.ssTableManager.AddSSTable(ctx, meta, meta.SeqHi))
+		assert.NoError(t, rin.SSTableManager.addSSTable(ctx, meta, meta.SeqHi))
 		assert.NoError(t, fs.Close())
 
 		// Create a WAL with the same highest sequence number

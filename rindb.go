@@ -20,9 +20,9 @@ var ErrDatabaseClosed = errors.New("database is closed")
 
 // Rindb is the main database structure
 type Rindb struct {
-	wal               *WAL
-	memtable          Memtable
-	ssTableManager    *SSTableManager
+	WAL               *wal
+	Memtable          memtable
+	SSTableManager    *ssTableManager
 	versionSet        *versionSet
 	manifest          manifestWriter
 	config            Config
@@ -140,9 +140,9 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 
 	info(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
 	rin := &Rindb{
-		wal:               wal,
-		memtable:          memtable,
-		ssTableManager:    ssTableManager,
+		WAL:               wal,
+		Memtable:          memtable,
+		SSTableManager:    ssTableManager,
 		versionSet:        vs,
 		manifest:          mw,
 		config:            cfg,
@@ -159,8 +159,8 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 func (r *Rindb) Stats() Stats {
 	// Read atomic stats without locking first.
 	stats := Stats{
-		WALBytes:    r.wal.bytes.Load(),
-		WALRecords:  r.wal.records.Load(),
+		WALBytes:    r.WAL.bytes.Load(),
+		WALRecords:  r.WAL.records.Load(),
 		GetCalls:    r.getCalls.Load(),
 		PutCalls:    r.putCalls.Load(),
 		RemoveCalls: r.removeCalls.Load(),
@@ -170,21 +170,21 @@ func (r *Rindb) Stats() Stats {
 
 	// Lock to get memtable stats, sequence number and snapshot count.
 	r.mu.RLock()
-	stats.MemtableBytes = r.memtable.ByteSize()
+	stats.MemtableBytes = r.Memtable.ByteSize()
 	stats.SequenceNumber = r.sequenceNumber
 	stats.ActiveSnapshots = len(r.activeSnapshots)
 	r.mu.RUnlock()
 
 	// Lock separately for SSTable manager stats.
-	r.ssTableManager.mu.RLock()
-	vs := r.ssTableManager.versionSet
+	r.SSTableManager.mu.RLock()
+	vs := r.SSTableManager.versionSet
 	if vs != nil {
 		stats.SSTablesPerLevel = make([]int, len(vs.Levels))
 		for i, files := range vs.Levels {
 			stats.SSTablesPerLevel[i] = len(files)
 		}
 	}
-	r.ssTableManager.mu.RUnlock()
+	r.SSTableManager.mu.RUnlock()
 
 	return stats
 }
@@ -217,14 +217,14 @@ func (r *Rindb) Get(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error
 		return nil, ErrDatabaseClosed
 	}
 
-	value, err := r.memtable.GetAt(key, maxSeq)
+	value, err := r.Memtable.GetAt(key, maxSeq)
 	if err == nil {
 		return value, nil
 	}
 	if !errors.Is(err, ErrKeyNotFound) {
 		return nil, err
 	}
-	return r.ssTableManager.searchKey(ctx, key, maxSeq)
+	return r.SSTableManager.SearchKey(ctx, key, maxSeq)
 }
 
 // IRange returns an iterator over records with keys in [start, end],
@@ -253,9 +253,9 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	maxSeq := getMaxSeq(seq...)
 
-	iterators := []Iterator[Record]{r.memtable.IRange(start, end, maxSeq)}
+	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq)}
 
-	ssts, err := r.ssTableManager.GetRelevantSSTables(ctx, start, end)
+	ssts, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -317,30 +317,30 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		}
 		r.sequenceNumber++
 		record := RecordImpl{Key: key, Value: value, SequenceNumber: r.sequenceNumber, Type: TypeValue}
-		if err := r.wal.Append(ctx, record); err != nil {
+		if err := r.WAL.Append(ctx, record); err != nil {
 			return err
 		}
-		r.memtable.Put(record)
-		memSize := r.memtable.ByteSize()
+		r.Memtable.Put(record)
+		memSize := r.Memtable.ByteSize()
 		if uint(memSize) >= r.config.maxMemtableSize {
 			flushCount.Add(ctx, 1)
 			r.flushCount.Add(1)
 			info(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
-			fs, err := r.ssTableManager.NewSSTableFS(ctx, 0)
+			fs, err := r.SSTableManager.newSSTableFS(ctx)
 			if err != nil {
 				errorf(ctx, "Failed to create new SSTable file system: %v", err)
 				return fmt.Errorf("failed to create new SSTable file system: %w", err)
 			}
 
-			_, meta, err := flush(ctx, r.config, r.memtable, fs)
+			_, meta, err := flush(ctx, r.config, r.Memtable, fs)
 			if err != nil {
 				_ = fs.Close()
 				errorf(ctx, "Failed to flush memtable: %v", err)
 				return fmt.Errorf("failed to flush memtable: %w", err)
 			}
 
-			if err := r.ssTableManager.AddSSTable(ctx, meta, r.sequenceNumber); err != nil {
+			if err := r.SSTableManager.addSSTable(ctx, meta, r.sequenceNumber); err != nil {
 				_ = fs.Close()
 				errorf(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 				return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
@@ -349,19 +349,19 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 				warn(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
 			}
 
-			r.memtable.Clear()
+			r.Memtable.Clear()
 			snapMin := r.minSnapshotSeq()
 			walThreshold := snapMin
 			if len(r.activeSnapshots) == 0 {
 				walThreshold = r.sequenceNumber + 1
 			}
 
-			if err := r.wal.Clean(ctx, walThreshold); err != nil {
+			if err := r.WAL.Clean(ctx, walThreshold); err != nil {
 				errorf(ctx, "Failed to clean WAL after memtable flush: %v", err)
 				return fmt.Errorf("failed to clean WAL: %w", err)
 			}
 
-			r.ssTableManager.setMinSnapshotSeq(snapMin)
+			r.SSTableManager.setMinSnapshotSeq(snapMin)
 			flushSeq := r.sequenceNumber
 			info(ctx, "Triggering background compaction check.")
 			r.wg.Add(1)
@@ -370,7 +370,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			go func(ctx context.Context, flushSeq uint64) {
 				defer r.wg.Done()
 				info(ctx, "Background compaction goroutine started.")
-				if err := r.ssTableManager.Compact(ctx); err != nil {
+				if err := r.SSTableManager.Compact(ctx); err != nil {
 					errorf(ctx, "Background compaction failed: %v", err)
 				} else {
 					info(ctx, "Background compaction goroutine finished.")
@@ -392,7 +392,7 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	}(); err != nil {
 		return err
 	}
-	r.ssTableManager.recordWrite()
+	r.SSTableManager.recordWrite()
 	return nil
 }
 
@@ -423,10 +423,10 @@ func (r *Rindb) Remove(ctx context.Context, key Bytes) error {
 
 	r.sequenceNumber++
 	record := RecordImpl{Key: key, Value: nil, SequenceNumber: r.sequenceNumber, Type: TypeDeletion}
-	if err := r.wal.Append(ctx, record); err != nil {
+	if err := r.WAL.Append(ctx, record); err != nil {
 		return err
 	}
-	r.memtable.Put(record)
+	r.Memtable.Put(record)
 	return nil
 }
 
@@ -466,7 +466,7 @@ func (r *Rindb) Close() error {
 	defer r.mu.Unlock()
 
 	// Close the WAL
-	if err := r.wal.Close(); err != nil {
+	if err := r.WAL.Close(); err != nil {
 		// Log the error but attempt to close SSTableManager anyway
 		errorf(ctx, "Error closing WAL: %v", err)
 		// Optionally return the WAL error immediately, or collect errors
@@ -477,7 +477,7 @@ func (r *Rindb) Close() error {
 
 	// Close the SSTableManager
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
-	r.ssTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
+	r.SSTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
 	info(ctx, "SSTableManager closed.")
 
 	if r.manifest != nil {

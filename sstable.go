@@ -259,7 +259,7 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 	return maxSeqNum, nil
 }
 
-func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, fileMeta, error) {
+func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SStable, fileMeta, error) {
 	ctx, span := sstableTracer.Start(ctx, "flush")
 	start := time.Now()
 	var written int

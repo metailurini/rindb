@@ -10,7 +10,7 @@ The goal is to expose a stable, well documented surface for advanced users while
 
 ## Extension Points to Keep Public
 - **Generic utilities:** `Comparable`, `Iterator[T]`, `PriorityQueue[T]`, `SkipList[K,V]`, `BloomFilter`, `Bitset`.
-- **Storage building blocks:** `Bytes`, `InternalKey`, `Memtable`, `WAL`, `SSTable`, `SSTableBuilder`, `FileSystem`.
+- **Storage building blocks:** Public fields from `Rindb` expose storage components. Their underlying types are hidden to prevent users from assigning their own objects directly to `Rindb` structs.
 - **Iteration helpers:** `MergingIterator`, `RangeIterator` for composing custom iterators.
 
 Each of these types/functions requires a concise GoDoc comment explaining usage and warning that higher‑level coordination (manifest, versions, transactions) remains internal.

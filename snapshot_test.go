@@ -25,13 +25,13 @@ func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
 
 	require.NoError(t, rin.Put(ctx, key, Bytes("v2")))
 
-	v, err := rin.memtable.GetAt(key, snap.Sequence())
+	v, err := rin.Memtable.GetAt(key, snap.Sequence())
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("v1"), v)
 
 	assert.NoError(t, snap.Release(ctx))
 
-	_, err = rin.memtable.GetAt(key, snap.Sequence())
+	_, err = rin.Memtable.GetAt(key, snap.Sequence())
 	assert.Error(t, err)
 
 	val, err := rin.Get(ctx, key)
@@ -54,13 +54,13 @@ func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
 	big := make(Bytes, maxSize)
 	require.NoError(t, rin.Put(ctx, Bytes("big"), big))
 
-	mem, err := rin.wal.Load(ctx)
+	mem, err := rin.WAL.Load(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, uint(3), mem.data.Len())
 
 	assert.NoError(t, snap.Release(ctx))
 
-	mem, err = rin.wal.Load(ctx)
+	mem, err = rin.WAL.Load(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, uint(1), mem.data.Len())
 }
@@ -73,18 +73,18 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 	require.NoError(t, rin.Put(ctx, Bytes("k1"), Bytes("v1")))
 	snap1, err := rin.NewSnapshot(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
+	assert.Equal(t, snap1.Sequence(), rin.SSTableManager.minSnapshotSeq)
 
 	require.NoError(t, rin.Put(ctx, Bytes("k2"), Bytes("v2")))
 	snap2, err := rin.NewSnapshot(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, snap1.Sequence(), rin.ssTableManager.minSnapshotSeq)
+	assert.Equal(t, snap1.Sequence(), rin.SSTableManager.minSnapshotSeq)
 
 	assert.NoError(t, snap1.Release(ctx))
-	assert.Equal(t, snap2.Sequence(), rin.ssTableManager.minSnapshotSeq)
+	assert.Equal(t, snap2.Sequence(), rin.SSTableManager.minSnapshotSeq)
 
 	assert.NoError(t, snap2.Release(ctx))
-	assert.Equal(t, uint64(math.MaxUint64), rin.ssTableManager.minSnapshotSeq)
+	assert.Equal(t, uint64(math.MaxUint64), rin.SSTableManager.minSnapshotSeq)
 }
 
 func TestTombstoneRemovedAfterSnapshotRelease(t *testing.T) {
@@ -108,7 +108,7 @@ func TestTombstoneRemovedAfterSnapshotRelease(t *testing.T) {
 	require.NoError(t, rin.Put(ctx, Bytes("k2"), large))
 	require.NoError(t, rin.Put(ctx, Bytes("k3"), large))
 	require.Eventually(t, func() bool {
-		ssts, err := rin.ssTableManager.GetRelevantSSTables(ctx, Bytes("k"), Bytes("k"))
+		ssts, err := rin.SSTableManager.GetRelevantSSTables(ctx, Bytes("k"), Bytes("k"))
 		return err == nil && len(ssts) == 0
 	}, 5*time.Second, 100*time.Millisecond)
 }

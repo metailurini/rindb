@@ -80,21 +80,21 @@ func (r *Rindb) cleanupObsoleteLocked(ctx context.Context, maxSeq uint64) error 
 	minSnapSeq := r.minSnapshotSeq()
 	cutoff := min(maxSeq, minSnapSeq)
 
-	r.memtable.Cleanup(cutoff)
+	r.Memtable.Cleanup(cutoff)
 
 	if len(r.activeSnapshots) == 0 {
-		r.ssTableManager.setMinSnapshotSeq(math.MaxUint64)
+		r.SSTableManager.setMinSnapshotSeq(math.MaxUint64)
 	} else {
-		r.ssTableManager.setMinSnapshotSeq(cutoff)
+		r.SSTableManager.setMinSnapshotSeq(cutoff)
 	}
 
-	if len(r.activeSnapshots) == 0 && r.memtable.ByteSize() > 0 {
+	if len(r.activeSnapshots) == 0 && r.Memtable.ByteSize() > 0 {
 		// Memtable has unflushed data that is only in the WAL.
 		// To prevent data loss on crash, we must not clean the WAL yet.
 		return nil
 	}
 
-	return r.wal.Clean(ctx, cutoff)
+	return r.WAL.Clean(ctx, cutoff)
 }
 
 // NewSnapshot captures the current sequence number and tracks it in the list
@@ -115,7 +115,7 @@ func (r *Rindb) NewSnapshot(ctx context.Context) (*Snapshot, error) {
 	r.activeSnapshots = append(r.activeSnapshots, snap.sequence)
 
 	if prev == 0 {
-		r.ssTableManager.setMinSnapshotSeq(snap.sequence)
+		r.SSTableManager.setMinSnapshotSeq(snap.sequence)
 	}
 
 	return snap, nil
@@ -141,7 +141,7 @@ func (r *Rindb) release(ctx context.Context, snap *Snapshot) error {
 		r.activeSnapshots = append(r.activeSnapshots[:idx], r.activeSnapshots[idx+1:]...)
 	}
 	if len(r.activeSnapshots) == 0 {
-		r.ssTableManager.setMinSnapshotSeq(math.MaxUint64)
+		r.SSTableManager.setMinSnapshotSeq(math.MaxUint64)
 	}
 	return r.cleanupObsoleteLocked(ctx, r.sequenceNumber)
 }

@@ -51,7 +51,7 @@ func testConfig() Config {
 type testRindbSetup struct {
 	T            *testing.T
 	Config       *Config
-	Manager      *SSTableManager
+	Manager      *ssTableManager
 	TempDir      string
 	RinDB        *Rindb
 	CleanupFuncs []func()
@@ -96,14 +96,14 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 	tempDir := t.TempDir()
 	finalCfg.databaseDir = tempDir
 
-	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *versionSet, mw manifestWriter) (*SSTableManager, error) {
+	finalCfg.newSSTableManagerFunc = func(ctx context.Context, cfg Config, vs *versionSet, mw manifestWriter) (*ssTableManager, error) {
 		return InitSSTableManager(ctx, cfg, vs, mw)
 	}
 
 	db, err := InitRinDB(ctx, WithConfig(finalCfg))
 	assert.NoError(t, err)
 
-	manager := db.ssTableManager
+	manager := db.SSTableManager
 	if manager.versionSet == nil {
 		manager.versionSet = &versionSet{}
 	}
@@ -139,7 +139,7 @@ func (ts *testRindbSetup) Cleanup() {
 
 // newSSTableFS creates a new FileSystem for a given level with automatic cleanup.
 func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
-	fs, err := ts.Manager.NewSSTableFS(context.Background(), level)
+	fs, err := ts.Manager.newSSTableFS(context.Background())
 	assert.NoError(ts.T, err)
 	ts.addCleanup(func() { fs.Close() })
 	return fs
@@ -188,7 +188,7 @@ func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	seqHi, err := sstable.MaxSequenceNumber()
 	assert.NoError(ts.T, err)
 	meta := fileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
-	assert.NoError(ts.T, ts.Manager.AddSSTable(context.Background(), meta, seqHi))
+	assert.NoError(ts.T, ts.Manager.addSSTable(context.Background(), meta, seqHi))
 }
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
@@ -247,7 +247,7 @@ func generateKeyValuePairs(n int, keySize, valueSize int) [][2]Bytes {
 }
 
 // populateMemtable creates a Memtable and populates it with the given key-value pairs.
-func populateMemtable(cfg Config, pairs ...[2]Bytes) Memtable {
+func populateMemtable(cfg Config, pairs ...[2]Bytes) memtable {
 	mem := InitMemtable(cfg)
 	var seqNum uint64 = 0
 	for _, pair := range pairs {

@@ -19,7 +19,7 @@ func cleanupTemp(fs *FileSystem, p string) {
 	_ = os.Remove(p)
 }
 
-type WAL struct {
+type wal struct {
 	*FileSystem
 	tm      *transactionManager
 	config  Config
@@ -32,7 +32,7 @@ type WAL struct {
 }
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
-func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
+func DefaultNewWALFunc(ctx context.Context, cfg Config) (*wal, error) {
 	// Attempt to reuse the highest-numbered WAL if it exists.
 	entries, err := os.ReadDir(cfg.databaseDir)
 	if err != nil {
@@ -60,8 +60,8 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 	return NewWAL(cfg, fs), nil
 }
 
-func NewWAL(config Config, fs *FileSystem) *WAL {
-	return &WAL{
+func NewWAL(config Config, fs *FileSystem) *wal {
+	return &wal{
 		FileSystem:  fs,
 		tm:          newTransactionManager(),
 		config:      config,
@@ -72,7 +72,7 @@ func NewWAL(config Config, fs *FileSystem) *WAL {
 	}
 }
 
-func (w *WAL) Load(ctx context.Context) (Memtable, error) {
+func (w *wal) Load(ctx context.Context) (memtable, error) {
 	ctx, span := walTracer.Start(ctx, "WAL.Load")
 	start := time.Now()
 	defer func() {
@@ -89,9 +89,9 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 				break // Normal end of file
 			}
 			if errors.Is(err, ErrChecksumMismatch) {
-				return Memtable{}, fmt.Errorf("checksum mismatch in WAL %s: %w", w.Path(), err)
+				return memtable{}, fmt.Errorf("checksum mismatch in WAL %s: %w", w.Path(), err)
 			}
-			return Memtable{}, fmt.Errorf("failed to read record from WAL %s: %w", w.Path(), err)
+			return memtable{}, fmt.Errorf("failed to read record from WAL %s: %w", w.Path(), err)
 		}
 
 		mem.Put(record)
@@ -103,7 +103,7 @@ func (w *WAL) Load(ctx context.Context) (Memtable, error) {
 	return mem, nil
 }
 
-func (w *WAL) Append(ctx context.Context, record Record) error {
+func (w *wal) Append(ctx context.Context, record Record) error {
 	ctx, span := walTracer.Start(ctx, "WAL.Append")
 	start := time.Now()
 	defer func() {
@@ -147,7 +147,7 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 	return nil
 }
 
-func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
+func (w *wal) AppendMany(ctx context.Context, records []Record) error {
 	ctx, span := walTracer.Start(ctx, "WAL.AppendMany")
 	start := time.Now()
 	defer func() {
@@ -201,7 +201,7 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 //
 // It rewrites the WAL preserving only the records with sequence numbers >= minSeq.
 // The method resets internal counters based on the remaining records.
-func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
+func (w *wal) Clean(ctx context.Context, minSeq uint64) error {
 	ctx, span := walTracer.Start(ctx, "WAL.Clean")
 	defer span.End()
 

@@ -26,7 +26,7 @@ func (failingManifest) Path() string             { return "" }
 func TestSSTableManager_openAndLoadSSTable(t *testing.T) {
 	ctx := context.Background()
 	cfg := testConfig()
-	mgr := &SSTableManager{config: cfg}
+	mgr := &ssTableManager{config: cfg}
 
 	t.Run("loads valid sstable", func(t *testing.T) {
 		dir := t.TempDir()
@@ -84,7 +84,7 @@ func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	ts.AddSSTable(0, newer)
 
 	// Verify search finds the key in older SSTable
-	result, err := ts.Manager.searchKey(ctx, Bytes("targetKey"))
+	result, err := ts.Manager.SearchKey(ctx, Bytes("targetKey"))
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("targetVal"), result)
 }
@@ -295,7 +295,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		// Search for a random key in an empty manager
 		key := randStringBytes(10)
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.SearchKey(ctx, key)
 
 		// Assertions remain the same: expect key not found
 		assert.ErrorIs(t, err, ErrKeyNotFound, "Expected ErrKeyNotFound when searching empty manager")
@@ -312,7 +312,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		sst := ts.createSSTable(0, map[string]string{string(key): string(value)})
 		ts.AddSSTable(0, sst)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.SearchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
@@ -331,7 +331,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		sst0 := ts.createSSTable(0, map[string]string{string(key): string(newValue)})
 		ts.AddSSTable(0, sst0)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.SearchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Equal(t, newValue, result)
 	})
@@ -345,7 +345,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.AddSSTable(0, sst)
 
 		missingKey := randStringBytes(10)
-		result, err := ts.Manager.searchKey(ctx, missingKey)
+		result, err := ts.Manager.SearchKey(ctx, missingKey)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -357,7 +357,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 
 		ts.Manager.versionSet.Levels = nil
 
-		result, err := ts.Manager.searchKey(ctx, Bytes("any-key"))
+		result, err := ts.Manager.SearchKey(ctx, Bytes("any-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -372,7 +372,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		sst := ts.createSSTable(0, map[string]string{string(key): string(value)})
 		ts.AddSSTable(0, sst)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.SearchKey(ctx, key)
 		assert.NoError(t, err)
 		assert.Equal(t, value, result)
 	})
@@ -391,7 +391,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		sst0 := createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
 		ts.AddSSTable(0, &sst0)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.SearchKey(ctx, key)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -404,7 +404,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		sst := ts.createSSTable(0, map[string]string{"present-key": "present-value"})
 		ts.AddSSTable(0, sst)
 
-		result, err := ts.Manager.searchKey(ctx, Bytes("absent-key"))
+		result, err := ts.Manager.SearchKey(ctx, Bytes("absent-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 	})
@@ -423,7 +423,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		err := os.Remove(path)
 		assert.NoError(t, err)
 
-		result, err := ts.Manager.searchKey(ctx, key)
+		result, err := ts.Manager.SearchKey(ctx, key)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
 
@@ -714,7 +714,7 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			current := time.Unix(0, 0)
 			ioVal := uint64(0)
 
-			sm := &SSTableManager{
+			sm := &ssTableManager{
 				versionSet:     &versionSet{Levels: [][]fileMeta{{{Number: 1, Level: 0}}}},
 				config:         cfg,
 				now:            func() time.Time { return current },
@@ -744,21 +744,21 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 
 	t.Run("Level0 below threshold", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := make([]fileMeta, 3)
 		assert.False(t, sm.shouldCompact(ctx, 0, files))
 	})
 
 	t.Run("Level0 at threshold", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := make([]fileMeta, 4)
 		assert.True(t, sm.shouldCompact(ctx, 0, files))
 	})
 
 	t.Run("Level0 above threshold", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := make([]fileMeta, 5)
 		assert.True(t, sm.shouldCompact(ctx, 0, files))
 	})
@@ -768,7 +768,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithBaseCompactionSizeMB(1),
 			WithLevelSizeMultiplier(2),
 		)
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := []fileMeta{{Size: mb}}
 		assert.False(t, sm.shouldCompact(ctx, 1, files))
 	})
@@ -778,7 +778,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithBaseCompactionSizeMB(1),
 			WithLevelSizeMultiplier(2),
 		)
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := []fileMeta{{Size: 2 * mb}}
 		assert.True(t, sm.shouldCompact(ctx, 1, files))
 	})
@@ -788,7 +788,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithBaseCompactionSizeMB(1),
 			WithLevelSizeMultiplier(2),
 		)
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := []fileMeta{{Size: 2*mb + 1}}
 		assert.True(t, sm.shouldCompact(ctx, 1, files))
 	})
@@ -798,7 +798,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithBaseCompactionSizeMB(1),
 			WithLevelSizeMultiplier(2),
 		)
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := []fileMeta{{Size: 3 * mb}}
 		assert.False(t, sm.shouldCompact(ctx, 2, files))
 	})
@@ -808,7 +808,7 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithBaseCompactionSizeMB(1),
 			WithLevelSizeMultiplier(2),
 		)
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := []fileMeta{{Size: 4 * mb}}
 		assert.True(t, sm.shouldCompact(ctx, 2, files))
 	})
@@ -818,14 +818,14 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 			WithBaseCompactionSizeMB(1),
 			WithLevelSizeMultiplier(2),
 		)
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		files := []fileMeta{{Size: 4*mb + 1}}
 		assert.True(t, sm.shouldCompact(ctx, 2, files))
 	})
 
 	t.Run("empty level", func(t *testing.T) {
 		cfg := NewConfig()
-		sm := &SSTableManager{config: cfg}
+		sm := &ssTableManager{config: cfg}
 		assert.False(t, sm.shouldCompact(ctx, 0, nil))
 	})
 }
