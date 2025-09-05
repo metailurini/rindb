@@ -7,19 +7,28 @@ import (
 )
 
 var (
+	// ErrMalformedList is returned when a SkipList has not been initialized
+	// properly. It is exported so callers interacting with SkipList can
+	// detect improper initialization.
 	ErrMalformedList = errors.New("the list was not init-ed properly")
 )
 
+// SLNode represents a single node within a SkipList. It is exported to allow
+// advanced users to inspect or traverse the list directly.
 type SLNode[K Comparable, V any] struct {
 	Key      K
 	Value    V
 	forwards []*SLNode[K, V]
 }
 
+// Next returns the node's immediate successor on the lowest level.
 func (n *SLNode[K, V]) Next() *SLNode[K, V] {
 	return n.forwards[0]
 }
 
+// SkipList is a generic ordered map implemented with a probabilistic
+// skip list. It is exported for users who need a stand‑alone sorted
+// in-memory index structure.
 type SkipList[K Comparable, V any] struct {
 	level    uint
 	length   uint
@@ -27,6 +36,9 @@ type SkipList[K Comparable, V any] struct {
 	config   Config
 }
 
+// InitSkipList creates a new empty SkipList using the provided configuration.
+// The key type must satisfy Comparable; otherwise ErrUnsupportedType is
+// returned.
 func InitSkipList[K Comparable, V any](config Config) (*SkipList[K, V], error) {
 	var emptyKeyValue K
 	err := ValidateCmpType(emptyKeyValue)
@@ -41,6 +53,7 @@ func InitSkipList[K Comparable, V any](config Config) (*SkipList[K, V], error) {
 	}, nil
 }
 
+// Put inserts or replaces the value associated with searchKey.
 func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 	rn := list.Head()
 	rl := list.level
@@ -84,6 +97,8 @@ func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 	}
 }
 
+// Get retrieves the value associated with searchKey. If the key does not exist
+// ErrKeyNotFound is returned.
 func (list *SkipList[K, V]) Get(searchKey K) (V, error) {
 	rn := list.Head()
 	rl := list.level
@@ -122,6 +137,7 @@ func (list *SkipList[K, V]) FindGreaterOrEqual(searchKey K) (*SLNode[K, V], erro
 	return rn, nil
 }
 
+// Head returns the head sentinel node of the list.
 func (list *SkipList[K, V]) Head() *SLNode[K, V] {
 	if list == nil || list.headNote == nil {
 		panic(ErrMalformedList)
@@ -130,6 +146,8 @@ func (list *SkipList[K, V]) Head() *SLNode[K, V] {
 	return list.headNote
 }
 
+// Remove deletes the node with the given key. It returns ErrKeyNotFound if the
+// key is absent.
 func (list *SkipList[K, V]) Remove(searchKey K) error {
 	rn := list.Head()
 	rl := list.level
@@ -163,6 +181,7 @@ func (list *SkipList[K, V]) Remove(searchKey K) error {
 	return nil
 }
 
+// Clear removes all entries from the list, resetting it to its initial state.
 func (list *SkipList[K, V]) Clear() {
 	if list == nil {
 		panic(ErrMalformedList)
@@ -177,6 +196,7 @@ func (list *SkipList[K, V]) Clear() {
 	list.headNote = newList.headNote
 }
 
+// Len returns the number of elements currently stored in the list.
 func (list *SkipList[K, V]) Len() uint {
 	if list == nil {
 		panic(ErrMalformedList)
@@ -206,6 +226,7 @@ func (s *slIterator[K, V]) Next() (V, error) {
 	return value, nil
 }
 
+// Iterator returns a forward iterator over the list's values.
 func (list *SkipList[K, V]) Iterator() Iterator[V] {
 	return &slIterator[K, V]{
 		node: list.Head().Next(),

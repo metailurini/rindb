@@ -15,7 +15,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
-func removeFiles(dir string, files []FileMeta) error {
+func removeFiles(dir string, files []fileMeta) error {
 	var first error
 	for _, f := range files {
 		p := filepath.Join(dir, sstPath(f.Number))
@@ -43,8 +43,8 @@ const writeRateAlpha = 0.2
 // - Coordinates concurrent access with read/write locks
 type SSTableManager struct {
 	openedByNum map[uint64]*SStable // open SSTables keyed by file number
-	versionSet  *VersionSet
-	manifest    ManifestWriter
+	versionSet  *versionSet
+	manifest    manifestWriter
 	config      Config
 	mu          sync.RWMutex
 
@@ -94,13 +94,13 @@ func (h *SSTableManager) openAndLoadSSTable(ctx context.Context, fs *FileSystem)
 }
 
 // buildVersionSetFromDisk scans the database directory for existing SSTable
-// files and constructs a VersionSet based on their metadata. Only files with
+// files and constructs a versionSet based on their metadata. Only files with
 // the `.sst` extension and valid numeric file numbers are considered. Each
 // discovered SSTable is opened to determine its key range and maximum sequence
-// number. The returned VersionSet contains a single level populated with the
+// number. The returned versionSet contains a single level populated with the
 // collected metadata.
-func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*VersionSet, error) {
-	var metas []FileMeta
+func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*versionSet, error) {
+	var metas []fileMeta
 	err := filepath.WalkDir(cfg.databaseDir, func(p string, d iofs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -134,7 +134,7 @@ func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*VersionSet, erro
 		if err != nil {
 			return err
 		}
-		metas = append(metas, FileMeta{
+		metas = append(metas, fileMeta{
 			Number:   num,
 			Level:    0,
 			Smallest: InternalKey{UserKey: lo},
@@ -147,10 +147,10 @@ func buildVersionSetFromDisk(ctx context.Context, cfg Config) (*VersionSet, erro
 	if err != nil {
 		return nil, err
 	}
-	return &VersionSet{Levels: [][]FileMeta{metas}}, nil
+	return &versionSet{Levels: [][]fileMeta{metas}}, nil
 }
 
-func InitSSTableManager(ctx context.Context, config Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error) {
+func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw manifestWriter) (*SSTableManager, error) {
 	if vs == nil && !config.repairMode {
 		return nil, errors.New("rindb: version set cannot be nil in non-repair mode")
 	}
@@ -281,8 +281,8 @@ func (h *SSTableManager) dynamicTriggerHit() bool {
 }
 
 // AddSSTable registers a new SSTable's metadata, persists it to the manifest,
-// and updates the in-memory VersionSet.
-func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta, lastSeq uint64) error {
+// and updates the in-memory versionSet.
+func (h *SSTableManager) AddSSTable(ctx context.Context, meta fileMeta, lastSeq uint64) error {
 	ctx, span := sstableMgmtTracer.Start(ctx, "SSTableManager.AddSSTable")
 	start := time.Now()
 	defer func() {
@@ -295,9 +295,9 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta, lastSeq 
 		return fmt.Errorf("lastSeq must be greater than zero")
 	}
 
-	edit := VersionEdit{
-		AddFiles:       []FileMeta{meta},
-		NextFileNumber: h.config.fileNumberAllocator.Peek(),
+	edit := versionEdit{
+		AddFiles:       []fileMeta{meta},
+		NextFileNumber: h.config.fileNumberAllocator.peek(),
 		LastSequence:   lastSeq,
 	}
 	if h.manifest != nil {
@@ -312,16 +312,16 @@ func (h *SSTableManager) AddSSTable(ctx context.Context, meta FileMeta, lastSeq 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if err := edit.Apply(h.versionSet); err != nil {
+	if err := edit.apply(h.versionSet); err != nil {
 		return err
 	}
-	h.config.fileNumberAllocator.Apply(edit)
-	INFO(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
+	h.config.fileNumberAllocator.apply(edit)
+	info(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
 	return nil
 }
 
 func (h *SSTableManager) NewSSTableFS(ctx context.Context, levelNumb int) (*FileSystem, error) {
-	id := h.config.fileNumberAllocator.Next()
+	id := h.config.fileNumberAllocator.next()
 	sstableFileName := path.Join(h.config.databaseDir, sstPath(id))
 	fs, err := OpenFS(ctx, sstableFileName)
 	if err != nil {
@@ -346,12 +346,12 @@ func (h *SSTableManager) Close(ctx context.Context) {
 
 	for _, s := range sstablesToClose {
 		if err := s.Close(); err != nil {
-			WARN(ctx, "Error closing sstable %s: %v", s.Path(), err)
+			warn(ctx, "Error closing sstable %s: %v", s.Path(), err)
 		}
 	}
 }
 
-func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files []FileMeta) bool {
+func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files []fileMeta) bool {
 	if len(files) == 0 {
 		return false
 	}
@@ -371,7 +371,7 @@ func (h *SSTableManager) shouldCompact(ctx context.Context, levelNumb int, files
 
 	multiplier := h.config.levelSizeMultiplier
 	if multiplier < 1 {
-		WARN(ctx, "levelSizeMultiplier is %d, using 1 instead", multiplier)
+		warn(ctx, "levelSizeMultiplier is %d, using 1 instead", multiplier)
 		multiplier = 1
 	}
 	threshold := int64(h.config.baseCompactionSizeMB) * int64(math.Pow(float64(multiplier), float64(levelNumb))) * 1024 * 1024
@@ -390,13 +390,13 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	INFO(ctx, "Starting compaction check across %d levels", len(h.versionSet.Levels))
+	info(ctx, "Starting compaction check across %d levels", len(h.versionSet.Levels))
 
 	for lvl, files := range h.versionSet.Levels {
 		if !h.shouldCompact(ctx, lvl, files) {
 			continue
 		}
-		picked := append([]FileMeta(nil), files...)
+		picked := append([]fileMeta(nil), files...)
 		if len(picked) == 0 {
 			continue
 		}
@@ -411,7 +411,7 @@ func (h *SSTableManager) Compact(ctx context.Context) error {
 	return nil
 }
 
-func (h *SSTableManager) findOverlaps(level int, inputs []FileMeta) ([]FileMeta, error) {
+func (h *SSTableManager) findOverlaps(level int, inputs []fileMeta) ([]fileMeta, error) {
 	if level >= len(h.versionSet.Levels) {
 		return nil, nil
 	}
@@ -445,7 +445,7 @@ func (h *SSTableManager) findOverlaps(level int, inputs []FileMeta) ([]FileMeta,
 	if first {
 		return nil, nil
 	}
-	var over []FileMeta
+	var over []fileMeta
 	for _, f := range files {
 		if maxKey.Compare(f.Smallest.UserKey) >= 0 && minKey.Compare(f.Largest.UserKey) <= 0 {
 			over = append(over, f)
@@ -454,7 +454,7 @@ func (h *SSTableManager) findOverlaps(level int, inputs []FileMeta) ([]FileMeta,
 	return over, nil
 }
 
-func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []FileMeta) error {
+func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []fileMeta) error {
 	if len(inputs) == 0 {
 		return nil
 	}
@@ -491,22 +491,22 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 	if err != nil || merged == nil {
 		_ = newFS.Close()
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
-			ERROR(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
+			errorf(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
 		}
 		return err
 	}
 
 	var (
-		dels     []FileMeta
-		delMetas []DeletedFileMeta
+		dels     []fileMeta
+		delMetas []deletedFileMeta
 	)
 	for _, fm := range inputs {
-		dels = append(dels, FileMeta{Number: fm.Number})
-		delMetas = append(delMetas, DeletedFileMeta{Level: fm.Level, Number: fm.Number})
+		dels = append(dels, fileMeta{Number: fm.Number})
+		delMetas = append(delMetas, deletedFileMeta{Level: fm.Level, Number: fm.Number})
 	}
 
 	meta.Level = dst
-	edit := VersionEdit{AddFiles: []FileMeta{meta}, DeleteFiles: delMetas, NextFileNumber: h.config.fileNumberAllocator.Peek()}
+	edit := versionEdit{AddFiles: []fileMeta{meta}, DeleteFiles: delMetas, NextFileNumber: h.config.fileNumberAllocator.peek()}
 	if h.manifest != nil {
 		if err := h.manifest.Append(edit); err != nil {
 			return err
@@ -516,14 +516,14 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 		}
 	}
 	if h.versionSet != nil {
-		if err := edit.Apply(h.versionSet); err != nil {
+		if err := edit.apply(h.versionSet); err != nil {
 			return err
 		}
 	}
-	h.config.fileNumberAllocator.Apply(edit)
+	h.config.fileNumberAllocator.apply(edit)
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
-		ERROR(ctx, "Error removing files: %v", err)
+		errorf(ctx, "Error removing files: %v", err)
 		return err
 	}
 	return nil
@@ -532,7 +532,7 @@ func (h *SSTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []F
 func (h *SSTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
 	for i := range sstables {
 		if err := sstables[i].Close(); err != nil {
-			WARN(ctx, "Error closing sstable %s: %v", sstables[i].Path(), err)
+			warn(ctx, "Error closing sstable %s: %v", sstables[i].Path(), err)
 		}
 	}
 }
@@ -597,7 +597,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 						if errors.Is(err, os.ErrNotExist) {
 							return nil, err
 						}
-						WARN(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
+						warn(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
 						return nil, fmt.Errorf("failed to stat SSTable %d: %w", f.Number, err)
 					}
 					if info.Size() > 0 {
@@ -615,7 +615,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 					if errors.Is(err, os.ErrNotExist) {
 						return nil, err
 					}
-					WARN(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
+					warn(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
 					return nil, fmt.Errorf("failed to stat SSTable %d: %w", f.Number, err)
 				}
 				if info.Size() > 0 {
@@ -636,7 +636,7 @@ func (h *SSTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			if errors.Is(err, os.ErrNotExist) {
 				return nil, err
 			}
-			WARN(ctx, "Failed to open SSTable %d: %v", num, err)
+			warn(ctx, "Failed to open SSTable %d: %v", num, err)
 			return nil, fmt.Errorf("failed to open SSTable %d: %w", num, err)
 		}
 		out = append(out, sst)
@@ -680,23 +680,23 @@ func (h *SSTableManager) searchKey(ctx context.Context, key Bytes, seq ...uint64
 	return nil, ErrKeyNotFound
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta FileMeta, err error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
 	if len(sources) == 0 {
-		return nil, FileMeta{}, nil
+		return nil, fileMeta{}, nil
 	}
 
 	iterators := make([]Iterator[Record], 0, len(sources))
 	for _, sstable := range sources {
 		iter, err := sstable.Iterator()
 		if err != nil {
-			return nil, FileMeta{}, err
+			return nil, fileMeta{}, err
 		}
 		iterators = append(iterators, iter)
 	}
 
 	mergeIter, err := NewMergingIterator(iterators, nil)
 	if err != nil {
-		return nil, FileMeta{}, err
+		return nil, fileMeta{}, err
 	}
 	defer func() {
 		if cerr := mergeIter.Close(); cerr != nil {
@@ -711,7 +711,7 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 
 	builder, err := NewSSTableBuilder(ctx, config, target, expected)
 	if err != nil {
-		return nil, FileMeta{}, err
+		return nil, fileMeta{}, err
 	}
 	defer builder.Close(ctx)
 
@@ -723,11 +723,11 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 	)
 	for mergeIter.HasNext() {
 		if err := ctx.Err(); err != nil {
-			return nil, FileMeta{}, err
+			return nil, fileMeta{}, err
 		}
 		rec, err := mergeIter.Next()
 		if err != nil {
-			return nil, FileMeta{}, err
+			return nil, fileMeta{}, err
 		}
 		key := rec.GetKey()
 		if !lastKeySet || key.Compare(lastKey) != CmpEqual {
@@ -748,19 +748,19 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		}
 
 		if err := builder.Add(rec); err != nil {
-			return nil, FileMeta{}, err
+			return nil, fileMeta{}, err
 		}
 		wrote++
 	}
 
 	if wrote == 0 {
 		// Nothing to write → no SST produced.
-		return nil, FileMeta{}, nil
+		return nil, fileMeta{}, nil
 	}
 
 	sst, meta, _, err := builder.Build(ctx)
 	if err != nil {
-		return nil, FileMeta{}, err
+		return nil, fileMeta{}, err
 	}
 	return &sst, meta, nil
 }

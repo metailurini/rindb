@@ -2,7 +2,9 @@ package rindb
 
 import "container/heap"
 
-// PriorityQueue is a generic min-heap based priority queue.
+// PriorityQueue is a generic min-heap based priority queue. It is exported so
+// advanced users can leverage the implementation when building their own
+// schedulers or data-structure helpers.
 type PriorityQueue[T any] struct {
 	items []T
 	less  func(a, b T) bool

@@ -39,7 +39,7 @@ func TestBloomFilter(t *testing.T) {
 
 	for _, word := range wordAbsent {
 		if !b.Lookup(Bytes(word)) {
-			DEBUG(context.Background(), "word: %v\n", word)
+			debug(context.Background(), "word: %v\n", word)
 			assert.False(t, slices.Contains(wordPresent, word))
 		}
 	}

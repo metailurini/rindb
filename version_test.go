@@ -8,53 +8,53 @@ import (
 
 func TestVersionEdit(t *testing.T) {
 	t.Run("ComparatorMismatch", func(t *testing.T) {
-		vs := &VersionSet{Comparator: "bytes"}
-		edit := VersionEdit{ComparatorName: "rev"}
-		err := edit.Apply(vs)
+		vs := &versionSet{Comparator: "bytes"}
+		edit := versionEdit{ComparatorName: "rev"}
+		err := edit.apply(vs)
 		require.Error(t, err)
 	})
 
 	t.Run("AddAndDeleteFiles", func(t *testing.T) {
-		vs := &VersionSet{}
-		fm := FileMeta{Number: 1, Level: 1}
-		edit := VersionEdit{AddFiles: []FileMeta{fm}}
-		require.NoError(t, edit.Apply(vs))
+		vs := &versionSet{}
+		fm := fileMeta{Number: 1, Level: 1}
+		edit := versionEdit{AddFiles: []fileMeta{fm}}
+		require.NoError(t, edit.apply(vs))
 		require.Len(t, vs.Levels, 2)
 		require.Equal(t, fm, vs.Levels[1][0])
 
-		del := VersionEdit{DeleteFiles: []DeletedFileMeta{{Level: 1, Number: 1}}}
-		require.NoError(t, del.Apply(vs))
+		del := versionEdit{DeleteFiles: []deletedFileMeta{{Level: 1, Number: 1}}}
+		require.NoError(t, del.apply(vs))
 		require.Empty(t, vs.Levels[1])
 	})
 
 	t.Run("AddFilesSorted", func(t *testing.T) {
-		vs := &VersionSet{}
-		fm1 := FileMeta{Number: 1, Level: 0, Smallest: InternalKey{UserKey: Bytes("b"), Seq: 1, Type: TypeValue}}
-		fm2 := FileMeta{Number: 2, Level: 0, Smallest: InternalKey{UserKey: Bytes("a"), Seq: 1, Type: TypeValue}}
-		edit := VersionEdit{AddFiles: []FileMeta{fm1, fm2}}
-		require.NoError(t, edit.Apply(vs))
+		vs := &versionSet{}
+		fm1 := fileMeta{Number: 1, Level: 0, Smallest: InternalKey{UserKey: Bytes("b"), Seq: 1, Type: TypeValue}}
+		fm2 := fileMeta{Number: 2, Level: 0, Smallest: InternalKey{UserKey: Bytes("a"), Seq: 1, Type: TypeValue}}
+		edit := versionEdit{AddFiles: []fileMeta{fm1, fm2}}
+		require.NoError(t, edit.apply(vs))
 		require.Len(t, vs.Levels[0], 2)
 		require.Equal(t, uint64(2), vs.Levels[0][0].Number)
 		require.Equal(t, uint64(1), vs.Levels[0][1].Number)
 	})
 
 	t.Run("DeleteNonExistent", func(t *testing.T) {
-		vs := &VersionSet{}
-		edit := VersionEdit{DeleteFiles: []DeletedFileMeta{{Level: 2, Number: 5}}}
-		require.NoError(t, edit.Apply(vs))
+		vs := &versionSet{}
+		edit := versionEdit{DeleteFiles: []deletedFileMeta{{Level: 2, Number: 5}}}
+		require.NoError(t, edit.apply(vs))
 		require.Len(t, vs.Levels, 0)
 	})
 
 	t.Run("Metadata", func(t *testing.T) {
-		vs := &VersionSet{}
-		edit := VersionEdit{
+		vs := &versionSet{}
+		edit := versionEdit{
 			ComparatorName: "bytes",
 			LastSequence:   1,
 			NextFileNumber: 2,
 			LogNumber:      3,
 			PrevLogNumber:  4,
 		}
-		require.NoError(t, edit.Apply(vs))
+		require.NoError(t, edit.apply(vs))
 		require.Equal(t, "bytes", vs.Comparator)
 		require.Equal(t, uint64(1), vs.LastSequence)
 		require.Equal(t, uint64(2), vs.NextFileNumber)

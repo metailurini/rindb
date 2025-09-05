@@ -5,8 +5,8 @@ import (
 	"sort"
 )
 
-// FileMeta holds metadata about an SSTable file.
-type FileMeta struct {
+// fileMeta holds metadata about an SSTable file.
+type fileMeta struct {
 	Number   uint64
 	Level    int
 	Smallest InternalKey
@@ -16,27 +16,27 @@ type FileMeta struct {
 	SeqHi    uint64
 }
 
-// DeletedFileMeta references a file to remove.
-type DeletedFileMeta struct {
+// deletedFileMeta references a file to remove.
+type deletedFileMeta struct {
 	Level  int
 	Number uint64
 }
 
-// VersionEdit describes a change to the VersionSet.
-type VersionEdit struct {
+// versionEdit describes a change to the versionSet.
+type versionEdit struct {
 	ComparatorName string
 	LastSequence   uint64
 	NextFileNumber uint64
 	LogNumber      uint64
 	PrevLogNumber  uint64
 
-	AddFiles    []FileMeta
-	DeleteFiles []DeletedFileMeta
+	AddFiles    []fileMeta
+	DeleteFiles []deletedFileMeta
 }
 
-// VersionSet represents the in-memory state of levels and file numbering.
-type VersionSet struct {
-	Levels         [][]FileMeta
+// versionSet represents the in-memory state of levels and file numbering.
+type versionSet struct {
+	Levels         [][]fileMeta
 	Comparator     string
 	NextFileNumber uint64
 	LogNumber      uint64
@@ -44,7 +44,7 @@ type VersionSet struct {
 	LastSequence   uint64
 }
 
-func (vs *VersionSet) ensureLevel(level int) {
+func (vs *versionSet) ensureLevel(level int) {
 	for len(vs.Levels) <= level {
 		vs.Levels = append(vs.Levels, nil)
 	}
@@ -60,8 +60,8 @@ func coalesceNonZero[T comparable](existing, newVal T) T {
 	return existing
 }
 
-// Apply applies the VersionEdit to the VersionSet.
-func (e VersionEdit) Apply(vs *VersionSet) error {
+// Apply applies the versionEdit to the versionSet.
+func (e versionEdit) apply(vs *versionSet) error {
 	if e.ComparatorName != "" {
 		if vs.Comparator != "" && vs.Comparator != e.ComparatorName {
 			return fmt.Errorf("comparator mismatch: have %s want %s", vs.Comparator, e.ComparatorName)
@@ -93,7 +93,7 @@ func (e VersionEdit) Apply(vs *VersionSet) error {
 				continue
 			}
 			files := vs.Levels[level]
-			filtered := make([]FileMeta, 0, len(files))
+			filtered := make([]fileMeta, 0, len(files))
 			for _, f := range files {
 				if _, ok := toDelete[f.Number]; !ok {
 					filtered = append(filtered, f)

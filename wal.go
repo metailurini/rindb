@@ -21,14 +21,14 @@ func cleanupTemp(fs *FileSystem, p string) {
 
 type WAL struct {
 	*FileSystem
-	tm      *TransactionManager
+	tm      *transactionManager
 	config  Config
 	records atomic.Uint64
 	bytes   atomic.Uint64
 
 	// injected for testing
-	writeRecord func(tx *Transaction, rec Record) error
-	txCommit    func(tx *Transaction, ctx context.Context, w io.Writer) error
+	writeRecord func(tx *transaction, rec Record) error
+	txCommit    func(tx *transaction, ctx context.Context, w io.Writer) error
 }
 
 // DefaultNewWALFunc provides the default WAL initialization logic.
@@ -50,7 +50,7 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 	}
 	id := maxID
 	if id == 0 {
-		id = cfg.fileNumberAllocator.Next()
+		id = cfg.fileNumberAllocator.next()
 	}
 	wp := path.Join(cfg.databaseDir, walPath(id))
 	fs, err := OpenFS(ctx, wp)
@@ -63,11 +63,11 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 func NewWAL(config Config, fs *FileSystem) *WAL {
 	return &WAL{
 		FileSystem:  fs,
-		tm:          NewTransactionManager(),
+		tm:          newTransactionManager(),
 		config:      config,
-		writeRecord: WriteRecord,
-		txCommit: func(tx *Transaction, ctx context.Context, w io.Writer) error {
-			return tx.Commit(ctx, w)
+		writeRecord: writeRecord,
+		txCommit: func(tx *transaction, ctx context.Context, w io.Writer) error {
+			return tx.commit(ctx, w)
 		},
 	}
 }
@@ -111,8 +111,8 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 		span.End()
 	}()
 
-	tx := w.tm.Begin()
-	defer tx.Rollback(ctx)
+	tx := w.tm.begin()
+	defer tx.rollback(ctx)
 
 	if err := func() error {
 		w.FileSystem.mu.Lock()
@@ -124,10 +124,10 @@ func (w *WAL) Append(ctx context.Context, record Record) error {
 		if _, err := w.FileSystem.file.Seek(0, io.SeekEnd); err != nil {
 			return fmt.Errorf("failed to seek to end of WAL file %s: %w", w.Path(), err)
 		}
-		if err := WriteRecord(tx, record); err != nil {
+		if err := writeRecord(tx, record); err != nil {
 			return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 		}
-		if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
+		if err := tx.commit(ctx, w.FileSystem.file); err != nil {
 			return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
 		}
 		return nil
@@ -155,8 +155,8 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 		span.End()
 	}()
 
-	tx := w.tm.Begin()
-	defer tx.Rollback(ctx)
+	tx := w.tm.begin()
+	defer tx.rollback(ctx)
 
 	var totalBytes int
 	if err := func() error {
@@ -171,13 +171,13 @@ func (w *WAL) AppendMany(ctx context.Context, records []Record) error {
 		}
 
 		for i, record := range records {
-			if err := WriteRecord(tx, record); err != nil {
+			if err := writeRecord(tx, record); err != nil {
 				return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
 			}
 			totalBytes += CalOnDiskSize(record)
 		}
 
-		if err := tx.Commit(ctx, w.FileSystem.file); err != nil {
+		if err := tx.commit(ctx, w.FileSystem.file); err != nil {
 			return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
 		}
 		return nil
@@ -233,7 +233,7 @@ func (w *WAL) Clean(ctx context.Context, minSeq uint64) error {
 		if rec.GetSequenceNumber() < minSeq {
 			continue
 		}
-		tx := w.tm.Begin()
+		tx := w.tm.begin()
 		if err := w.writeRecord(tx, rec); err != nil {
 			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to write record to WAL transaction: %w", err)

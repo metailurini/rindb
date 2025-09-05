@@ -22,12 +22,12 @@ func (er *errorReader) Read(p []byte) (n int, err error) {
 
 func Test_rw(t *testing.T) {
 	t.Run("Write key with size = 0", func(t *testing.T) {
-		tx := NewTransactionManager().Begin()
+		tx := newTransactionManager().begin()
 
 		testKey := Bytes(nil)
 		testValue := Bytes("value")
 
-		err := WriteRecord(tx, newRecord(testKey, testValue, 0))
+		err := writeRecord(tx, newRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -37,12 +37,12 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size = 0", func(t *testing.T) {
-		tx := NewTransactionManager().Begin()
+		tx := newTransactionManager().begin()
 
 		testKey := Bytes(nil)
 		testValue := Bytes(nil)
 
-		err := WriteRecord(tx, newRecord(testKey, testValue, 0))
+		err := writeRecord(tx, newRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -52,7 +52,7 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size > 255", func(t *testing.T) {
-		tx := NewTransactionManager().Begin()
+		tx := newTransactionManager().begin()
 
 		testKey := ""
 		testValue := ""
@@ -61,7 +61,7 @@ func Test_rw(t *testing.T) {
 			testValue += fmt.Sprintf("test value %d ", i)
 		}
 
-		err := WriteRecord(tx, newRecord(Bytes(testKey), Bytes(testValue), 0))
+		err := writeRecord(tx, newRecord(Bytes(testKey), Bytes(testValue), 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -71,9 +71,9 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size < 255", func(t *testing.T) {
-		tx := NewTransactionManager().Begin()
+		tx := newTransactionManager().begin()
 
-		err := WriteRecord(tx, newRecord(Bytes("key"), Bytes("value"), 0))
+		err := writeRecord(tx, newRecord(Bytes("key"), Bytes("value"), 0))
 		assert.NoError(t, err)
 
 		record, err := ReadRecord(tx.buffer)
@@ -93,7 +93,7 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading value length", func(t *testing.T) {
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5) // Internal key length
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5) // Internal key length
 		reader := io.MultiReader(&buf, &errorReader{err: errors.New("read value length failed")})
 		_, err := ReadRecord(reader)
 		assert.ErrorContains(t, err, "failed to read value length")
@@ -102,8 +102,8 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading internal key bytes", func(t *testing.T) {
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5) // Internal key length
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5) // Value length
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5) // Internal key length
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5) // Value length
 		buf.Write([]byte("key"))                                    // only 3 bytes of internal key
 		_, err := ReadRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read internal key bytes")
@@ -112,8 +112,8 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading value bytes (EOF)", func(t *testing.T) {
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length for "key"
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)                      // Value length
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length for "key"
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)                      // Value length
 		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		buf.Write([]byte("val")) // only 3 bytes of value
 		_, err := ReadRecord(&buf)
@@ -123,8 +123,8 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading value bytes (iotest)", func(t *testing.T) {
 		var buf bytes.Buffer
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)                      // Value length
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)                      // Value length
 		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		reader := io.MultiReader(&buf, iotest.ErrReader(errors.New("read value bytes failed")))
 		_, err := ReadRecord(reader)
@@ -135,8 +135,8 @@ func TestReadRecord_Errors(t *testing.T) {
 	t.Run("Error reading checksum", func(t *testing.T) {
 		var buf bytes.Buffer
 		ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)
+		writeNumber(&transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)
 		buf.Write(ikey)
 		buf.Write([]byte("value"))
 		_, err := ReadRecord(&buf)
@@ -147,8 +147,8 @@ func TestReadRecord_Errors(t *testing.T) {
 	t.Run("Checksum mismatch", func(t *testing.T) {
 		var buf bytes.Buffer
 		ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
-		WriteNumber(&Transaction{buffer: &buf, state: "active"}, 5)
+		writeNumber(&transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
+		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)
 		buf.Write(ikey)
 		buf.Write([]byte("value"))
 		buf.Write([]byte{0, 0, 0, 0})

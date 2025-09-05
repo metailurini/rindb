@@ -35,7 +35,7 @@ func TestManifestRotation(t *testing.T) {
 	mf := strings.TrimSpace(string(data))
 	require.NotEqual(t, DefaultManifestFile, mf)
 
-	r, err := NewManifestReader(ctx, filepath.Join(dir, mf))
+	r, err := newManifestReader(ctx, filepath.Join(dir, mf))
 	require.NoError(t, err)
 	edit, err := r.Next()
 	require.NoError(t, err)
@@ -51,8 +51,8 @@ func TestMaybeRotateManifest(t *testing.T) {
 	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
 	fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
 	require.NoError(t, err)
-	mw := NewManifestWriterMock(fs)
-	vs := &VersionSet{}
+	mw := newManifestWriterMock(fs)
+	vs := &versionSet{}
 	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, ssTableManager: &SSTableManager{manifest: mw, versionSet: vs, config: cfg}}
 
 	// Below threshold
@@ -67,10 +67,41 @@ func TestMaybeRotateManifest(t *testing.T) {
 	require.NotEqual(t, oldPath, rin.manifest.Path())
 }
 
+func TestManifestRotationRecovery(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	db, err := InitRinDB(ctx,
+		WithDatabaseDir(dir),
+		WithMaxMemtableSize(1),
+		WithLevel0CompactionThreshold(1000),
+		WithManifestSizeThreshold(1024),
+	)
+	require.NoError(t, err)
+
+	const numPuts = 11
+	for i := 0; i < numPuts; i++ {
+		key := Bytes(fmt.Sprintf("k%02d", i))
+		require.NoError(t, db.Put(ctx, key, Bytes("v")))
+	}
+	require.NoError(t, db.Close())
+
+	data, err := os.ReadFile(filepath.Join(dir, CurrentFile))
+	require.NoError(t, err)
+	mf := strings.TrimSpace(string(data))
+	require.NotEqual(t, DefaultManifestFile, mf)
+
+	alloc := newFileNumberAllocator(1)
+	vs, manifestPath, err := recoverVersionSet(ctx, dir, alloc)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(dir, mf), manifestPath)
+	require.Len(t, vs.Levels[0], numPuts)
+}
+
 type manifestWriterMock struct{ *FileSystem }
 
-func NewManifestWriterMock(fs *FileSystem) *manifestWriterMock { return &manifestWriterMock{fs} }
+func newManifestWriterMock(fs *FileSystem) *manifestWriterMock { return &manifestWriterMock{fs} }
 
-func (m *manifestWriterMock) Append(VersionEdit) error { return nil }
+func (m *manifestWriterMock) Append(versionEdit) error { return nil }
 func (m *manifestWriterMock) Sync() error              { return nil }
 func (m *manifestWriterMock) Close() error             { return m.FileSystem.Close() }

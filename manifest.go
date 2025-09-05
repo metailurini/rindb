@@ -18,17 +18,17 @@ const (
 	manifestRecordHeaderSize = manifestRecordLengthSize + checksumSize
 )
 
-// ManifestWriter appends edits to a MANIFEST file.
-type ManifestWriter interface {
-	Append(VersionEdit) error
+// manifestWriter appends edits to a MANIFEST file.
+type manifestWriter interface {
+	Append(versionEdit) error
 	Sync() error
 	Close() error
 	Path() string
 }
 
-// ManifestReader iterates over manifest records.
-type ManifestReader interface {
-	Next() (VersionEdit, error)
+// manifestReader iterates over manifest records.
+type manifestReader interface {
+	Next() (versionEdit, error)
 	Close() error
 }
 
@@ -42,8 +42,8 @@ type fileManifestReader struct {
 	fs *FileSystem
 }
 
-// NewManifestWriter creates a writer for the given path.
-func NewManifestWriter(ctx context.Context, path string) (ManifestWriter, error) {
+// newManifestWriter creates a writer for the given path.
+func newManifestWriter(ctx context.Context, path string) (manifestWriter, error) {
 	fs, err := OpenFS(ctx, path)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func NewManifestWriter(ctx context.Context, path string) (ManifestWriter, error)
 	return &fileManifestWriter{fs: fs}, nil
 }
 
-func (w *fileManifestWriter) Append(edit VersionEdit) error {
+func (w *fileManifestWriter) Append(edit versionEdit) error {
 	w.buf.Reset()
 	// gob.Encoder caches type information, so create a new encoder per record to
 	// ensure each entry is self-contained.
@@ -81,8 +81,8 @@ func (w *fileManifestWriter) Sync() error  { return w.fs.Sync() }
 func (w *fileManifestWriter) Close() error { return w.fs.Close() }
 func (w *fileManifestWriter) Path() string { return w.fs.Path() }
 
-// NewManifestReader opens a reader for the manifest at path.
-func NewManifestReader(ctx context.Context, path string) (ManifestReader, error) {
+// newManifestReader opens a reader for the manifest at path.
+func newManifestReader(ctx context.Context, path string) (manifestReader, error) {
 	fs, err := OpenFS(ctx, path)
 	if err != nil {
 		return nil, err
@@ -90,34 +90,34 @@ func NewManifestReader(ctx context.Context, path string) (ManifestReader, error)
 	return &fileManifestReader{fs: fs}, nil
 }
 
-func (r *fileManifestReader) Next() (VersionEdit, error) {
+func (r *fileManifestReader) Next() (versionEdit, error) {
 	var header [manifestRecordHeaderSize]byte
 	if _, err := io.ReadFull(r.fs, header[:]); err != nil {
-		return VersionEdit{}, err
+		return versionEdit{}, err
 	}
 	n := byteOrder.Uint64(header[0:manifestRecordLengthSize])
 	if n > uint64(math.MaxInt) {
-		return VersionEdit{}, fmt.Errorf("manifest record size %d exceeds max slice size on this architecture", n)
+		return versionEdit{}, fmt.Errorf("manifest record size %d exceeds max slice size on this architecture", n)
 	}
 	crc := byteOrder.Uint32(header[manifestRecordLengthSize:])
 	data := make([]byte, int(n))
 	if _, err := io.ReadFull(r.fs, data); err != nil {
-		return VersionEdit{}, err
+		return versionEdit{}, err
 	}
 	if checksum(data) != crc {
-		return VersionEdit{}, ErrChecksumMismatch
+		return versionEdit{}, ErrChecksumMismatch
 	}
-	var edit VersionEdit
+	var edit versionEdit
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&edit); err != nil {
-		return VersionEdit{}, err
+		return versionEdit{}, err
 	}
 	return edit, nil
 }
 
 func (r *fileManifestReader) Close() error { return r.fs.Close() }
 
-// WriteCURRENT atomically updates the CURRENT file to point to manifest.
-func WriteCURRENT(ctx context.Context, dir, manifest string) error {
+// writeCurrent atomically updates the CURRENT file to point to manifest.
+func writeCurrent(ctx context.Context, dir, manifest string) error {
 	tmp := filepath.Join(dir, CurrentTmp)
 	fs, err := OpenFS(ctx, tmp)
 	if err != nil {
@@ -149,10 +149,10 @@ func syncDir(dir string) error {
 	return d.Sync()
 }
 
-// RecoverVersionSet rebuilds the VersionSet by replaying the MANIFEST and
+// recoverVersionSet rebuilds the versionSet by replaying the MANIFEST and
 // updates the allocator with any NextFileNumber entries.
-func RecoverVersionSet(ctx context.Context, dir string, a *FileNumberAllocator) (*VersionSet, string, error) {
-	vs := &VersionSet{}
+func recoverVersionSet(ctx context.Context, dir string, a *fileNumberAllocator) (*versionSet, string, error) {
+	vs := &versionSet{}
 	curr := filepath.Join(dir, CurrentFile)
 	data, err := os.ReadFile(curr)
 	if err != nil {
@@ -163,7 +163,7 @@ func RecoverVersionSet(ctx context.Context, dir string, a *FileNumberAllocator) 
 	}
 	manifest := strings.TrimSpace(string(data))
 	manifestPath := filepath.Join(dir, manifest)
-	r, err := NewManifestReader(ctx, manifestPath)
+	r, err := newManifestReader(ctx, manifestPath)
 	if err != nil {
 		return nil, "", err
 	}
@@ -176,11 +176,11 @@ func RecoverVersionSet(ctx context.Context, dir string, a *FileNumberAllocator) 
 			}
 			return nil, "", err
 		}
-		if err := edit.Apply(vs); err != nil {
+		if err := edit.apply(vs); err != nil {
 			return nil, "", err
 		}
 		if a != nil {
-			a.Apply(edit)
+			a.apply(edit)
 		}
 	}
 	return vs, manifestPath, nil

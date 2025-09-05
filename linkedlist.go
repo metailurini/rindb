@@ -10,21 +10,21 @@ type llNode[V any] struct {
 	Value V
 }
 
-type LinkedList[V any] struct {
+type linkedList[V any] struct {
 	rootNode *llNode[V]
 	lastNode *llNode[V]
-	len      int
+	length   int
 }
 
-func InitLinkedList[V any]() *LinkedList[V] {
-	l := new(LinkedList[V])
+func newLinkedList[V any]() *linkedList[V] {
+	l := new(linkedList[V])
 	rootNode := &llNode[V]{next: nil, prev: nil}
 	l.rootNode = rootNode
 	l.lastNode = rootNode
 	return l
 }
 
-func (l *LinkedList[V]) PushBack(value V) {
+func (l *linkedList[V]) pushBack(value V) {
 	node := &llNode[V]{
 		Value: value,
 		prev:  l.lastNode,
@@ -32,64 +32,62 @@ func (l *LinkedList[V]) PushBack(value V) {
 	}
 	l.lastNode.next = node
 	l.lastNode = node
-	l.len += 1
+	l.length++
 }
 
-// PushFront adds a new node with the given value to the front of the list.
-func (l *LinkedList[V]) PushFront(value V) {
+// pushFront adds a new node with the given value to the front of the list.
+func (l *linkedList[V]) pushFront(value V) {
 	newNode := &llNode[V]{
 		Value: value,
 		prev:  l.rootNode,
 		next:  l.rootNode.next,
 	}
 
-	if l.len == 0 {
+	if l.length == 0 {
 		l.lastNode = newNode
 	} else {
 		l.rootNode.next.prev = newNode
 	}
 	l.rootNode.next = newNode
-	l.len += 1
+	l.length++
 }
 
-func (l *LinkedList[V]) Len() int {
-	return l.len
+func (l *linkedList[V]) size() int {
+	return l.length
 }
 
-func (l *LinkedList[V]) Iterator() *LLIterator[V] {
-	return &LLIterator[V]{
+func (l *linkedList[V]) iterator() *llIterator[V] {
+	return &llIterator[V]{
 		runNode: l.rootNode,
 		list:    l,
 	}
 }
 
 // IteratorFromBottom returns an iterator starting from the last node
-func (l *LinkedList[V]) IteratorFromBottom() *LLIterator[V] {
-	return &LLIterator[V]{
+func (l *linkedList[V]) iteratorFromBottom() *llIterator[V] {
+	return &llIterator[V]{
 		runNode: l.lastNode,
 		list:    l,
 	}
 }
 
-type LLIterator[V any] struct {
+type llIterator[V any] struct {
 	runNode *llNode[V]
-	list    *LinkedList[V]
+	list    *linkedList[V]
 }
 
-var _ Iterator[any] = (*LLIterator[any])(nil)
-
-func (l *LLIterator[V]) Value() V {
+func (l *llIterator[V]) value() V {
 	return l.runNode.Value
 }
 
-// HasNext implements Iterator.
-func (l *LLIterator[V]) HasNext() bool {
+// hasNext implements Iterator.
+func (l *llIterator[V]) hasNext() bool {
 	return l.runNode != nil && l.runNode.next != nil
 }
 
-// Next implements Iterator.
-func (l *LLIterator[V]) Next() (V, error) {
-	if !l.HasNext() {
+// next implements Iterator.
+func (l *llIterator[V]) next() (V, error) {
+	if !l.hasNext() {
 		var emptyValue V
 		return emptyValue, EOI
 	}
@@ -97,17 +95,17 @@ func (l *LLIterator[V]) Next() (V, error) {
 	return l.runNode.Value, nil
 }
 
-// NextValue get next value without jumping to next node
-func (l *LLIterator[V]) NextValue() (V, error) {
-	if !l.HasNext() {
+// nextValue get next value without jumping to next node
+func (l *llIterator[V]) nextValue() (V, error) {
+	if !l.hasNext() {
 		var emptyValue V
 		return emptyValue, EOI
 	}
 	return l.runNode.next.Value, nil
 }
 
-// Add this method to type LLIterator[V] struct
-func (l *LLIterator[V]) RemoveCurrent() error {
+// Add this method to type llIterator[V] struct
+func (l *llIterator[V]) removeCurrent() error {
 	if l.runNode == l.list.rootNode {
 		return errors.New("cannot remove root node")
 	}
@@ -128,15 +126,15 @@ func (l *LLIterator[V]) RemoveCurrent() error {
 	// Move iterator back to previous node to continue iteration
 	oldNode := l.runNode
 	l.runNode = l.runNode.prev
-	l.list.len--
+	l.list.length--
 	// Prevent double-free by nullifying pointers
 	oldNode.next = nil
 	oldNode.prev = nil
 	return nil
 }
 
-func (l *LLIterator[V]) RemoveNext() error {
-	if !l.HasNext() {
+func (l *llIterator[V]) removeNext() error {
+	if !l.hasNext() {
 		return EOI
 	}
 	removedNode := l.runNode.next
@@ -152,32 +150,18 @@ func (l *LLIterator[V]) RemoveNext() error {
 		l.list.lastNode = l.runNode
 	}
 
-	l.list.len -= 1
+	l.list.length--
 	return nil
 }
 
-func (l *LLIterator[V]) PickNext() (V, error) {
-	var emptyValue V
-
-	value, err := l.NextValue()
-	if err != nil {
-		return emptyValue, err
-	}
-
-	if err := l.RemoveNext(); err != nil {
-		return emptyValue, err
-	}
-	return value, nil
-}
-
 // HasPrev checks if there is a previous node to traverse to
-func (l *LLIterator[V]) HasPrev() bool {
+func (l *llIterator[V]) hasPrev() bool {
 	return l.runNode != nil && l.runNode.prev != nil && l.runNode.prev != l.list.rootNode
 }
 
 // Prev moves to the previous node and returns its value
-func (l *LLIterator[V]) Prev() (V, error) {
-	if !l.HasPrev() {
+func (l *llIterator[V]) prev() (V, error) {
+	if !l.hasPrev() {
 		var emptyValue V
 		return emptyValue, EOI
 	}

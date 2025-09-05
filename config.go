@@ -9,17 +9,17 @@ type NewWALFunc func(ctx context.Context, cfg Config) (*WAL, error)
 
 // NewSSTableManagerFunc defines the signature for a function that creates an SSTableManager instance.
 //
-// The VersionSet parameter provides metadata about existing SSTables. Callers
+// The versionSet parameter provides metadata about existing SSTables. Callers
 // should pass the same instance used elsewhere in the database so the manager
 // can operate on consistent state.
-type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *VersionSet, mw ManifestWriter) (*SSTableManager, error)
+type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *versionSet, mw manifestWriter) (*SSTableManager, error)
 
 type Config struct {
 	// databaseDir specifies the directory where WAL and SSTables are stored
 	databaseDir string
 
 	// repairMode forces a full directory scan of SSTables during startup,
-	// bypassing the manifest's VersionSet.
+	// bypassing the manifest's versionSet.
 	repairMode bool
 
 	// maxMemtableSize triggers memtable flush to SSTable when this number of entries is reached
@@ -74,10 +74,10 @@ type Config struct {
 	newSSTableManagerFunc NewSSTableManagerFunc
 
 	// fileNumberAllocator provides sequential identifiers for WAL and SSTable files.
-	fileNumberAllocator *FileNumberAllocator
+	fileNumberAllocator *fileNumberAllocator
 
-	// newManifestWriterFunc allows custom ManifestWriter initialization.
-	newManifestWriterFunc func(ctx context.Context, path string) (ManifestWriter, error)
+	// newManifestWriterFunc allows custom manifestWriter initialization.
+	newManifestWriterFunc func(ctx context.Context, path string) (manifestWriter, error)
 
 	// manifestSizeThreshold triggers manifest rotation once the MANIFEST
 	// file grows beyond this size in bytes.
@@ -117,8 +117,8 @@ func DefaultConfig() Config {
 		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
 		newWALFunc:                DefaultNewWALFunc,
 		newSSTableManagerFunc:     InitSSTableManager,
-		fileNumberAllocator:       NewFileNumberAllocator(1),
-		newManifestWriterFunc:     NewManifestWriter,
+		fileNumberAllocator:       newFileNumberAllocator(1),
+		newManifestWriterFunc:     newManifestWriter,
 		manifestSizeThreshold:     1 << 20, // 1MiB
 		repairMode:                false,
 	}
@@ -282,14 +282,4 @@ func WithNewWALFunc(f NewWALFunc) Option {
 // WithNewSSTableManagerFunc overrides the default SSTableManager constructor.
 func WithNewSSTableManagerFunc(f NewSSTableManagerFunc) Option {
 	return func(c *Config) { c.newSSTableManagerFunc = f }
-}
-
-// WithFileNumberAllocator sets a custom FileNumberAllocator.
-func WithFileNumberAllocator(a *FileNumberAllocator) Option {
-	return func(c *Config) { c.fileNumberAllocator = a }
-}
-
-// WithNewManifestWriterFunc sets the constructor for ManifestWriter implementations.
-func WithNewManifestWriterFunc(f func(ctx context.Context, path string) (ManifestWriter, error)) Option {
-	return func(c *Config) { c.newManifestWriterFunc = f }
 }

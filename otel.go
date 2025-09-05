@@ -19,10 +19,10 @@ import (
 // If insecure is true, transport security is disabled for the OTLP exporters.
 func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool, samplingRate float64) (func(context.Context) error, error) {
 	if !enable {
-		INFO(ctx, "OpenTelemetry is disabled.")
+		info(ctx, "OpenTelemetry is disabled.")
 		return func(context.Context) error { return nil }, nil
 	}
-	INFO(ctx, "OpenTelemetry initialized with endpoint: %s, insecure: %t, samplingRate: %f", endpoint, insecure, samplingRate)
+	info(ctx, "OpenTelemetry initialized with endpoint: %s, insecure: %t, samplingRate: %f", endpoint, insecure, samplingRate)
 
 	res, err := resource.Merge(
 		resource.Default(),
@@ -65,23 +65,23 @@ func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool, 
 	otel.SetMeterProvider(mp)
 
 	shutdown := func(ctx context.Context) error {
-		INFO(ctx, "Shutting down OpenTelemetry trace provider...")
+		info(ctx, "Shutting down OpenTelemetry trace provider...")
 		tpErr := tp.Shutdown(ctx)
 		if tpErr != nil {
-			ERROR(ctx, "Error shutting down trace provider: %v", tpErr)
+			errorf(ctx, "Error shutting down trace provider: %v", tpErr)
 		}
 
-		INFO(ctx, "Shutting down OpenTelemetry meter provider...")
+		info(ctx, "Shutting down OpenTelemetry meter provider...")
 		mpErr := mp.Shutdown(ctx)
 		if mpErr != nil {
-			ERROR(ctx, "Error shutting down meter provider: %v", mpErr)
+			errorf(ctx, "Error shutting down meter provider: %v", mpErr)
 		}
 
 		if tpErr != nil || mpErr != nil {
 			return errors.Join(tpErr, mpErr)
 		}
 
-		INFO(ctx, "OpenTelemetry shutdown complete.")
+		info(ctx, "OpenTelemetry shutdown complete.")
 		return nil
 	}
 	return shutdown, nil

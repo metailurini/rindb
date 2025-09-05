@@ -10,7 +10,7 @@ import (
 var ErrSSTableAlreadyBuilt = errors.New("SSTable already built")
 
 type SSTableBuilder struct {
-	tx       *Transaction
+	tx       *transaction
 	index    []KeyOffset
 	bloom    *BloomFilter
 	offset   int64
@@ -37,8 +37,8 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 	if err := fs.Clean(); err != nil {
 		return nil, fmt.Errorf("failed to clean file system: %w", err)
 	}
-	tm := NewTransactionManager()
-	tx := tm.Begin()
+	tm := newTransactionManager()
+	tx := tm.begin()
 	var bloom *BloomFilter
 	if expected > 0 {
 		bloom = NewBloomFilter(
@@ -79,7 +79,7 @@ func (b *SSTableBuilder) Add(rec Record) error {
 			return fmt.Errorf("sequence numbers for the same key must be strictly decreasing")
 		}
 	}
-	if err := WriteRecord(b.tx, rec); err != nil {
+	if err := writeRecord(b.tx, rec); err != nil {
 		return err
 	}
 	ik := InternalKey{UserKey: key.Clone(), Seq: seq, Type: rec.GetType()}
@@ -103,21 +103,21 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	return nil
 }
 
-func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta FileMeta, written int, err error) {
+func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta, written int, err error) {
 	if len(b.index) == 0 {
-		return SStable{}, FileMeta{}, 0, fmt.Errorf("no records to build")
+		return SStable{}, fileMeta{}, 0, fmt.Errorf("no records to build")
 	}
 	if b.built {
-		return SStable{}, FileMeta{}, 0, ErrSSTableAlreadyBuilt
+		return SStable{}, fileMeta{}, 0, ErrSSTableAlreadyBuilt
 	}
 
 	defer func() {
 		if err != nil {
 			if cleanErr := b.fs.Clean(); cleanErr != nil {
-				WARN(ctx, "failed to clean file system after error: %v", cleanErr)
+				warn(ctx, "failed to clean file system after error: %v", cleanErr)
 			}
 			sst = SStable{}
-			meta = FileMeta{}
+			meta = fileMeta{}
 			written = 0
 		}
 	}()
@@ -140,12 +140,12 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta FileMeta,
 			return
 		}
 	}
-	if err = WriteNumber(b.tx, uint64(sparseIndexOffset)); err != nil {
+	if err = writeNumber(b.tx, uint64(sparseIndexOffset)); err != nil {
 		err = fmt.Errorf("failed to write sparse index offset: %w", err)
 		return
 	}
 	written = b.tx.buffer.Len()
-	if err = b.tx.Commit(ctx, b.fs); err != nil {
+	if err = b.tx.commit(ctx, b.fs); err != nil {
 		err = fmt.Errorf("failed to commit transaction: %w", err)
 		return
 	}
@@ -162,7 +162,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta FileMeta,
 		err = fmt.Errorf("invalid sstable path %s: %w", b.fs.Path(), nerr)
 		return
 	}
-	meta = FileMeta{
+	meta = fileMeta{
 		Number:   num,
 		Smallest: b.smallest,
 		Largest:  b.largest,
@@ -174,8 +174,8 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta FileMeta,
 }
 
 func (b *SSTableBuilder) Close(ctx context.Context) error {
-	if b.tx != nil && b.tx.IsActive() {
-		return b.tx.Rollback(ctx)
+	if b.tx != nil && b.tx.isActive() {
+		return b.tx.rollback(ctx)
 	}
 	return nil
 }

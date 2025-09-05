@@ -26,14 +26,14 @@ type (
 	SparseIndex []KeyOffset
 )
 
-func writeKeyOffset(tx *Transaction, ko KeyOffset) error {
-	if err := WriteNumber(tx, uint64(len(ko.key))); err != nil {
+func writeKeyOffset(tx *transaction, ko KeyOffset) error {
+	if err := writeNumber(tx, uint64(len(ko.key))); err != nil {
 		return fmt.Errorf("failed to write key length: %w", err)
 	}
-	if _, err := tx.Write(ko.key); err != nil {
+	if _, err := tx.write(ko.key); err != nil {
 		return fmt.Errorf("failed to write key bytes: %w", err)
 	}
-	if err := WriteNumber(tx, uint64(ko.offset)); err != nil {
+	if err := writeNumber(tx, uint64(ko.offset)); err != nil {
 		return fmt.Errorf("failed to write offset: %w", err)
 	}
 	return nil
@@ -120,11 +120,11 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		record, err := ReadRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				ERROR(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
+				errorf(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
 				return nil, fmt.Errorf("unexpected EOF after reading at offset %d: %w", offset, ErrMalFormedSSTable)
 			}
 			if errors.Is(err, ErrChecksumMismatch) {
-				ERROR(ctx, "Checksum mismatch at offset %d in %s", reader.Offset(), s.Path())
+				errorf(ctx, "Checksum mismatch at offset %d in %s", reader.Offset(), s.Path())
 				return nil, fmt.Errorf("checksum mismatch at offset %d: %w", reader.Offset(), err)
 			}
 			if errors.Is(err, ErrFileNotOpened) {
@@ -134,7 +134,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 				reader = newOffsetReader(s.FileSystem, reader.Offset())
 				continue
 			}
-			ERROR(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
+			errorf(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
 		bytesRead += CalOnDiskSize(record)
@@ -170,7 +170,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		return SStable{}, fmt.Errorf("failed to get file info for %s: %w", fs.Path(), err)
 	}
 	if fileInfo.Size() < mdByteSize {
-		ERROR(ctx, "File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
+		errorf(ctx, "File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
 		return SStable{}, ErrMalFormedSSTable
 	}
 
@@ -189,7 +189,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		bloom.Insert(ko.key)
 	}
 
-	INFO(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
+	info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
 	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
@@ -259,11 +259,11 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 	return maxSeqNum, nil
 }
 
-func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, FileMeta, error) {
+func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SStable, fileMeta, error) {
 	ctx, span := sstableTracer.Start(ctx, "flush")
 	start := time.Now()
 	var written int
-	var meta FileMeta
+	var meta fileMeta
 	defer func() {
 		span.End()
 		flushLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
@@ -273,19 +273,19 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	}()
 
 	if mem.data.Len() == 0 {
-		ERROR(ctx, "Flushing empty memtable! It's a bug!")
+		errorf(ctx, "Flushing empty memtable! It's a bug!")
 		log.Panic("empty memtable!")
 	}
 
 	builder, err := NewSSTableBuilder(ctx, config, fs, int(mem.data.Len()))
 	if err != nil {
-		return SStable{}, FileMeta{}, fmt.Errorf("failed to create sstable builder: %w", err)
+		return SStable{}, fileMeta{}, fmt.Errorf("failed to create sstable builder: %w", err)
 	}
 	defer builder.Close(ctx)
 
 	for r := mem.data.Head().Next(); r != nil; r = r.Next() {
 		if err := builder.Add(r.Value); err != nil {
-			return SStable{}, FileMeta{}, fmt.Errorf("failed to add record to builder: %w", err)
+			return SStable{}, fileMeta{}, fmt.Errorf("failed to add record to builder: %w", err)
 		}
 	}
 
@@ -293,10 +293,10 @@ func flush(ctx context.Context, config Config, mem Memtable, fs *FileSystem) (SS
 	sst, meta, written, err = builder.Build(ctx)
 	if err != nil {
 		written = 0
-		return SStable{}, FileMeta{}, err
+		return SStable{}, fileMeta{}, err
 	}
 	meta.Level = 0
-	INFO(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
+	info(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged
