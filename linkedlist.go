@@ -104,7 +104,9 @@ func (l *llIterator[V]) nextValue() (V, error) {
 	return l.runNode.next.Value, nil
 }
 
-// Add this method to type llIterator[V] struct
+// removeCurrent removes the current node from the list and moves the iterator
+// to the previous node. It returns an error if the current node cannot be
+// removed or the iterator is exhausted.
 func (l *llIterator[V]) removeCurrent() error {
 	if l.runNode == l.list.rootNode {
 		return errors.New("cannot remove root node")

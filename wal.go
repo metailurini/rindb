@@ -50,7 +50,7 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*WAL, error) {
 	}
 	id := maxID
 	if id == 0 {
-		id = cfg.fileNumberAllocator.next()
+		id = cfg.fileNumberAllocator.nextNumber()
 	}
 	wp := path.Join(cfg.databaseDir, walPath(id))
 	fs, err := OpenFS(ctx, wp)

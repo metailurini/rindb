@@ -369,11 +369,17 @@ func assertLinkedListContents[T comparable](t *testing.T, l *linkedList[T], expe
 	t.Helper()
 	assert.Equal(t, len(expected), l.size(), "linkedList length does not match expected length")
 	it := l.iterator()
-	for _, exp := range expected {
+	idx := 0
+	for it.hasNext() {
+		require.Less(t, idx, len(expected), "iterator has more items than expected")
 		v, err := it.next()
 		require.NoError(t, err)
-		assert.Equal(t, exp, v)
+		assert.Equal(t, expected[idx], v, "value mismatch at index %d", idx)
+		idx++
 	}
+	assert.Equal(t, len(expected), idx, "iterator returned fewer items than expected")
+	_, err := it.next()
+	assert.ErrorIs(t, err, EOI, "iterator should return EOI at the end")
 }
 
 // newRecord is a helper function to create a RecordImpl instance for tests.
