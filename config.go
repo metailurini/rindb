@@ -135,9 +135,9 @@ func DefaultConfig() Config {
 		manifestSizeThreshold:     1 << 20, // 1MiB
 		repairMode:                false,
 		cacheBytes:                64 << 20, // 64MiB table cache budget
-		cacheShards:               defaultCacheShards,
-		cacheProbationFraction:    defaultProbationFraction,
-		cacheCorruptTTL:           defaultCorruptTTL,
+		cacheShards:               64,
+		cacheProbationFraction:    0.25,
+		cacheCorruptTTL:           5 * time.Minute,
 		cacheTombstoneTTL:         0,
 		fdLimiter:                 noopFDLimiter{},
 	}

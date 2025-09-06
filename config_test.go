@@ -30,9 +30,9 @@ func TestDefaultConfig(t *testing.T) {
 		{"ExporterEndpoint", cfg.exporterEndpoint, ""},
 		{"ExporterInsecure", cfg.exporterInsecure, false},
 		{"cacheBytes", cfg.cacheBytes, int64(64 << 20)},
-		{"cacheShards", cfg.cacheShards, defaultCacheShards},
-		{"cacheProbationFraction", cfg.cacheProbationFraction, defaultProbationFraction},
-		{"cacheCorruptTTL", cfg.cacheCorruptTTL, defaultCorruptTTL},
+		{"cacheShards", cfg.cacheShards, 64},
+		{"cacheProbationFraction", cfg.cacheProbationFraction, 0.25},
+		{"cacheCorruptTTL", cfg.cacheCorruptTTL, 5 * time.Minute},
 		{"cacheTombstoneTTL", cfg.cacheTombstoneTTL, time.Duration(0)},
 	}
 

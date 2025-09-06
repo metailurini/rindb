@@ -10,14 +10,10 @@ import (
 )
 
 const (
-	defaultShardItemCapacity    = 256
+	defaultCacheQuarantineTTL   = 5 * time.Minute
 	defaultCorruptMapCapacity   = 16
+	defaultShardItemCapacity    = 256
 	defaultTombstoneMapCapacity = 16
-
-	defaultCacheShards        = 64
-	defaultCacheQuarantineTTL = 5 * time.Minute
-	defaultProbationFraction  = 0.25
-	defaultCorruptTTL         = 5 * time.Minute
 )
 
 var (
@@ -125,16 +121,7 @@ type tableCache struct {
 
 // newTableCache creates a tableCache with SLRU + singleflight + byte budgeting.
 func newTableCache(opt tableCacheOptions) *tableCache {
-	if opt.Shards <= 0 {
-		opt.Shards = defaultCacheShards
-	}
-	if opt.CorruptTTL <= 0 {
-		opt.CorruptTTL = defaultCorruptTTL
-	}
 	fr := opt.ProbationFraction
-	if fr <= 0 || fr >= 1 {
-		fr = defaultProbationFraction
-	}
 	n := nextPow2(uint64(opt.Shards))
 	c := &tableCache{opt: opt}
 	shards := make([]*shard, n)
