@@ -48,5 +48,5 @@ func TestTableCacheMissAfterGetFollowingCompaction(t *testing.T) {
 	require.Equal(t, rindb.Bytes("v1_new"), v)
 
 	after := db.TableCacheStats()
-require.Equal(t, mid.Hits+1, after.Hits)
+	require.Equal(t, mid.Hits+1, after.Hits)
 }
