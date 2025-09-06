@@ -189,6 +189,15 @@ func (r *Rindb) Stats() Stats {
 	return stats
 }
 
+func (r *Rindb) TableCacheStats() tableCacheStats {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.SSTableManager == nil {
+		return tableCacheStats{}
+	}
+	return r.SSTableManager.TableCacheStats()
+}
+
 // Get retrieves the value associated with the given key from the database.
 // It first checks the memtable and then the SSTables if the key is not found in the memtable.
 // Parameters:

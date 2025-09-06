@@ -75,6 +75,13 @@ type ssTableManager struct {
 	diskSampler func() (uint64, error)
 }
 
+func (h *ssTableManager) TableCacheStats() tableCacheStats {
+	if h.cache == nil {
+		return tableCacheStats{}
+	}
+	return h.cache.Stats()
+}
+
 func (h *ssTableManager) sstInfo(num uint64) (os.FileInfo, error) {
 	return os.Stat(path.Join(h.config.databaseDir, sstPath(num)))
 }
@@ -164,10 +171,10 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 	}
 
 	tc := newTableCache(tableCacheOptions{
-		CapBytes:          config.tableCacheCapBytes,
-		Shards:            config.tableCacheShards,
-		ProbationFraction: config.tableCacheProbationFraction,
-		CorruptTTL:        config.tableCacheCorruptTTL,
+		CapBytes:          config.cacheBytes,
+		Shards:            config.cacheShards,
+		ProbationFraction: config.cacheProbationFraction,
+		CorruptTTL:        config.cacheCorruptTTL,
 		FDLimiter:         config.fdLimiter,
 		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
 			p := path.Join(config.databaseDir, sstPath(k.FileNum))

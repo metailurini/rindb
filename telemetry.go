@@ -41,6 +41,15 @@ var (
 	walRecordsCounter     metric.Int64UpDownCounter
 	walBytesCounter       metric.Int64UpDownCounter
 
+	// Table cache metrics
+	tableCacheMeter = otel.Meter("rindb/tablecache")
+	cacheHits       metric.Int64Counter
+	cacheMisses     metric.Int64Counter
+	cacheOpens      metric.Int64Counter
+	cacheCloses     metric.Int64Counter
+	cacheEvicts     metric.Int64Counter
+	cachePromotions metric.Int64Counter
+
 	// RinDB metrics
 	rindbMeter = otel.Meter("rindb")
 
@@ -79,6 +88,13 @@ func init() {
 	walAppendManyDuration = must(walMeter.Float64Histogram("rindb.wal.append_many.duration", metric.WithUnit("ms")))
 	walRecordsCounter = must(walMeter.Int64UpDownCounter("rindb.wal.records"))
 	walBytesCounter = must(walMeter.Int64UpDownCounter("rindb.wal.bytes"))
+
+	cacheHits = must(tableCacheMeter.Int64Counter("rindb.tablecache.hits"))
+	cacheMisses = must(tableCacheMeter.Int64Counter("rindb.tablecache.misses"))
+	cacheOpens = must(tableCacheMeter.Int64Counter("rindb.tablecache.opens"))
+	cacheCloses = must(tableCacheMeter.Int64Counter("rindb.tablecache.closes"))
+	cacheEvicts = must(tableCacheMeter.Int64Counter("rindb.tablecache.evicts"))
+	cachePromotions = must(tableCacheMeter.Int64Counter("rindb.tablecache.promotions"))
 
 	getCalls = must(rindbMeter.Int64Counter("rindb.get.calls"))
 	putCalls = must(rindbMeter.Int64Counter("rindb.put.calls"))

@@ -99,3 +99,16 @@ func TestRindb_Stats(t *testing.T) {
 		assert.Zero(t, st.ActiveSnapshots)
 	})
 }
+
+func TestRindb_TableCacheStats(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	cfg.cacheBytes = 1024
+	cfg.cacheShards = 4
+	ts := newTestRindbSetup(t, ctx, &cfg)
+	defer ts.Cleanup()
+
+	st := ts.RinDB.TableCacheStats()
+	assert.Equal(t, 4, st.Shards)
+	assert.Equal(t, int64(1024), st.CapBytes)
+}
