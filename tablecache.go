@@ -13,6 +13,7 @@ const (
 	defaultShardItemCapacity    = 256
 	defaultCorruptMapCapacity   = 16
 	defaultTombstoneMapCapacity = 16
+	defaultCacheQuarantineTTL   = 5 * time.Minute
 )
 
 var (
@@ -159,11 +160,8 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if exp, dead := s.tombstone[k]; dead {
-		if time.Now().Before(exp) {
-			return nil, false
-		}
-		delete(s.tombstone, k)
+	if s.isTombstoned(k) {
+		return nil, false
 	}
 	if exp, bad := s.corrupt[k]; bad {
 		if time.Now().Before(exp) {
@@ -208,12 +206,9 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	// Fast path: map hit
 	s.mu.Lock()
 	// deny install if tombstoned (obsolete)
-	if exp, dead := s.tombstone[k]; dead {
-		if time.Now().Before(exp) {
-			s.mu.Unlock()
-			return nil, ErrObsolete
-		}
-		delete(s.tombstone, k)
+	if s.isTombstoned(k) {
+		s.mu.Unlock()
+		return nil, ErrObsolete
 	}
 	// deny if quarantined for corruption
 	if exp, bad := s.corrupt[k]; bad {
@@ -288,7 +283,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		if errors.Is(err, ErrCorruption) {
 			ttl := c.opt.CorruptTTL
 			if ttl <= 0 {
-				ttl = 5 * time.Minute
+				ttl = defaultCacheQuarantineTTL
 			}
 			s.mu.Lock()
 			s.corrupt[k] = time.Now().Add(ttl)
@@ -310,17 +305,14 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		}
 		return nil, ErrClosed
 	}
-	if exp, dead := s.tombstone[k]; dead {
-		if time.Now().Before(exp) {
-			s.mu.Unlock()
-			if h.closed.CompareAndSwap(false, true) {
-				_ = c.opt.Close(h.Table)
-				s.closes.Add(1)
-				cacheCloses.Add(ctx, 1)
-			}
-			return nil, ErrObsolete
+	if s.isTombstoned(k) {
+		s.mu.Unlock()
+		if h.closed.CompareAndSwap(false, true) {
+			_ = c.opt.Close(h.Table)
+			s.closes.Add(1)
+			cacheCloses.Add(ctx, 1)
 		}
-		delete(s.tombstone, k)
+		return nil, ErrObsolete
 	}
 	if existing, ok := s.items[k]; ok {
 		// Another goroutine installed first. Use it.
@@ -370,7 +362,7 @@ func (c *tableCache) Delete(ctx context.Context, k tableKey) {
 	// Set tombstone first to block racing admissions
 	ttl := c.opt.TombstoneTTL
 	if ttl <= 0 {
-		ttl = 5 * time.Minute
+		ttl = defaultCacheQuarantineTTL
 	}
 	s.tombstone[k] = time.Now().Add(ttl)
 	if e, ok := s.items[k]; ok {
