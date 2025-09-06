@@ -66,9 +66,9 @@ func TestTableCacheEviction(t *testing.T) {
 	require.NoError(t, err)
 	h2.Unref()
 
-	_, ok := cache.TryGet(k1)
+	_, ok := cache.TryGet(ctx, k1)
 	require.False(t, ok, "k1 should be evicted")
-	_, ok = cache.TryGet(k2)
+	_, ok = cache.TryGet(ctx, k2)
 	require.True(t, ok, "k2 should remain in cache")
 }
 
@@ -87,9 +87,9 @@ func TestTableCachePinning(t *testing.T) {
 	require.NoError(t, err)
 	h2.Unref()
 
-	_, ok := cache.TryGet(k1)
+	_, ok := cache.TryGet(ctx, k1)
 	require.True(t, ok, "pinned k1 should stay resident")
-	_, ok = cache.TryGet(k2)
+	_, ok = cache.TryGet(ctx, k2)
 	require.False(t, ok, "unpinned k2 should be evicted")
 }
 

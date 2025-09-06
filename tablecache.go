@@ -152,7 +152,7 @@ func (c *tableCache) shardFor(k tableKey) *shard {
 
 // TryGet returns a pinned handle if present without doing any I/O.
 // ok=false if not resident or tombstoned/quarantined.
-func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
+func (c *tableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool) {
 	s := c.shardFor(k)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -174,9 +174,9 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 			c.totalBytes.Add(-e.h.actualBytes)
 		} else {
 			e.h.Pin()
-			s.promoteOnHit(context.Background(), e)
+			s.promoteOnHit(ctx, e)
 			s.hits.Add(1)
-			cacheHits.Add(context.Background(), 1)
+			cacheHits.Add(ctx, 1)
 			return e.h, true
 		}
 	}
@@ -184,8 +184,8 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 }
 
 // TryRef increments a ref on an existing key if present; returns false otherwise.
-func (c *tableCache) TryRef(k tableKey) bool {
-	_, ok := c.TryGet(k)
+func (c *tableCache) TryRef(ctx context.Context, k tableKey) bool {
+	_, ok := c.TryGet(ctx, k)
 	return ok
 }
 
