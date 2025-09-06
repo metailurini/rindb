@@ -97,13 +97,15 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	num, err := fileNum(sst1.Path())
 	require.NoError(t, err)
-	ts.Manager.mu.RLock()
-	opened := ts.Manager.openedByNum[num]
-	ts.Manager.mu.RUnlock()
-	assert.NotNil(t, opened)
-	assert.True(t, opened.IsOpened())
+	h, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num})
+	require.True(t, ok)
+	assert.True(t, h.Table.IsOpened())
+	h.Unref()
 	assert.NoError(t, iter.Close())
-	assert.False(t, opened.IsOpened())
+	h, ok = ts.Manager.cache.TryGet(tableKey{FileNum: num})
+	require.True(t, ok)
+	assert.True(t, h.Table.IsOpened())
+	h.Unref()
 }
 
 func TestRangeIteratorPrepare(t *testing.T) {
