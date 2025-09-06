@@ -1182,10 +1182,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, l0.Close())
 		num, err := fileNum(l0.FileSystem.Path())
 		require.NoError(t, err)
-		ts.Manager.cache.Delete(tableKey{FileNum: num})
-		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
-			t.Fatalf("cache still has entry for %d", num)
-		}
+		ts.removeFromCache(num)
 		require.NoError(t, os.Remove(l0.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(l0.FileSystem.Path(), 0o700))
 		defer os.Remove(l0.FileSystem.Path())
@@ -1207,10 +1204,7 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		require.NoError(t, overlap.Close())
 		num, err := fileNum(overlap.FileSystem.Path())
 		require.NoError(t, err)
-		ts.Manager.cache.Delete(tableKey{FileNum: num})
-		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
-			t.Fatalf("cache still has entry for %d", num)
-		}
+		ts.removeFromCache(num)
 		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
 		defer os.Remove(overlap.FileSystem.Path())
@@ -1339,10 +1333,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, src.Close())
 		num, err := fileNum(src.FileSystem.Path())
 		require.NoError(t, err)
-		ts.Manager.cache.Delete(tableKey{FileNum: num})
-		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
-			t.Fatalf("cache still has entry for %d", num)
-		}
+		ts.removeFromCache(num)
 		require.NoError(t, os.Remove(src.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(src.FileSystem.Path(), 0o700))
 		defer os.Remove(src.FileSystem.Path())
@@ -1364,10 +1355,7 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		require.NoError(t, overlap.Close())
 		num, err := fileNum(overlap.FileSystem.Path())
 		require.NoError(t, err)
-		ts.Manager.cache.Delete(tableKey{FileNum: num})
-		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
-			t.Fatalf("cache still has entry for %d", num)
-		}
+		ts.removeFromCache(num)
 		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
 		defer os.Remove(overlap.FileSystem.Path())
