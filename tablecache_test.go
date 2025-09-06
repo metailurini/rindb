@@ -114,3 +114,76 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
+
+func TestTableCacheCloseDrainsBusyHandles(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
+
+	k1 := tableKey{FileNum: 1}
+	h1a, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h1b, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h1b.Unref()
+
+	k2 := tableKey{FileNum: 2}
+	h2, err := cache.Get(ctx, k2)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		h1a.Unref()
+		h2.Unref()
+		close(done)
+	}()
+
+	start := time.Now()
+	err = cache.Close(ctx, 500*time.Millisecond)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
+	require.Less(t, elapsed, 500*time.Millisecond)
+	<-done
+
+	st := cache.Stats()
+	require.EqualValues(t, 1, st.Hits)
+	require.EqualValues(t, 2, st.Misses)
+	require.EqualValues(t, 0, st.Evicts)
+}
+
+func TestTableCachePinnedOverCapacity(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
+
+	k1 := tableKey{FileNum: 1}
+	h1, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h1.Unref()
+	require.True(t, cache.PinKey(k1))
+
+	k2 := tableKey{FileNum: 2}
+	h2, err := cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h2.Unref()
+	require.True(t, cache.PinKey(k2))
+
+	k3 := tableKey{FileNum: 3}
+	h3, err := cache.Get(ctx, k3)
+	require.NoError(t, err)
+	h3.Unref()
+
+	h, ok := cache.TryGet(k1)
+	require.True(t, ok)
+	h.Unref()
+	h, ok = cache.TryGet(k2)
+	require.True(t, ok)
+	h.Unref()
+	_, ok = cache.TryGet(k3)
+	require.False(t, ok)
+
+	st := cache.Stats()
+	require.EqualValues(t, 2, st.Hits)
+	require.EqualValues(t, 3, st.Misses)
+	require.EqualValues(t, 1, st.Evicts)
+}
