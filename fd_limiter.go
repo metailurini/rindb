@@ -12,7 +12,7 @@ type SemaphoreFDLimiter struct {
 // acquisitions. n must be >0.
 func NewSemaphoreFDLimiter(n int) *SemaphoreFDLimiter {
 	if n <= 0 {
-		n = 1
+		panic("rindb: FD limit must be positive")
 	}
 	return &SemaphoreFDLimiter{sem: make(chan struct{}, n)}
 }
@@ -32,7 +32,6 @@ func (l *SemaphoreFDLimiter) Release() {
 	select {
 	case <-l.sem:
 	default:
-		// Release should only be called after a successful Acquire, but avoid
-		// blocking here if misused.
+		panic("rindb: extra call to FDLimiter.Release")
 	}
 }

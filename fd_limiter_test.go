@@ -47,3 +47,17 @@ func TestSemaphoreFDLimiterConcurrentGet(t *testing.T) {
 
 	require.EqualValues(t, 1, max.Load(), "concurrent opens should be limited to 1")
 }
+
+func TestSemaphoreFDLimiterAcquireCancelled(t *testing.T) {
+	limiter := NewSemaphoreFDLimiter(1)
+
+	require.NoError(t, limiter.Acquire(context.Background()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := limiter.Acquire(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+
+	limiter.Release()
+}
