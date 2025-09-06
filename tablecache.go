@@ -343,7 +343,10 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	cacheMisses.Add(ctx, 1)
 
 	// Evict/demote to budget (may close victims outside the lock).
-	s.evictOrDemoteLocked(ctx)
+	if !s.evictOrDemoteLocked(ctx, e) {
+		// Entry was dropped due to full pinned cache; the handle remains valid
+		// but won't be reachable through the cache and will close on Unref().
+	}
 	s.mu.Unlock()
 	return h, nil
 }

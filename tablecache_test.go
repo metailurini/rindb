@@ -93,6 +93,29 @@ func TestTableCachePinning(t *testing.T) {
 	require.False(t, ok, "unpinned k2 should be evicted")
 }
 
+func TestTableCachePinnedOverCapacity(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
+
+	k1 := tableKey{FileNum: 1}
+	h1, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h1.Unref()
+	require.True(t, cache.PinKey(k1))
+
+	k2 := tableKey{FileNum: 2}
+	h2, err := cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h2.Unref()
+
+	_, ok := cache.TryGet(k2)
+	require.False(t, ok, "k2 should not be cached when capacity is pinned")
+
+	h2, err = cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h2.Unref()
+}
+
 func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	ctx := context.Background()
 	var opens atomic.Int32
