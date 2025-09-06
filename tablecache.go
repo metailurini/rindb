@@ -127,6 +127,10 @@ type shard struct {
 	probCapBytes int64
 	protCapBytes int64
 
+	// per-segment tracked usage (actual bytes)
+	probBytes int64
+	protBytes int64
+
 	// tracked usage (actual bytes) of entries in lists/map
 	usedBytes int64
 	capBytes  int64
@@ -359,6 +363,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	e.elem = s.prob.PushFront(e)
 	s.items[k] = e
 	s.usedBytes += h.actualBytes
+	s.probBytes += h.actualBytes
 	c.totalBytes.Add(h.actualBytes)
 	s.misses.Add(1)
 
@@ -430,6 +435,7 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 		h *Handle
 	}
 	var toClose []hpair
+	var busy []*Handle
 
 	for _, s := range c.shards {
 		s.mu.Lock()
@@ -442,6 +448,8 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 			c.totalBytes.Add(-e.h.actualBytes)
 			if e.h.refs.Load() == 0 {
 				toClose = append(toClose, hpair{s: s, h: e.h})
+			} else {
+				busy = append(busy, e.h)
 			}
 		}
 		s.mu.Unlock()
@@ -459,14 +467,10 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	deadline := time.Now().Add(drainTimeout)
 	for time.Now().Before(deadline) {
 		remaining := 0
-		for _, s := range c.shards {
-			s.mu.Lock()
-			for _, e := range s.items {
-				if e.h.refs.Load() > 0 {
-					remaining++
-				}
+		for _, h := range busy {
+			if h.refs.Load() > 0 {
+				remaining++
 			}
-			s.mu.Unlock()
 		}
 		if remaining == 0 {
 			break
@@ -489,8 +493,10 @@ func (s *shard) promoteOnHit(e *entry) {
 		if e.elem != nil {
 			s.prob.Remove(e.elem)
 		}
+		s.probBytes -= e.h.actualBytes
 		e.elem = s.prot.PushFront(e)
 		e.seg = segProtected
+		s.protBytes += e.h.actualBytes
 		s.promotions.Add(1)
 
 		// enforce protected cap via demotion if necessary
@@ -500,8 +506,10 @@ func (s *shard) promoteOnHit(e *entry) {
 				if dem.elem != nil {
 					s.prot.Remove(dem.elem)
 				}
+				s.protBytes -= dem.h.actualBytes
 				dem.elem = s.prob.PushFront(dem)
 				dem.seg = segProbation
+				s.probBytes += dem.h.actualBytes
 			} else {
 				break
 			}
@@ -520,10 +528,12 @@ func (s *shard) unlink(e *entry) {
 		if e.elem != nil {
 			s.prob.Remove(e.elem)
 		}
+		s.probBytes -= e.h.actualBytes
 	case segProtected:
 		if e.elem != nil {
 			s.prot.Remove(e.elem)
 		}
+		s.protBytes -= e.h.actualBytes
 	}
 	e.elem = nil
 	e.seg = segNone
@@ -540,21 +550,16 @@ func (s *shard) chooseVictim() *entry {
 	return nil
 }
 
-// segmentBytes is an approximate byte split by counting entries in each segment.
-// If you want strict accounting per segment, maintain per-segment byte counters.
+// segmentBytes returns the tracked byte usage for the requested segment.
 func (s *shard) segmentBytes(seg segment) int64 {
-	var sum int64
 	switch seg {
 	case segProbation:
-		for e := s.prob.Front(); e != nil; e = e.Next() {
-			sum += e.Value.(*entry).h.actualBytes
-		}
+		return s.probBytes
 	case segProtected:
-		for e := s.prot.Front(); e != nil; e = e.Next() {
-			sum += e.Value.(*entry).h.actualBytes
-		}
+		return s.protBytes
+	default:
+		return 0
 	}
-	return sum
 }
 
 // evictOrDemoteLocked ensures segment splits and capBytes.
@@ -570,8 +575,10 @@ func (s *shard) evictOrDemoteLocked() {
 			if dem.elem != nil {
 				s.prot.Remove(dem.elem)
 			}
+			s.protBytes -= dem.h.actualBytes
 			dem.elem = s.prob.PushFront(dem)
 			dem.seg = segProbation
+			s.probBytes += dem.h.actualBytes
 		} else {
 			break
 		}
@@ -588,8 +595,10 @@ func (s *shard) evictOrDemoteLocked() {
 			// skip pinned victims: keep them MRU-protected to avoid tight loops
 			if v.seg == segProbation && v.elem != nil {
 				s.prob.Remove(v.elem)
+				s.probBytes -= v.h.actualBytes
 				v.elem = s.prot.PushFront(v)
 				v.seg = segProtected
+				s.protBytes += v.h.actualBytes
 			} else if v.seg == segProtected && v.elem != nil {
 				s.prot.MoveToFront(v.elem)
 			}
