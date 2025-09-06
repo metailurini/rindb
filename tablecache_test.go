@@ -108,7 +108,7 @@ func TestTableCachePinnedOverCapacity(t *testing.T) {
 	require.NoError(t, err)
 	h2.Unref()
 
-	_, ok := cache.TryGet(k2)
+	_, ok := cache.TryGet(ctx, k2)
 	require.False(t, ok, "k2 should not be cached when capacity is pinned")
 
 	h2, err = cache.Get(ctx, k2)
@@ -160,7 +160,7 @@ func TestTableCacheDelete(t *testing.T) {
 	h.Unref()
 
 	// Entry should be resident prior to deletion.
-	h2, ok := cache.TryGet(k)
+	h2, ok := cache.TryGet(ctx, k)
 	require.True(t, ok)
 	h2.Unref()
 	require.EqualValues(t, 0, closes.Load())
@@ -168,7 +168,7 @@ func TestTableCacheDelete(t *testing.T) {
 	cache.Delete(ctx, k)
 	require.EqualValues(t, 1, closes.Load(), "delete should close handle when refs==0")
 
-	_, ok = cache.TryGet(k)
+	_, ok = cache.TryGet(ctx, k)
 	require.False(t, ok, "entry should be removed")
 
 	_, err = cache.Get(ctx, k)
@@ -200,11 +200,15 @@ func TestTableCacheClose(t *testing.T) {
 		done := make(chan error)
 		go func() { done <- cache.Close(ctx, 100*time.Millisecond) }()
 
-		time.Sleep(10 * time.Millisecond) // allow Close to stop admission
-
 		// New admissions should be rejected.
-		_, err = cache.Get(ctx, tableKey{FileNum: 2})
-		require.ErrorIs(t, err, ErrClosed)
+		// Poll until cache.Close() has started and rejects new admissions, which is more robust than a fixed sleep.
+		require.Eventually(t, func() bool {
+			if !cache.shards[0].stopAdmission.Load() {
+				return false
+			}
+			_, err := cache.Get(ctx, tableKey{FileNum: 2})
+			return err == ErrClosed
+		}, 50*time.Millisecond, 5*time.Millisecond)
 		require.EqualValues(t, 1, opens.Load())
 		require.EqualValues(t, 0, closes.Load())
 
