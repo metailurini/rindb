@@ -681,7 +681,7 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 		}
 		for _, hnd := range ssts {
 			val, err := hnd.Table.GetValue(ctx, key, maxSeq)
-			hnd.Release()
+			hnd.Unref()
 			if err == nil {
 				return val, nil
 			}
