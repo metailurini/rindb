@@ -365,7 +365,7 @@ func (h *ssTableManager) Close(ctx context.Context) {
 		close(h.stopIOLoadSampler)
 		h.ioSamplerWG.Wait()
 	}
-	if err := h.cache.Close(ctx, 0); err != nil {
+	if err := h.cache.Close(ctx, 5*time.Second); err != nil {
 		warn(ctx, "Error closing table cache: %v", err)
 	}
 }
@@ -482,7 +482,7 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	defer func() {
 		// release handles to input SSTables
 		for _, hnd := range handles {
-			hnd.Unref()
+			hnd.Release()
 		}
 	}()
 
@@ -646,7 +646,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 		hnd, err := h.openByNumber(ctx, num)
 		if err != nil {
 			for _, o := range out {
-				o.Unref()
+				o.Release()
 			}
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
 				return nil, err
@@ -680,7 +680,7 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 		}
 		for _, hnd := range ssts {
 			val, err := hnd.Table.GetValue(ctx, key, maxSeq)
-			hnd.Unref()
+			hnd.Release()
 			if err == nil {
 				return val, nil
 			}
