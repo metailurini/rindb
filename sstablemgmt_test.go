@@ -1612,6 +1612,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		// drop from table cache so subsequent merge attempts to reopen it
 		num, err := fileNum(overlap.FileSystem.Path())
 		require.NoError(t, err)
+		// tests use DBID 0; tableKey DBID is irrelevant until multi-DB support
 		ts.Manager.cache.Delete(ctx, tableKey{FileNum: num})
 
 		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)

@@ -36,7 +36,8 @@ func TestTableCacheHitMiss(t *testing.T) {
 		},
 	})
 
-	key := tableKey{DBID: 1, FileNum: 1}
+	// tests use default DBID 0; override when multi-DB is supported
+	key := tableKey{FileNum: 1}
 	h, err := cache.Get(ctx, key)
 	require.NoError(t, err)
 	h.Unref()
@@ -55,12 +56,12 @@ func TestTableCacheEviction(t *testing.T) {
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
-	k1 := tableKey{DBID: 1, FileNum: 1}
+	k1 := tableKey{FileNum: 1}
 	h1, err := cache.Get(ctx, k1)
 	require.NoError(t, err)
 	h1.Unref()
 
-	k2 := tableKey{DBID: 1, FileNum: 2}
+	k2 := tableKey{FileNum: 2}
 	h2, err := cache.Get(ctx, k2)
 	require.NoError(t, err)
 	h2.Unref()
@@ -75,13 +76,13 @@ func TestTableCachePinning(t *testing.T) {
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
-	k1 := tableKey{DBID: 1, FileNum: 1}
+	k1 := tableKey{FileNum: 1}
 	h1, err := cache.Get(ctx, k1)
 	require.NoError(t, err)
 	h1.Unref()
 	require.True(t, cache.PinKey(k1))
 
-	k2 := tableKey{DBID: 1, FileNum: 2}
+	k2 := tableKey{FileNum: 2}
 	h2, err := cache.Get(ctx, k2)
 	require.NoError(t, err)
 	h2.Unref()
@@ -104,7 +105,7 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 		CorruptTTL: time.Minute,
 	})
 
-	k := tableKey{DBID: 1, FileNum: 1}
+	k := tableKey{FileNum: 1}
 	_, err := cache.Get(ctx, k)
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load())
