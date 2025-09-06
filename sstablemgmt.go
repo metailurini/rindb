@@ -338,6 +338,15 @@ func (h *ssTableManager) addSSTable(ctx context.Context, meta fileMeta, lastSeq 
 		return err
 	}
 	h.config.fileNumberAllocator.apply(edit)
+	if h.cache != nil {
+		k := tableKey{FileNum: meta.Number}
+		if hnd, err := h.cache.Get(ctx, k); err == nil {
+			h.cache.PinKey(k)
+			hnd.Unref()
+		} else {
+			warn(ctx, "Failed to cache new SSTable %d: %v", meta.Number, err)
+		}
+	}
 	info(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
 	return nil
 }
@@ -472,20 +481,25 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		return nil
 	}
 
-	var sources []SStable
+	handles := make([]*Handle, 0, len(inputs))
+	sources := make([]SStable, 0, len(inputs))
 	for _, fm := range inputs {
-		fs := &FileSystem{filePath: path.Join(h.config.databaseDir, sstPath(fm.Number))}
-		sst, err := h.openAndLoadSSTable(ctx, fs)
+		hnd, err := h.openByNumber(ctx, fm.Number)
 		if err != nil {
-			h.closeSSTables(ctx, sources)
+			for _, o := range handles {
+				o.Unref()
+			}
 			return err
 		}
-		sources = append(sources, *sst)
+		handles = append(handles, hnd)
+		sources = append(sources, *hnd.Table)
 	}
 
 	newFS, err := h.newSSTableFS(ctx)
 	if err != nil {
-		h.closeSSTables(ctx, sources)
+		for _, o := range handles {
+			o.Unref()
+		}
 		return err
 	}
 
@@ -500,13 +514,18 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 
 	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, sources, bottom, h.minSnapshotSeq)
-	h.closeSSTables(ctx, sources)
+	for _, o := range handles {
+		o.Unref()
+	}
 	if err != nil || merged == nil {
 		_ = newFS.Close()
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
 			errorf(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
 		}
 		return err
+	}
+	if err := merged.Close(); err != nil {
+		warn(ctx, "Error closing merged sstable %s: %v", newFS.Path(), err)
 	}
 
 	var (
@@ -535,19 +554,26 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 	h.config.fileNumberAllocator.apply(edit)
 
+	if h.cache != nil {
+		kNew := tableKey{FileNum: meta.Number}
+		if hnd, err := h.cache.Get(ctx, kNew); err == nil {
+			h.cache.PinKey(kNew)
+			hnd.Unref()
+		} else {
+			warn(ctx, "Failed to cache new SSTable %d: %v", meta.Number, err)
+		}
+		for _, fm := range inputs {
+			k := tableKey{FileNum: fm.Number}
+			h.cache.UnpinKey(k)
+			h.cache.Delete(k)
+		}
+	}
+
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
 		errorf(ctx, "Error removing files: %v", err)
 		return err
 	}
 	return nil
-}
-
-func (h *ssTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
-	for i := range sstables {
-		if err := sstables[i].Close(); err != nil {
-			warn(ctx, "Error closing sstable %s: %v", sstables[i].Path(), err)
-		}
-	}
 }
 
 // openByNumber returns a pinned handle for the given SSTable number using the
@@ -622,7 +648,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			for _, o := range out {
 				o.Unref()
 			}
-			if errors.Is(err, os.ErrNotExist) {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
 				return nil, err
 			}
 			warn(ctx, "Failed to open SSTable %d: %v", num, err)

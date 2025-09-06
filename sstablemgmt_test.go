@@ -1180,12 +1180,18 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		l0 := ts.createSSTable(0, map[string]string{"a": "1"})
 		ts.AddSSTable(0, l0)
 		require.NoError(t, l0.Close())
+		num, err := fileNum(l0.FileSystem.Path())
+		require.NoError(t, err)
+		ts.Manager.cache.Delete(tableKey{FileNum: num})
+		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
+			t.Fatalf("cache still has entry for %d", num)
+		}
 		require.NoError(t, os.Remove(l0.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(l0.FileSystem.Path(), 0o700))
 		defer os.Remove(l0.FileSystem.Path())
 
 		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
-		err := ts.Manager.mergeIntoLevel(ctx, 1, picked)
+		err = ts.Manager.mergeIntoLevel(ctx, 1, picked)
 		assert.Error(t, err)
 	})
 
@@ -1199,6 +1205,12 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 		ts.AddSSTable(1, overlap)
 		require.NoError(t, l0.Close())
 		require.NoError(t, overlap.Close())
+		num, err := fileNum(overlap.FileSystem.Path())
+		require.NoError(t, err)
+		ts.Manager.cache.Delete(tableKey{FileNum: num})
+		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
+			t.Fatalf("cache still has entry for %d", num)
+		}
 		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
 		defer os.Remove(overlap.FileSystem.Path())
@@ -1325,12 +1337,18 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		src := ts.createSSTable(1, map[string]string{"a": "1"})
 		ts.AddSSTable(1, src)
 		require.NoError(t, src.Close())
+		num, err := fileNum(src.FileSystem.Path())
+		require.NoError(t, err)
+		ts.Manager.cache.Delete(tableKey{FileNum: num})
+		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
+			t.Fatalf("cache still has entry for %d", num)
+		}
 		require.NoError(t, os.Remove(src.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(src.FileSystem.Path(), 0o700))
 		defer os.Remove(src.FileSystem.Path())
 
 		picked := []fileMeta{ts.Manager.versionSet.Levels[1][0]}
-		err := ts.Manager.mergeIntoLevel(ctx, 2, picked)
+		err = ts.Manager.mergeIntoLevel(ctx, 2, picked)
 		assert.Error(t, err)
 	})
 
@@ -1344,6 +1362,12 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 		ts.AddSSTable(2, overlap)
 		require.NoError(t, src.Close())
 		require.NoError(t, overlap.Close())
+		num, err := fileNum(overlap.FileSystem.Path())
+		require.NoError(t, err)
+		ts.Manager.cache.Delete(tableKey{FileNum: num})
+		if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
+			t.Fatalf("cache still has entry for %d", num)
+		}
 		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
 		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
 		defer os.Remove(overlap.FileSystem.Path())
@@ -1581,33 +1605,6 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 		overlaps, err := ts.Manager.findOverlaps(1, inputs)
 		require.NoError(t, err)
 		assert.Empty(t, overlaps)
-	})
-
-	t.Run("Error opening SSTable and resource cleanup", func(t *testing.T) {
-		ts := newTestRindbSetup(t, ctx, &cfg)
-		defer ts.Cleanup()
-
-		l0 := ts.createSSTable(0, map[string]string{"b": "1"})
-		ts.AddSSTable(0, l0)
-		overlap := ts.createSSTable(1, map[string]string{"b": "old"})
-		ts.AddSSTable(1, overlap)
-		non := ts.createSSTable(1, map[string]string{"z": "1"})
-		ts.AddSSTable(1, non)
-		require.NoError(t, l0.Close())
-		require.NoError(t, overlap.Close())
-		require.NoError(t, non.Close())
-
-		picked := append([]fileMeta(nil), ts.Manager.versionSet.Levels[0]...)
-		overlaps, err := ts.Manager.findOverlaps(1, picked)
-		require.NoError(t, err)
-		require.Len(t, overlaps, 1)
-
-		require.NoError(t, os.Remove(overlap.FileSystem.Path()))
-		require.NoError(t, os.Mkdir(overlap.FileSystem.Path(), 0o700))
-		defer os.Remove(overlap.FileSystem.Path())
-
-		err = ts.Manager.mergeIntoLevel(ctx, 1, append(overlaps, picked...))
-		assert.Error(t, err)
 	})
 
 	t.Run("Empty sources", func(t *testing.T) {
