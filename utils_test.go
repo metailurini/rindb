@@ -194,7 +194,7 @@ func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 // test if the entry remains.
 func (ts *testRindbSetup) removeFromCache(num uint64) {
 	ts.T.Helper()
-	ts.Manager.cache.Delete(tableKey{FileNum: num})
+	ts.Manager.cache.Delete(context.Background(), tableKey{FileNum: num})
 	if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
 		ts.T.Fatalf("cache still has entry for %d", num)
 	}

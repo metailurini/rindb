@@ -161,7 +161,7 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 	}
 	if e, ok := s.items[k]; ok {
 		e.h.Pin()
-		s.promoteOnHit(e)
+		s.promoteOnHit(context.Background(), e)
 		s.hits.Add(1)
 		cacheHits.Add(context.Background(), 1)
 		return e.h, true
@@ -204,7 +204,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	}
 	if e, ok := s.items[k]; ok {
 		e.h.Pin()
-		s.promoteOnHit(e)
+		s.promoteOnHit(ctx, e)
 		s.hits.Add(1)
 		cacheHits.Add(ctx, 1)
 		s.mu.Unlock()
@@ -291,7 +291,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	if existing, ok := s.items[k]; ok {
 		// Another goroutine installed first. Use it.
 		existing.h.Pin()
-		s.promoteOnHit(existing)
+		s.promoteOnHit(ctx, existing)
 		s.hits.Add(1)
 		cacheHits.Add(ctx, 1)
 		s.mu.Unlock()
@@ -320,14 +320,14 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	cacheMisses.Add(ctx, 1)
 
 	// Evict/demote to budget (may close victims outside the lock).
-	s.evictOrDemoteLocked()
+	s.evictOrDemoteLocked(ctx)
 	s.mu.Unlock()
 	return h, nil
 }
 
 // Delete marks a key obsolete and unlinks it from the cache immediately.
 // Actual close happens immediately only if refcount hits zero.
-func (c *tableCache) Delete(k tableKey) {
+func (c *tableCache) Delete(ctx context.Context, k tableKey) {
 	s := c.shardFor(k)
 	var toClose *Handle
 
@@ -347,7 +347,7 @@ func (c *tableCache) Delete(k tableKey) {
 	s.mu.Unlock()
 
 	if toClose != nil {
-		s.closeNow(toClose)
+		s.closeNow(ctx, toClose)
 	}
 }
 
@@ -409,7 +409,7 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 
 	// close the cold ones immediately
 	for _, p := range toClose {
-		p.s.closeNow(p.h)
+		p.s.closeNow(ctx, p.h)
 	}
 
 	// bounded wait for busy ones to drain

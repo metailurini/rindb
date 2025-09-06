@@ -553,7 +553,7 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	for _, fm := range inputs {
 		k := tableKey{FileNum: fm.Number}
 		h.cache.UnpinKey(k)
-		h.cache.Delete(k)
+		h.cache.Delete(ctx, k)
 	}
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {

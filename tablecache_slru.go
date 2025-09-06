@@ -67,7 +67,7 @@ type shard struct {
 
 // --- SLRU helpers (all require s.mu held unless stated) ---
 
-func (s *shard) promoteOnHit(e *entry) {
+func (s *shard) promoteOnHit(ctx context.Context, e *entry) {
 	switch e.seg {
 	case segProbation:
 		// second hit → promote to protected
@@ -79,7 +79,7 @@ func (s *shard) promoteOnHit(e *entry) {
 		e.seg = segProtected
 		s.protBytes += e.h.actualBytes
 		s.promotions.Add(1)
-		cachePromotions.Add(context.Background(), 1)
+		cachePromotions.Add(ctx, 1)
 
 		// enforce protected cap via demotion if necessary
 		for s.segmentBytes(segProtected) > s.protCapBytes {
@@ -146,7 +146,7 @@ func (s *shard) segmentBytes(seg segment) int64 {
 
 // evictOrDemoteLocked ensures segment splits and capBytes.
 // It closes unpinned, zero-ref victims outside the lock to avoid blocking.
-func (s *shard) evictOrDemoteLocked() {
+func (s *shard) evictOrDemoteLocked(ctx context.Context) {
 	if s.capBytes <= 0 {
 		return
 	}
@@ -200,22 +200,22 @@ func (s *shard) evictOrDemoteLocked() {
 			toClose = append(toClose, v.h)
 		}
 		s.evicts.Add(1)
-		cacheEvicts.Add(context.Background(), 1)
+		cacheEvicts.Add(ctx, 1)
 	}
 
 	if len(toClose) > 0 {
 		s.mu.Unlock()
 		for _, h := range toClose {
-			s.closeNow(h)
+			s.closeNow(ctx, h)
 		}
 		s.mu.Lock()
 	}
 }
 
-func (s *shard) closeNow(h *Handle) {
+func (s *shard) closeNow(ctx context.Context, h *Handle) {
 	if h.closed.CompareAndSwap(false, true) {
 		_ = h.closer(h.Table)
 		s.closes.Add(1)
-		cacheCloses.Add(context.Background(), 1)
+		cacheCloses.Add(ctx, 1)
 	}
 }
