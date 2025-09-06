@@ -202,7 +202,7 @@ func (c *TableCache) shardFor(k tableKey) *shard {
 
 // TryGet returns a pinned handle if present without doing any I/O.
 // ok=false if not resident or tombstoned/quarantined.
-func (c *TableCache) TryGet(k tableKey) (h *Handle, ok bool) {
+func (c *TableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool) {
 	s := c.shardFor(k)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,7 +218,7 @@ func (c *TableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 	}
 	if e, ok := s.items[k]; ok {
 		e.h.Pin()
-		s.promoteOnHit(e)
+		s.promoteOnHit(ctx, e)
 		s.hits.Add(1)
 		return e.h, true
 	}
@@ -226,8 +226,8 @@ func (c *TableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 }
 
 // TryRef increments a ref on an existing key if present; returns false otherwise.
-func (c *TableCache) TryRef(k tableKey) bool {
-	_, ok := c.TryGet(k)
+func (c *TableCache) TryRef(ctx context.Context, k tableKey) bool {
+	_, ok := c.TryGet(ctx, k)
 	return ok
 }
 
@@ -260,7 +260,7 @@ func (c *TableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	}
 	if e, ok := s.items[k]; ok {
 		e.h.Pin()
-		s.promoteOnHit(e)
+		s.promoteOnHit(ctx, e)
 		s.hits.Add(1)
 		s.mu.Unlock()
 		return e.h, nil
@@ -343,7 +343,7 @@ func (c *TableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	if existing, ok := s.items[k]; ok {
 		// Another goroutine installed first. Use it.
 		existing.h.Pin()
-		s.promoteOnHit(existing)
+		s.promoteOnHit(ctx, existing)
 		s.hits.Add(1)
 		s.mu.Unlock()
 		// Close duplicate we just opened.
@@ -484,7 +484,7 @@ func (c *TableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 
 // --- SLRU helpers (all require s.mu held unless stated) ---
 
-func (s *shard) promoteOnHit(e *entry) {
+func (s *shard) promoteOnHit(_ context.Context, e *entry) {
 	switch e.seg {
 	case segProbation:
 		// second hit → promote to protected
