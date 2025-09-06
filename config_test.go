@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -28,6 +29,10 @@ func TestDefaultConfig(t *testing.T) {
 		{"EnableTelemetry", cfg.enableTelemetry, false},
 		{"ExporterEndpoint", cfg.exporterEndpoint, ""},
 		{"ExporterInsecure", cfg.exporterInsecure, false},
+		{"cacheBytes", cfg.cacheBytes, int64(0)},
+		{"cacheShards", cfg.cacheShards, 0},
+		{"cacheProbationFraction", cfg.cacheProbationFraction, 0.0},
+		{"cacheCorruptTTL", cfg.cacheCorruptTTL, time.Duration(0)},
 	}
 
 	for _, tt := range tests {
@@ -167,6 +172,42 @@ func TestNewConfigWithOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "WithCacheBytes",
+			opts: []Option{WithCacheBytes(1024)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.cacheBytes != 1024 {
+					t.Errorf("cacheBytes = %v, want %v", cfg.cacheBytes, 1024)
+				}
+			},
+		},
+		{
+			name: "WithCacheShards",
+			opts: []Option{WithCacheShards(8)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.cacheShards != 8 {
+					t.Errorf("cacheShards = %v, want %v", cfg.cacheShards, 8)
+				}
+			},
+		},
+		{
+			name: "WithCacheProbationFraction",
+			opts: []Option{WithCacheProbationFraction(0.3)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.cacheProbationFraction != 0.3 {
+					t.Errorf("cacheProbationFraction = %v, want %v", cfg.cacheProbationFraction, 0.3)
+				}
+			},
+		},
+		{
+			name: "WithCacheCorruptTTL",
+			opts: []Option{WithCacheCorruptTTL(time.Minute)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.cacheCorruptTTL != time.Minute {
+					t.Errorf("cacheCorruptTTL = %v, want %v", cfg.cacheCorruptTTL, time.Minute)
+				}
+			},
+		},
+		{
 			name: "MultipleOptions",
 			opts: []Option{
 				WithDatabaseDir("/multi/path"),
@@ -220,6 +261,10 @@ func TestConfigValidatePanics(t *testing.T) {
 		{"nil fileNumberAllocator", func(c *Config) { c.fileNumberAllocator = nil }},
 		{"nil newManifestWriterFunc", func(c *Config) { c.newManifestWriterFunc = nil }},
 		{"manifestSizeThreshold non-positive", func(c *Config) { c.manifestSizeThreshold = 0 }},
+		{"cacheBytes negative", func(c *Config) { c.cacheBytes = -1 }},
+		{"cacheShards negative", func(c *Config) { c.cacheShards = -1 }},
+		{"cacheProbationFraction out of range", func(c *Config) { c.cacheProbationFraction = 1 }},
+		{"cacheCorruptTTL negative", func(c *Config) { c.cacheCorruptTTL = -1 }},
 	}
 
 	for _, tt := range tests {

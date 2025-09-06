@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"container/list"
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -78,6 +79,7 @@ func (s *shard) promoteOnHit(e *entry) {
 		e.seg = segProtected
 		s.protBytes += e.h.actualBytes
 		s.promotions.Add(1)
+		cachePromotions.Add(context.Background(), 1)
 
 		// enforce protected cap via demotion if necessary
 		for s.segmentBytes(segProtected) > s.protCapBytes {
@@ -198,6 +200,7 @@ func (s *shard) evictOrDemoteLocked() {
 			toClose = append(toClose, v.h)
 		}
 		s.evicts.Add(1)
+		cacheEvicts.Add(context.Background(), 1)
 	}
 
 	if len(toClose) > 0 {
@@ -213,5 +216,6 @@ func (s *shard) closeNow(h *Handle) {
 	if h.closed.CompareAndSwap(false, true) {
 		_ = h.closer(h.Table)
 		s.closes.Add(1)
+		cacheCloses.Add(context.Background(), 1)
 	}
 }

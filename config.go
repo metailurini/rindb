@@ -85,11 +85,11 @@ type Config struct {
 	manifestSizeThreshold int64
 
 	// table cache configuration
-	tableCacheCapBytes          int64
-	tableCacheShards            int
-	tableCacheProbationFraction float64
-	tableCacheCorruptTTL        time.Duration
-	fdLimiter                   FDLimiter
+	cacheBytes             int64
+	cacheShards            int
+	cacheProbationFraction float64
+	cacheCorruptTTL        time.Duration
+	fdLimiter              FDLimiter
 }
 
 // Option defines a functional option type for Config.
@@ -108,32 +108,32 @@ func NewConfig(opts ...Option) Config {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
-		databaseDir:                 "rindat",
-		maxMemtableSize:             1000,
-		level0CompactionThreshold:   2,
-		baseCompactionSizeMB:        10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
-		levelSizeMultiplier:         10, // Default: Level N threshold = base * (multiplier^N)
-		writeRateTrigger:            0,
-		ioLoadMax:                   0,
-		bloomFalsePositiveRate:      0.01,
-		skipListDefaultLevel:        2,
-		skipListMaxLevel:            32,
-		skipListP:                   0.5,
-		enableTelemetry:             false,
-		exporterEndpoint:            "",
-		exporterInsecure:            false,
-		telemetrySamplingRate:       0.1, // Default to sample 10% of traces
-		newWALFunc:                  DefaultNewWALFunc,
-		newSSTableManagerFunc:       InitSSTableManager,
-		fileNumberAllocator:         newFileNumberAllocator(1),
-		newManifestWriterFunc:       newManifestWriter,
-		manifestSizeThreshold:       1 << 20, // 1MiB
-		repairMode:                  false,
-		tableCacheCapBytes:          0,
-		tableCacheShards:            0,
-		tableCacheProbationFraction: 0,
-		tableCacheCorruptTTL:        0,
-		fdLimiter:                   nil,
+		databaseDir:               "rindat",
+		maxMemtableSize:           1000,
+		level0CompactionThreshold: 2,
+		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
+		levelSizeMultiplier:       10, // Default: Level N threshold = base * (multiplier^N)
+		writeRateTrigger:          0,
+		ioLoadMax:                 0,
+		bloomFalsePositiveRate:    0.01,
+		skipListDefaultLevel:      2,
+		skipListMaxLevel:          32,
+		skipListP:                 0.5,
+		enableTelemetry:           false,
+		exporterEndpoint:          "",
+		exporterInsecure:          false,
+		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
+		newWALFunc:                DefaultNewWALFunc,
+		newSSTableManagerFunc:     InitSSTableManager,
+		fileNumberAllocator:       newFileNumberAllocator(1),
+		newManifestWriterFunc:     newManifestWriter,
+		manifestSizeThreshold:     1 << 20, // 1MiB
+		repairMode:                false,
+		cacheBytes:                0,
+		cacheShards:               0,
+		cacheProbationFraction:    0,
+		cacheCorruptTTL:           0,
+		fdLimiter:                 nil,
 	}
 }
 
@@ -196,6 +196,18 @@ func (c Config) Validate() {
 	if c.manifestSizeThreshold <= 0 {
 		panic("manifestSizeThreshold must be greater than zero")
 	}
+	if c.cacheBytes < 0 {
+		panic("cacheBytes must be >= 0")
+	}
+	if c.cacheShards < 0 {
+		panic("cacheShards must be >= 0")
+	}
+	if c.cacheProbationFraction < 0 || c.cacheProbationFraction >= 1 {
+		panic("cacheProbationFraction must be between 0 and 1")
+	}
+	if c.cacheCorruptTTL < 0 {
+		panic("cacheCorruptTTL must be >= 0")
+	}
 }
 
 func WithConfig(cfg Config) Option {
@@ -212,24 +224,24 @@ func WithRepairMode(v bool) Option {
 	return func(c *Config) { c.repairMode = v }
 }
 
-// WithTableCacheCapBytes sets the total byte budget for the table cache.
-func WithTableCacheCapBytes(v int64) Option {
-	return func(c *Config) { c.tableCacheCapBytes = v }
+// WithCacheBytes sets the total byte budget for the table cache.
+func WithCacheBytes(v int64) Option {
+	return func(c *Config) { c.cacheBytes = v }
 }
 
-// WithTableCacheShards sets the number of shards for the table cache.
-func WithTableCacheShards(v int) Option {
-	return func(c *Config) { c.tableCacheShards = v }
+// WithCacheShards sets the number of shards for the table cache.
+func WithCacheShards(v int) Option {
+	return func(c *Config) { c.cacheShards = v }
 }
 
-// WithTableCacheProbationFraction sets the probation segment fraction for the table cache.
-func WithTableCacheProbationFraction(v float64) Option {
-	return func(c *Config) { c.tableCacheProbationFraction = v }
+// WithCacheProbationFraction sets the probation segment fraction for the table cache.
+func WithCacheProbationFraction(v float64) Option {
+	return func(c *Config) { c.cacheProbationFraction = v }
 }
 
-// WithTableCacheCorruptTTL sets the corruption quarantine duration for the table cache.
-func WithTableCacheCorruptTTL(d time.Duration) Option {
-	return func(c *Config) { c.tableCacheCorruptTTL = d }
+// WithCacheCorruptTTL sets the corruption quarantine duration for the table cache.
+func WithCacheCorruptTTL(d time.Duration) Option {
+	return func(c *Config) { c.cacheCorruptTTL = d }
 }
 
 // WithFDLimiter sets the file descriptor limiter used by the table cache.

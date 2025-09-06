@@ -163,6 +163,7 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 		e.h.Pin()
 		s.promoteOnHit(e)
 		s.hits.Add(1)
+		cacheHits.Add(context.Background(), 1)
 		return e.h, true
 	}
 	return nil, false
@@ -205,6 +206,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		e.h.Pin()
 		s.promoteOnHit(e)
 		s.hits.Add(1)
+		cacheHits.Add(ctx, 1)
 		s.mu.Unlock()
 		return e.h, nil
 	}
@@ -225,6 +227,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 			return nil, err
 		}
 		s.opens.Add(1) // count successful open attempts
+		cacheOpens.Add(ctx, 1)
 
 		// checksums on first use
 		if c.opt.Verify != nil {
@@ -272,6 +275,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		if h.closed.CompareAndSwap(false, true) {
 			_ = c.opt.Close(h.Table)
 			s.closes.Add(1)
+			cacheCloses.Add(ctx, 1)
 		}
 		return nil, ErrClosed
 	}
@@ -280,6 +284,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		if h.closed.CompareAndSwap(false, true) {
 			_ = c.opt.Close(h.Table)
 			s.closes.Add(1)
+			cacheCloses.Add(ctx, 1)
 		}
 		return nil, ErrObsolete
 	}
@@ -288,18 +293,23 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		existing.h.Pin()
 		s.promoteOnHit(existing)
 		s.hits.Add(1)
+		cacheHits.Add(ctx, 1)
 		s.mu.Unlock()
 		// Close duplicate we just opened.
 		if h != existing.h && h.closed.CompareAndSwap(false, true) {
 			_ = c.opt.Close(h.Table)
 			s.closes.Add(1)
+			cacheCloses.Add(ctx, 1)
 		}
 		return existing.h, nil
 	}
 
 	e := &entry{key: k, h: h, seg: segProbation}
 	// hook: when handle closes via Unref path, count closes
-	h.onClose = func() { s.closes.Add(1) }
+	h.onClose = func() {
+		s.closes.Add(1)
+		cacheCloses.Add(context.Background(), 1)
+	}
 
 	e.elem = s.prob.PushFront(e)
 	s.items[k] = e
@@ -307,6 +317,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	s.probBytes += h.actualBytes
 	c.totalBytes.Add(h.actualBytes)
 	s.misses.Add(1)
+	cacheMisses.Add(ctx, 1)
 
 	// Evict/demote to budget (may close victims outside the lock).
 	s.evictOrDemoteLocked()
