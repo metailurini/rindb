@@ -150,6 +150,7 @@ func TestTableCacheCloseDrainsBusyHandles(t *testing.T) {
 	require.EqualValues(t, 1, st.Hits)
 	require.EqualValues(t, 2, st.Misses)
 	require.EqualValues(t, 0, st.Evicts)
+	require.EqualValues(t, 2, st.Closes)
 }
 
 func TestTableCachePinnedOverCapacity(t *testing.T) {
@@ -186,4 +187,5 @@ func TestTableCachePinnedOverCapacity(t *testing.T) {
 	require.EqualValues(t, 2, st.Hits)
 	require.EqualValues(t, 3, st.Misses)
 	require.EqualValues(t, 1, st.Evicts)
+	require.EqualValues(t, 1, st.Closes)
 }
