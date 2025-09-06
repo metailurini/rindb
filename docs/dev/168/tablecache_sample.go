@@ -225,9 +225,14 @@ func (c *TableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool
 	return nil, false
 }
 
-// TryRef increments a ref on an existing key if present; returns false otherwise.
+// TryRef returns true if the key is present in the cache.
+// It briefly pins the handle to promote the entry and immediately unrefs it,
+// so no reference is retained on success.
 func (c *TableCache) TryRef(ctx context.Context, k tableKey) bool {
-	_, ok := c.TryGet(ctx, k)
+	h, ok := c.TryGet(ctx, k)
+	if ok {
+		h.Unref()
+	}
 	return ok
 }
 
