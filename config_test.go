@@ -29,10 +29,10 @@ func TestDefaultConfig(t *testing.T) {
 		{"EnableTelemetry", cfg.enableTelemetry, false},
 		{"ExporterEndpoint", cfg.exporterEndpoint, ""},
 		{"ExporterInsecure", cfg.exporterInsecure, false},
-		{"cacheBytes", cfg.cacheBytes, int64(0)},
-		{"cacheShards", cfg.cacheShards, 0},
-		{"cacheProbationFraction", cfg.cacheProbationFraction, 0.0},
-		{"cacheCorruptTTL", cfg.cacheCorruptTTL, time.Duration(0)},
+		{"cacheBytes", cfg.cacheBytes, int64(64 << 20)},
+		{"cacheShards", cfg.cacheShards, defaultCacheShards},
+		{"cacheProbationFraction", cfg.cacheProbationFraction, defaultProbationFraction},
+		{"cacheCorruptTTL", cfg.cacheCorruptTTL, defaultCorruptTTL},
 		{"cacheTombstoneTTL", cfg.cacheTombstoneTTL, time.Duration(0)},
 	}
 
@@ -273,9 +273,12 @@ func TestConfigValidatePanics(t *testing.T) {
 		{"manifestSizeThreshold non-positive", func(c *Config) { c.manifestSizeThreshold = 0 }},
 		{"cacheBytes negative", func(c *Config) { c.cacheBytes = -1 }},
 		{"cacheShards negative", func(c *Config) { c.cacheShards = -1 }},
+		{"cacheShards zero", func(c *Config) { c.cacheShards = 0 }},
 		{"cacheProbationFraction out of range", func(c *Config) { c.cacheProbationFraction = 1 }},
 		{"cacheCorruptTTL negative", func(c *Config) { c.cacheCorruptTTL = -1 }},
+		{"cacheCorruptTTL zero", func(c *Config) { c.cacheCorruptTTL = 0 }},
 		{"cacheTombstoneTTL negative", func(c *Config) { c.cacheTombstoneTTL = -1 }},
+		{"nil fdLimiter", func(c *Config) { c.fdLimiter = nil }},
 	}
 
 	for _, tt := range tests {
