@@ -122,12 +122,16 @@ func (s *shard) unlink(e *entry) {
 }
 
 func (s *shard) chooseVictim() *entry {
-	// Prefer tail of probation; fall back to tail of protected.
-	if back := s.prob.Back(); back != nil {
-		return back.Value.(*entry)
+	// Prefer tail of probation; fall back to tail of protected, skipping pinned entries.
+	for e := s.prob.Back(); e != nil; e = e.Prev() {
+		if ent := e.Value.(*entry); !ent.pinned {
+			return ent
+		}
 	}
-	if back := s.prot.Back(); back != nil {
-		return back.Value.(*entry)
+	for e := s.prot.Back(); e != nil; e = e.Prev() {
+		if ent := e.Value.(*entry); !ent.pinned {
+			return ent
+		}
 	}
 	return nil
 }
@@ -171,20 +175,9 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context) {
 	for s.usedBytes > s.capBytes {
 		v := s.chooseVictim()
 		if v == nil {
-			break // nothing to evict; budget won't be met but we're out of candidates
-		}
-		if v.pinned {
-			// skip pinned victims: keep them MRU-protected to avoid tight loops
-			if v.seg == segProbation && v.elem != nil {
-				s.prob.Remove(v.elem)
-				s.probBytes -= v.h.actualBytes
-				v.elem = s.prot.PushFront(v)
-				v.seg = segProtected
-				s.protBytes += v.h.actualBytes
-			} else if v.seg == segProtected && v.elem != nil {
-				s.prot.MoveToFront(v.elem)
-			}
-			continue
+			// No evictable entries remain (all pinned); stop admission and exit.
+			s.stopAdmission.Store(true)
+			break
 		}
 		// Remove from SLRU + map; stop future pins; free budget immediately (cache residency accounting).
 		s.unlink(v)

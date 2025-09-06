@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -90,6 +91,13 @@ func (h *Handle) Unref() {
 	}
 }
 
+// Release marks the handle for closure and drops a refcount. The underlying
+// resources are released when the reference count reaches zero.
+func (h *Handle) Release() {
+	h.evictWhenZero.Store(true)
+	h.Unref()
+}
+
 // --- SLRU internals ---
 
 type tableCache struct {
@@ -159,11 +167,18 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 		delete(s.corrupt, k)
 	}
 	if e, ok := s.items[k]; ok {
-		e.h.Pin()
-		s.promoteOnHit(context.Background(), e)
-		s.hits.Add(1)
-		cacheHits.Add(context.Background(), 1)
-		return e.h, true
+		if e.h.closed.Load() {
+			s.unlink(e)
+			delete(s.items, k)
+			s.usedBytes -= e.h.actualBytes
+			c.totalBytes.Add(-e.h.actualBytes)
+		} else {
+			e.h.Pin()
+			s.promoteOnHit(context.Background(), e)
+			s.hits.Add(1)
+			cacheHits.Add(context.Background(), 1)
+			return e.h, true
+		}
 	}
 	return nil, false
 }
@@ -202,12 +217,19 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		delete(s.corrupt, k)
 	}
 	if e, ok := s.items[k]; ok {
-		e.h.Pin()
-		s.promoteOnHit(ctx, e)
-		s.hits.Add(1)
-		cacheHits.Add(ctx, 1)
-		s.mu.Unlock()
-		return e.h, nil
+		if e.h.closed.Load() {
+			s.unlink(e)
+			delete(s.items, k)
+			s.usedBytes -= e.h.actualBytes
+			c.totalBytes.Add(-e.h.actualBytes)
+		} else {
+			e.h.Pin()
+			s.promoteOnHit(ctx, e)
+			s.hits.Add(1)
+			cacheHits.Add(ctx, 1)
+			s.mu.Unlock()
+			return e.h, nil
+		}
 	}
 	s.mu.Unlock()
 
@@ -231,7 +253,9 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		// checksums on first use
 		if c.opt.Verify != nil {
 			if err := c.opt.Verify(t); err != nil {
-				_ = c.opt.Close(t)
+				if cerr := c.opt.Close(t); cerr != nil {
+					warn(ctx, "failed to close table after verify error: %v", cerr)
+				}
 				return nil, ErrCorruption
 			}
 		}
@@ -307,7 +331,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	// hook: when handle closes via Unref path, count closes
 	h.onClose = func() {
 		s.closes.Add(1)
-		cacheCloses.Add(context.Background(), 1)
+		cacheCloses.Add(ctx, 1)
 	}
 
 	e.elem = s.prob.PushFront(e)
@@ -412,27 +436,45 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	}
 
 	// bounded wait for busy ones to drain
-	if drainTimeout <= 0 {
+	if drainTimeout <= 0 || len(busy) == 0 {
 		return nil
 	}
-	deadline := time.Now().Add(drainTimeout)
-	for time.Now().Before(deadline) {
+
+	var wg sync.WaitGroup
+	wg.Add(len(busy))
+	for _, h := range busy {
+		orig := h.onClose
+		h.onClose = func() {
+			if orig != nil {
+				orig()
+			}
+			wg.Done()
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(drainTimeout):
 		remaining := 0
 		for _, h := range busy {
 			if h.refs.Load() > 0 {
 				remaining++
 			}
 		}
-		if remaining == 0 {
-			break
+		if remaining > 0 {
+			return fmt.Errorf("%d handles still busy after timeout", remaining)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(10 * time.Millisecond):
-		}
+		return nil
 	}
-	return nil
 }
 
 // --- Stats & utils ---
