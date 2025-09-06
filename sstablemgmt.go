@@ -164,6 +164,11 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 	}
 
 	tc := newTableCache(tableCacheOptions{
+		CapBytes:          config.tableCacheCapBytes,
+		Shards:            config.tableCacheShards,
+		ProbationFraction: config.tableCacheProbationFraction,
+		CorruptTTL:        config.tableCacheCorruptTTL,
+		FDLimiter:         config.fdLimiter,
 		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
 			p := path.Join(config.databaseDir, sstPath(k.FileNum))
 			fs, err := OpenExistingFS(ctx, p)
