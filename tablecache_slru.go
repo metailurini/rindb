@@ -179,6 +179,22 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context) {
 			s.stopAdmission.Store(true)
 			break
 		}
+		if v.pinned {
+			// Skip pinned victims, but if we're still over capacity
+			// and the only available victim is pinned, we cannot evict.
+			// Breaking here prevents an infinite loop.
+			if v.seg == segProbation && v.elem != nil {
+				s.prob.Remove(v.elem)
+				s.probBytes -= v.h.actualBytes
+				v.elem = s.prot.PushFront(v)
+				v.seg = segProtected
+				s.protBytes += v.h.actualBytes
+			} else if v.seg == segProtected && v.elem != nil {
+				s.prot.MoveToFront(v.elem)
+			}
+			s.stopAdmission.Store(true)
+			break
+		}
 		// Remove from SLRU + map; stop future pins; free budget immediately (cache residency accounting).
 		s.unlink(v)
 		delete(s.items, v.key)

@@ -89,7 +89,11 @@ type Config struct {
 	cacheShards            int
 	cacheProbationFraction float64
 	cacheCorruptTTL        time.Duration
-	fdLimiter              FDLimiter
+
+	// fdLimiter limits concurrent open file descriptors. A nil value means
+	// no limit is enforced, which may lead to resource exhaustion on busy
+	// systems. Provide an implementation to bound FD usage.
+	fdLimiter FDLimiter
 }
 
 // Option defines a functional option type for Config.
@@ -129,11 +133,11 @@ func DefaultConfig() Config {
 		newManifestWriterFunc:     newManifestWriter,
 		manifestSizeThreshold:     1 << 20, // 1MiB
 		repairMode:                false,
-		cacheBytes:                0,
-		cacheShards:               0,
-		cacheProbationFraction:    0,
-		cacheCorruptTTL:           0,
-		fdLimiter:                 nil,
+		cacheBytes:                64 << 20, // 64MiB table cache budget
+		cacheShards:               defaultCacheShards,
+		cacheProbationFraction:    defaultProbationFraction,
+		cacheCorruptTTL:           defaultCorruptTTL,
+		fdLimiter:                 noopFDLimiter{},
 	}
 }
 
@@ -199,14 +203,17 @@ func (c Config) Validate() {
 	if c.cacheBytes < 0 {
 		panic("cacheBytes must be >= 0")
 	}
-	if c.cacheShards < 0 {
-		panic("cacheShards must be >= 0")
+	if c.cacheShards <= 0 {
+		panic("cacheShards must be > 0")
 	}
-	if c.cacheProbationFraction < 0 || c.cacheProbationFraction >= 1 {
+	if c.cacheProbationFraction <= 0 || c.cacheProbationFraction >= 1 {
 		panic("cacheProbationFraction must be between 0 and 1")
 	}
-	if c.cacheCorruptTTL < 0 {
-		panic("cacheCorruptTTL must be >= 0")
+	if c.cacheCorruptTTL <= 0 {
+		panic("cacheCorruptTTL must be > 0")
+	}
+	if c.fdLimiter == nil {
+		panic("fdLimiter cannot be nil")
 	}
 }
 
@@ -244,7 +251,9 @@ func WithCacheCorruptTTL(d time.Duration) Option {
 	return func(c *Config) { c.cacheCorruptTTL = d }
 }
 
-// WithFDLimiter sets the file descriptor limiter used by the table cache.
+// WithFDLimiter sets the file descriptor limiter used by the table cache. The
+// provided limiter must not be nil. Omit this option to use the default
+// unlimited implementation.
 func WithFDLimiter(l FDLimiter) Option {
 	return func(c *Config) { c.fdLimiter = l }
 }

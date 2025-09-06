@@ -13,6 +13,10 @@ const (
 	defaultShardItemCapacity    = 256
 	defaultCorruptMapCapacity   = 16
 	defaultTombstoneMapCapacity = 16
+
+	defaultCacheShards       = 64
+	defaultProbationFraction = 0.25
+	defaultCorruptTTL        = 5 * time.Minute
 )
 
 var (
@@ -59,6 +63,13 @@ type FDLimiter interface {
 	Acquire(ctx context.Context) error
 	Release()
 }
+
+// noopFDLimiter implements FDLimiter without enforcing any limit.
+// It is used as the default to make the absence of FD limiting explicit.
+type noopFDLimiter struct{}
+
+func (noopFDLimiter) Acquire(context.Context) error { return nil }
+func (noopFDLimiter) Release()                      {}
 
 // Handle wraps a live SStable + refcount + size accounting.
 type Handle struct {
@@ -112,11 +123,14 @@ type tableCache struct {
 // newTableCache creates a tableCache with SLRU + singleflight + byte budgeting.
 func newTableCache(opt tableCacheOptions) *tableCache {
 	if opt.Shards <= 0 {
-		opt.Shards = 64
+		opt.Shards = defaultCacheShards
+	}
+	if opt.CorruptTTL <= 0 {
+		opt.CorruptTTL = defaultCorruptTTL
 	}
 	fr := opt.ProbationFraction
 	if fr <= 0 || fr >= 1 {
-		fr = 0.25
+		fr = defaultProbationFraction
 	}
 	n := nextPow2(uint64(opt.Shards))
 	c := &tableCache{opt: opt}
@@ -142,9 +156,13 @@ func newTableCache(opt tableCacheOptions) *tableCache {
 	return c
 }
 
-// shardFor deterministically assigns a table key to a shard using a simple
-// 64-bit mix of the DB and file numbers. The number of shards is always a
-// power of two, so a bitmask is sufficient to pick the shard without a modulo.
+// shardFor deterministically assigns a table key to a shard.
+//
+// The magic constants below come from the SplitMix64 finalizer. Multiplying
+// the DB and file numbers by different odd, well-distributed 64-bit values and
+// XOR'ing them together cheaply mixes the bits without pulling in an external
+// hash library. Because the number of shards is always a power of two, we can
+// mask the low bits to pick the shard instead of using modulo.
 func (c *tableCache) shardFor(k tableKey) *shard {
 	h := (k.DBID * 11400714819323198485) ^ (k.FileNum * 14029467366897019727)
 	return c.shards[h&c.shardMask]
@@ -279,9 +297,6 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		// quarantine on corruption
 		if errors.Is(err, ErrCorruption) {
 			ttl := c.opt.CorruptTTL
-			if ttl <= 0 {
-				ttl = 5 * time.Minute
-			}
 			s.mu.Lock()
 			s.corrupt[k] = time.Now().Add(ttl)
 			s.mu.Unlock()
