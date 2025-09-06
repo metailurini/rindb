@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"time"
 )
 
 // NewWALFunc defines the signature for a function that creates a WAL instance.
@@ -82,6 +83,13 @@ type Config struct {
 	// manifestSizeThreshold triggers manifest rotation once the MANIFEST
 	// file grows beyond this size in bytes.
 	manifestSizeThreshold int64
+
+	// table cache configuration
+	tableCacheCapBytes          int64
+	tableCacheShards            int
+	tableCacheProbationFraction float64
+	tableCacheCorruptTTL        time.Duration
+	fdLimiter                   FDLimiter
 }
 
 // Option defines a functional option type for Config.
@@ -100,27 +108,32 @@ func NewConfig(opts ...Option) Config {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
-		databaseDir:               "rindat",
-		maxMemtableSize:           1000,
-		level0CompactionThreshold: 2,
-		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
-		levelSizeMultiplier:       10, // Default: Level N threshold = base * (multiplier^N)
-		writeRateTrigger:          0,
-		ioLoadMax:                 0,
-		bloomFalsePositiveRate:    0.01,
-		skipListDefaultLevel:      2,
-		skipListMaxLevel:          32,
-		skipListP:                 0.5,
-		enableTelemetry:           false,
-		exporterEndpoint:          "",
-		exporterInsecure:          false,
-		telemetrySamplingRate:     0.1, // Default to sample 10% of traces
-		newWALFunc:                DefaultNewWALFunc,
-		newSSTableManagerFunc:     InitSSTableManager,
-		fileNumberAllocator:       newFileNumberAllocator(1),
-		newManifestWriterFunc:     newManifestWriter,
-		manifestSizeThreshold:     1 << 20, // 1MiB
-		repairMode:                false,
+		databaseDir:                 "rindat",
+		maxMemtableSize:             1000,
+		level0CompactionThreshold:   2,
+		baseCompactionSizeMB:        10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
+		levelSizeMultiplier:         10, // Default: Level N threshold = base * (multiplier^N)
+		writeRateTrigger:            0,
+		ioLoadMax:                   0,
+		bloomFalsePositiveRate:      0.01,
+		skipListDefaultLevel:        2,
+		skipListMaxLevel:            32,
+		skipListP:                   0.5,
+		enableTelemetry:             false,
+		exporterEndpoint:            "",
+		exporterInsecure:            false,
+		telemetrySamplingRate:       0.1, // Default to sample 10% of traces
+		newWALFunc:                  DefaultNewWALFunc,
+		newSSTableManagerFunc:       InitSSTableManager,
+		fileNumberAllocator:         newFileNumberAllocator(1),
+		newManifestWriterFunc:       newManifestWriter,
+		manifestSizeThreshold:       1 << 20, // 1MiB
+		repairMode:                  false,
+		tableCacheCapBytes:          0,
+		tableCacheShards:            0,
+		tableCacheProbationFraction: 0,
+		tableCacheCorruptTTL:        0,
+		fdLimiter:                   nil,
 	}
 }
 
@@ -197,6 +210,31 @@ func WithDatabaseDir(dir string) Option {
 // WithRepairMode enables repair mode which scans SSTables from disk on startup.
 func WithRepairMode(v bool) Option {
 	return func(c *Config) { c.repairMode = v }
+}
+
+// WithTableCacheCapBytes sets the total byte budget for the table cache.
+func WithTableCacheCapBytes(v int64) Option {
+	return func(c *Config) { c.tableCacheCapBytes = v }
+}
+
+// WithTableCacheShards sets the number of shards for the table cache.
+func WithTableCacheShards(v int) Option {
+	return func(c *Config) { c.tableCacheShards = v }
+}
+
+// WithTableCacheProbationFraction sets the probation segment fraction for the table cache.
+func WithTableCacheProbationFraction(v float64) Option {
+	return func(c *Config) { c.tableCacheProbationFraction = v }
+}
+
+// WithTableCacheCorruptTTL sets the corruption quarantine duration for the table cache.
+func WithTableCacheCorruptTTL(d time.Duration) Option {
+	return func(c *Config) { c.tableCacheCorruptTTL = d }
+}
+
+// WithFDLimiter sets the file descriptor limiter used by the table cache.
+func WithFDLimiter(l FDLimiter) Option {
+	return func(c *Config) { c.fdLimiter = l }
 }
 
 // WithMaxMemtableSize sets the maximum number of entries allowed in the memtable before flushing.

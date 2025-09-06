@@ -100,12 +100,16 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	h, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num})
 	require.True(t, ok)
 	assert.True(t, h.Table.IsOpened())
+	assert.Equal(t, int32(2), h.refs.Load())
 	h.Unref()
+	assert.Equal(t, int32(1), h.refs.Load())
 	assert.NoError(t, iter.Close())
-	h, ok = ts.Manager.cache.TryGet(tableKey{FileNum: num})
+	assert.Equal(t, int32(0), h.refs.Load())
+	h2, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num})
 	require.True(t, ok)
-	assert.True(t, h.Table.IsOpened())
-	h.Unref()
+	assert.True(t, h2.Table.IsOpened())
+	assert.Equal(t, int32(1), h2.refs.Load())
+	h2.Unref()
 }
 
 func TestRangeIteratorPrepare(t *testing.T) {

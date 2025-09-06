@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // isTempoEndpointResolvable checks if tempo.magpie-gopher.ts.net is resolvable via DNS.
@@ -362,24 +361,6 @@ func assertIteratorRecords(t *testing.T, iter Iterator[Record], expected []Recor
 	if c, ok := iter.(interface{ Close() error }); ok {
 		assert.NoError(t, c.Close())
 	}
-}
-
-// assertLinkedListContents checks if the contents of a linkedList match the expected slice.
-func assertLinkedListContents[T comparable](t *testing.T, l *linkedList[T], expected []T) {
-	t.Helper()
-	assert.Equal(t, len(expected), l.size(), "linkedList length does not match expected length")
-	it := l.iterator()
-	idx := 0
-	for it.hasNext() {
-		require.Less(t, idx, len(expected), "iterator has more items than expected")
-		v, err := it.next()
-		require.NoError(t, err)
-		assert.Equal(t, expected[idx], v, "value mismatch at index %d", idx)
-		idx++
-	}
-	assert.Equal(t, len(expected), idx, "iterator returned fewer items than expected")
-	_, err := it.next()
-	assert.ErrorIs(t, err, EOI, "iterator should return EOI at the end")
 }
 
 // newRecord is a helper function to create a RecordImpl instance for tests.
