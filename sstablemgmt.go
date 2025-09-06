@@ -338,15 +338,7 @@ func (h *ssTableManager) addSSTable(ctx context.Context, meta fileMeta, lastSeq 
 		return err
 	}
 	h.config.fileNumberAllocator.apply(edit)
-	if h.cache != nil {
-		k := tableKey{FileNum: meta.Number}
-		if hnd, err := h.cache.Get(ctx, k); err == nil {
-			h.cache.PinKey(k)
-			hnd.Unref()
-		} else {
-			warn(ctx, "Failed to cache new SSTable %d: %v", meta.Number, err)
-		}
-	}
+	h.cacheAndPinSSTable(ctx, meta.Number)
 	info(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
 	return nil
 }
@@ -366,10 +358,8 @@ func (h *ssTableManager) Close(ctx context.Context) {
 		close(h.stopIOLoadSampler)
 		h.ioSamplerWG.Wait()
 	}
-	if h.cache != nil {
-		if err := h.cache.Close(ctx, 0); err != nil {
-			warn(ctx, "Error closing table cache: %v", err)
-		}
+	if err := h.cache.Close(ctx, 0); err != nil {
+		warn(ctx, "Error closing table cache: %v", err)
 	}
 }
 
@@ -482,13 +472,17 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 
 	handles := make([]*Handle, 0, len(inputs))
+	defer func() {
+		// release handles to input SSTables
+		for _, hnd := range handles {
+			hnd.Unref()
+		}
+	}()
+
 	sources := make([]SStable, 0, len(inputs))
 	for _, fm := range inputs {
 		hnd, err := h.openByNumber(ctx, fm.Number)
 		if err != nil {
-			for _, o := range handles {
-				o.Unref()
-			}
 			return err
 		}
 		handles = append(handles, hnd)
@@ -497,9 +491,6 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 
 	newFS, err := h.newSSTableFS(ctx)
 	if err != nil {
-		for _, o := range handles {
-			o.Unref()
-		}
 		return err
 	}
 
@@ -514,9 +505,6 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 
 	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, sources, bottom, h.minSnapshotSeq)
-	for _, o := range handles {
-		o.Unref()
-	}
 	if err != nil || merged == nil {
 		_ = newFS.Close()
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
@@ -554,19 +542,11 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 	h.config.fileNumberAllocator.apply(edit)
 
-	if h.cache != nil {
-		kNew := tableKey{FileNum: meta.Number}
-		if hnd, err := h.cache.Get(ctx, kNew); err == nil {
-			h.cache.PinKey(kNew)
-			hnd.Unref()
-		} else {
-			warn(ctx, "Failed to cache new SSTable %d: %v", meta.Number, err)
-		}
-		for _, fm := range inputs {
-			k := tableKey{FileNum: fm.Number}
-			h.cache.UnpinKey(k)
-			h.cache.Delete(k)
-		}
+	h.cacheAndPinSSTable(ctx, meta.Number)
+	for _, fm := range inputs {
+		k := tableKey{FileNum: fm.Number}
+		h.cache.UnpinKey(k)
+		h.cache.Delete(k)
 	}
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
@@ -580,6 +560,19 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 // table cache. Callers must invoke `Unref` on the returned handle when done.
 func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*Handle, error) {
 	return h.cache.Get(ctx, tableKey{FileNum: num})
+}
+
+// cacheAndPinSSTable loads the SSTable into the cache and pins it to keep it
+// resident for future users. Any error during caching is logged but not
+// returned so registration can proceed.
+func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64) {
+	k := tableKey{FileNum: fileNum}
+	if hnd, err := h.cache.Get(ctx, k); err == nil {
+		h.cache.PinKey(k)
+		hnd.Unref()
+	} else {
+		warn(ctx, "Failed to cache new SSTable %d: %v", fileNum, err)
+	}
 }
 
 // GetRelevantSSTables gathers SSTables whose ranges overlap [startKey, endKey].

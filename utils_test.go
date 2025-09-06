@@ -190,6 +190,16 @@ func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	assert.NoError(ts.T, ts.Manager.addSSTable(context.Background(), meta, seqHi))
 }
 
+// removeFromCache deletes an SSTable from the manager's cache and fails the
+// test if the entry remains.
+func (ts *testRindbSetup) removeFromCache(num uint64) {
+	ts.T.Helper()
+	ts.Manager.cache.Delete(tableKey{FileNum: num})
+	if _, ok := ts.Manager.cache.TryGet(tableKey{FileNum: num}); ok {
+		ts.T.Fatalf("cache still has entry for %d", num)
+	}
+}
+
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
 // initialContents, if provided, must have length n. A nil entry means no initial content for that file.
 func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*FileSystem, func()) {
