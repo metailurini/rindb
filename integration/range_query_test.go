@@ -16,7 +16,6 @@ import (
 func TestIRangeRangeQuery(t *testing.T) {
 	// Increase maxMemtableSize so some records remain unflushed.
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(300))
-	t.Cleanup(cleanup)
 	ctx := context.Background()
 
 	large1 := strings.Repeat("a", 30)
@@ -53,6 +52,7 @@ func TestIRangeRangeQuery(t *testing.T) {
 	require.NotContains(t, keys, "old")
 
 	require.NoError(t, iter.Close())
+	cleanup()
 	filesAfter := countNumericEntriesInFDDirectory(t)
 	require.LessOrEqual(t, filesAfter, filesBefore)
 }

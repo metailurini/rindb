@@ -598,9 +598,10 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
 		require.NoError(t, err)
 		nums := make([]uint64, len(ssts))
-		for i, s := range ssts {
-			nums[i], err = fileNum(s.Path())
+		for i, h := range ssts {
+			nums[i], err = fileNum(h.Table.Path())
 			require.NoError(t, err)
+			h.Unref()
 		}
 		assert.Equal(t, []uint64{nNewer, nOlder}, nums)
 	})
@@ -623,9 +624,10 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("b"), Bytes("d"))
 		require.NoError(t, err)
 		nums := make([]uint64, len(ssts))
-		for i, s := range ssts {
-			nums[i], err = fileNum(s.Path())
+		for i, h := range ssts {
+			nums[i], err = fileNum(h.Table.Path())
 			require.NoError(t, err)
+			h.Unref()
 		}
 		assert.Equal(t, []uint64{nOlder, nNewer}, nums)
 	})
@@ -684,9 +686,10 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("d"))
 		require.NoError(t, err)
 		nums := make([]uint64, len(ssts))
-		for i, s := range ssts {
-			nums[i], err = fileNum(s.Path())
+		for i, h := range ssts {
+			nums[i], err = fileNum(h.Table.Path())
 			require.NoError(t, err)
+			h.Unref()
 		}
 		assert.Equal(t, []uint64{nL0b, nL0a, nL1}, nums)
 	})

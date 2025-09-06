@@ -42,11 +42,11 @@ const writeRateAlpha = 0.2
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type ssTableManager struct {
-	openedByNum map[uint64]*SStable // open SSTables keyed by file number
-	versionSet  *versionSet
-	manifest    manifestWriter
-	config      Config
-	mu          sync.RWMutex
+	cache      *tableCache
+	versionSet *versionSet
+	manifest   manifestWriter
+	config     Config
+	mu         sync.RWMutex
 
 	// minSnapshotSeq is the smallest sequence number of any active
 	// snapshot. When no snapshots are active it is set to
@@ -163,8 +163,25 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 		}
 	}
 
+	tc := newTableCache(tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			p := path.Join(config.databaseDir, sstPath(k.FileNum))
+			fs, err := OpenExistingFS(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			sst, err := NewSSTable(ctx, config, fs)
+			if err != nil {
+				_ = fs.Close()
+				return nil, err
+			}
+			return &sst, nil
+		},
+		Close: func(s *SStable) error { return s.Close() },
+	})
+
 	h := &ssTableManager{
-		openedByNum:       make(map[uint64]*SStable),
+		cache:             tc,
 		versionSet:        vs,
 		manifest:          mw,
 		config:            config,
@@ -335,18 +352,9 @@ func (h *ssTableManager) Close(ctx context.Context) {
 		close(h.stopIOLoadSampler)
 		h.ioSamplerWG.Wait()
 	}
-
-	h.mu.Lock()
-	sstablesToClose := make([]*SStable, 0, len(h.openedByNum))
-	for _, s := range h.openedByNum {
-		sstablesToClose = append(sstablesToClose, s)
-	}
-	h.openedByNum = make(map[uint64]*SStable)
-	h.mu.Unlock()
-
-	for _, s := range sstablesToClose {
-		if err := s.Close(); err != nil {
-			warn(ctx, "Error closing sstable %s: %v", s.Path(), err)
+	if h.cache != nil {
+		if err := h.cache.Close(ctx, 0); err != nil {
+			warn(ctx, "Error closing table cache: %v", err)
 		}
 	}
 }
@@ -537,34 +545,10 @@ func (h *ssTableManager) closeSSTables(ctx context.Context, sstables []SStable) 
 	}
 }
 
-// openByNumber returns an opened SSTable for the given file number. The
-// SSTable is cached so repeated lookups reuse the same handle.
-func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*SStable, error) {
-	h.mu.RLock()
-	if sst, ok := h.openedByNum[num]; ok {
-		h.mu.RUnlock()
-		return sst, nil
-	}
-	h.mu.RUnlock()
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if sst, ok := h.openedByNum[num]; ok {
-		return sst, nil
-	}
-
-	path := path.Join(h.config.databaseDir, sstPath(num))
-	fs, err := OpenExistingFS(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	sst, err := NewSSTable(ctx, h.config, fs)
-	if err != nil {
-		_ = fs.Close()
-		return nil, err
-	}
-	h.openedByNum[num] = &sst
-	return &sst, nil
+// openByNumber returns a pinned handle for the given SSTable number using the
+// table cache. Callers must invoke `Unref` on the returned handle when done.
+func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*Handle, error) {
+	return h.cache.Get(ctx, tableKey{FileNum: num})
 }
 
 // GetRelevantSSTables gathers SSTables whose ranges overlap [startKey, endKey].
@@ -572,7 +556,7 @@ func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*SStable
 // their existing ordering. If an SSTable referenced in the current version is
 // missing on disk, the function returns the error so callers can retry with a
 // fresh view.
-func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*SStable, error) {
+func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*Handle, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
@@ -626,12 +610,12 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}
 	h.mu.RUnlock()
 
-	out := make([]*SStable, 0, len(nums))
+	out := make([]*Handle, 0, len(nums))
 	for _, num := range nums {
-		sst, err := h.openByNumber(ctx, num)
+		hnd, err := h.openByNumber(ctx, num)
 		if err != nil {
-			for _, s := range out {
-				_ = s.Close()
+			for _, o := range out {
+				o.Unref()
 			}
 			if errors.Is(err, os.ErrNotExist) {
 				return nil, err
@@ -639,7 +623,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			warn(ctx, "Failed to open SSTable %d: %v", num, err)
 			return nil, fmt.Errorf("failed to open SSTable %d: %w", num, err)
 		}
-		out = append(out, sst)
+		out = append(out, hnd)
 	}
 	getRelevantSSTables.Add(ctx, int64(len(out)))
 	return out, nil
@@ -663,8 +647,9 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 			}
 			return nil, err
 		}
-		for _, sst := range ssts {
-			val, err := sst.GetValue(ctx, key, maxSeq)
+		for _, hnd := range ssts {
+			val, err := hnd.Table.GetValue(ctx, key, maxSeq)
+			hnd.Unref()
 			if err == nil {
 				return val, nil
 			}

@@ -263,12 +263,12 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	cleanupOpened := func() {
 		for _, o := range opened {
-			_ = o.Close()
+			o.Unref()
 		}
 	}
 
-	for _, sst := range ssts {
-		rangeIter, err := sst.IRange(start, end, maxSeq)
+	for _, hnd := range ssts {
+		rangeIter, err := hnd.Table.IRange(start, end, maxSeq)
 		if err != nil {
 			cleanupOpened()
 			return nil, err
