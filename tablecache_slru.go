@@ -148,6 +148,21 @@ func (s *shard) segmentBytes(seg segment) int64 {
 	}
 }
 
+func (s *shard) evictEntryLocked(ctx context.Context, e *entry, toClose *[]*Handle) {
+	s.unlink(e)
+	delete(s.items, e.key)
+	s.usedBytes -= e.h.actualBytes
+	s.parent.totalBytes.Add(-e.h.actualBytes)
+
+	if e.h.refs.Load() > 0 {
+		e.h.evictWhenZero.Store(true)
+	} else {
+		*toClose = append(*toClose, e.h)
+	}
+	s.evicts.Add(1)
+	cacheEvicts.Add(ctx, 1)
+}
+
 // evictOrDemoteLocked ensures segment splits and capBytes.
 // It closes unpinned, zero-ref victims outside the lock to avoid blocking.
 func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
@@ -177,35 +192,12 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
 		if v == nil {
 			// No evictable entries remain (all pinned); drop the recently added entry.
 			if recent != nil && recent.seg != segNone {
-				s.unlink(recent)
-				delete(s.items, recent.key)
-				s.usedBytes -= recent.h.actualBytes
-				s.parent.totalBytes.Add(-recent.h.actualBytes)
-				if recent.h.refs.Load() > 0 {
-					recent.h.evictWhenZero.Store(true)
-				} else {
-					toClose = append(toClose, recent.h)
-				}
-				s.evicts.Add(1)
-				cacheEvicts.Add(ctx, 1)
+				s.evictEntryLocked(ctx, recent, &toClose)
 			}
 			break
 		}
 		// Remove from SLRU + map; stop future pins; free budget immediately (cache residency accounting).
-		s.unlink(v)
-		delete(s.items, v.key)
-		s.usedBytes -= v.h.actualBytes
-		s.parent.totalBytes.Add(-v.h.actualBytes)
-
-		if v.h.refs.Load() > 0 {
-			// Busy: mark for close later when refs drain.
-			v.h.evictWhenZero.Store(true)
-		} else {
-			// Cold: close now (outside lock).
-			toClose = append(toClose, v.h)
-		}
-		s.evicts.Add(1)
-		cacheEvicts.Add(ctx, 1)
+		s.evictEntryLocked(ctx, v, &toClose)
 	}
 
 	if len(toClose) > 0 {
