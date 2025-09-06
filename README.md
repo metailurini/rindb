@@ -152,6 +152,21 @@ defer db.Close()
 
 The sample CLI accepts `--cache-bytes` and `--cache-shards` flags to tune the cache.
 
+### Table Cache
+
+RinDB keeps recently used SSTables open in a sharded SLRU cache. The cache size and
+number of shards are controlled via `WithCacheBytes` and `WithCacheShards`.
+You can inspect runtime metrics to observe hit/miss ratios and byte usage:
+
+```go
+stats := db.TableCacheStats()
+fmt.Printf("cache hits=%d misses=%d\n", stats.Hits, stats.Misses)
+```
+
+Files that fail verification are quarantined automatically, and the cache evicts
+least-recently-used entries while respecting internally pinned tables during
+compaction.
+
 ## Building and Testing
 
 Run tests:
