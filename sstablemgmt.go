@@ -175,6 +175,7 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 		Shards:            config.cacheShards,
 		ProbationFraction: config.cacheProbationFraction,
 		CorruptTTL:        config.cacheCorruptTTL,
+		TombstoneTTL:      config.cacheTombstoneTTL,
 		FDLimiter:         config.fdLimiter,
 		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
 			p := path.Join(config.databaseDir, sstPath(k.FileNum))

@@ -53,7 +53,7 @@ type shard struct {
 	corrupt map[tableKey]time.Time
 
 	// tombstones to prevent re-admission after Delete/obsolete
-	tombstone map[tableKey]struct{}
+	tombstone map[tableKey]time.Time
 
 	// per-shard singleflight for open de-dup
 	flight singleflight.Group
@@ -66,6 +66,18 @@ type shard struct {
 }
 
 // --- SLRU helpers (all require s.mu held unless stated) ---
+
+// isTombstoned checks if a key has an active tombstone. It prunes expired
+// tombstones. s.mu must be held by the caller.
+func (s *shard) isTombstoned(k tableKey) bool {
+	if exp, dead := s.tombstone[k]; dead {
+		if time.Now().Before(exp) {
+			return true
+		}
+		delete(s.tombstone, k)
+	}
+	return false
+}
 
 func (s *shard) promoteOnHit(ctx context.Context, e *entry) {
 	switch e.seg {

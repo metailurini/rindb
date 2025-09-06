@@ -33,6 +33,7 @@ func TestDefaultConfig(t *testing.T) {
 		{"cacheShards", cfg.cacheShards, 0},
 		{"cacheProbationFraction", cfg.cacheProbationFraction, 0.0},
 		{"cacheCorruptTTL", cfg.cacheCorruptTTL, time.Duration(0)},
+		{"cacheTombstoneTTL", cfg.cacheTombstoneTTL, time.Duration(0)},
 	}
 
 	for _, tt := range tests {
@@ -208,6 +209,15 @@ func TestNewConfigWithOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "WithCacheTombstoneTTL",
+			opts: []Option{WithCacheTombstoneTTL(time.Minute)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.cacheTombstoneTTL != time.Minute {
+					t.Errorf("cacheTombstoneTTL = %v, want %v", cfg.cacheTombstoneTTL, time.Minute)
+				}
+			},
+		},
+		{
 			name: "MultipleOptions",
 			opts: []Option{
 				WithDatabaseDir("/multi/path"),
@@ -265,6 +275,7 @@ func TestConfigValidatePanics(t *testing.T) {
 		{"cacheShards negative", func(c *Config) { c.cacheShards = -1 }},
 		{"cacheProbationFraction out of range", func(c *Config) { c.cacheProbationFraction = 1 }},
 		{"cacheCorruptTTL negative", func(c *Config) { c.cacheCorruptTTL = -1 }},
+		{"cacheTombstoneTTL negative", func(c *Config) { c.cacheTombstoneTTL = -1 }},
 	}
 
 	for _, tt := range tests {

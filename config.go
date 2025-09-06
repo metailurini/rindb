@@ -89,6 +89,7 @@ type Config struct {
 	cacheShards            int
 	cacheProbationFraction float64
 	cacheCorruptTTL        time.Duration
+	cacheTombstoneTTL      time.Duration
 	fdLimiter              FDLimiter
 }
 
@@ -133,6 +134,7 @@ func DefaultConfig() Config {
 		cacheShards:               0,
 		cacheProbationFraction:    0,
 		cacheCorruptTTL:           0,
+		cacheTombstoneTTL:         0,
 		fdLimiter:                 nil,
 	}
 }
@@ -208,6 +210,9 @@ func (c Config) Validate() {
 	if c.cacheCorruptTTL < 0 {
 		panic("cacheCorruptTTL must be >= 0")
 	}
+	if c.cacheTombstoneTTL < 0 {
+		panic("cacheTombstoneTTL must be >= 0")
+	}
 }
 
 func WithConfig(cfg Config) Option {
@@ -242,6 +247,11 @@ func WithCacheProbationFraction(v float64) Option {
 // WithCacheCorruptTTL sets the corruption quarantine duration for the table cache.
 func WithCacheCorruptTTL(d time.Duration) Option {
 	return func(c *Config) { c.cacheCorruptTTL = d }
+}
+
+// WithCacheTombstoneTTL sets the tombstone duration for the table cache.
+func WithCacheTombstoneTTL(d time.Duration) Option {
+	return func(c *Config) { c.cacheTombstoneTTL = d }
 }
 
 // WithFDLimiter sets the file descriptor limiter used by the table cache.
