@@ -114,3 +114,108 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
+
+func TestTableCacheDelete(t *testing.T) {
+	ctx := context.Background()
+	var opens atomic.Int32
+	var closes atomic.Int32
+	cache := newTestCache(t, tableCacheOptions{
+		CapBytes: 1,
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			opens.Add(1)
+			return &SStable{}, nil
+		},
+		Close: func(*SStable) error {
+			closes.Add(1)
+			return nil
+		},
+	})
+
+	k := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k)
+	require.NoError(t, err)
+	h.Unref()
+
+	// Entry should be resident prior to deletion.
+	h2, ok := cache.TryGet(k)
+	require.True(t, ok)
+	h2.Unref()
+	require.EqualValues(t, 0, closes.Load())
+
+	cache.Delete(ctx, k)
+	require.EqualValues(t, 1, closes.Load(), "delete should close handle when refs==0")
+
+	_, ok = cache.TryGet(k)
+	require.False(t, ok, "entry should be removed")
+
+	_, err = cache.Get(ctx, k)
+	require.ErrorIs(t, err, ErrObsolete, "tombstone should block re-admission")
+	require.EqualValues(t, 1, opens.Load(), "open should not be called again")
+}
+
+func TestTableCacheClose(t *testing.T) {
+	t.Run("drain", func(t *testing.T) {
+		ctx := context.Background()
+		var opens atomic.Int32
+		var closes atomic.Int32
+		cache := newTestCache(t, tableCacheOptions{
+			CapBytes: 1,
+			Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+				opens.Add(1)
+				return &SStable{}, nil
+			},
+			Close: func(*SStable) error {
+				closes.Add(1)
+				return nil
+			},
+		})
+
+		k1 := tableKey{FileNum: 1}
+		h, err := cache.Get(ctx, k1)
+		require.NoError(t, err)
+
+		done := make(chan error)
+		go func() { done <- cache.Close(ctx, 100*time.Millisecond) }()
+
+		time.Sleep(10 * time.Millisecond) // allow Close to stop admission
+
+		// New admissions should be rejected.
+		_, err = cache.Get(ctx, tableKey{FileNum: 2})
+		require.ErrorIs(t, err, ErrClosed)
+		require.EqualValues(t, 1, opens.Load())
+		require.EqualValues(t, 0, closes.Load())
+
+		// Release the outstanding handle; Close should return and close it.
+		h.Unref()
+		require.NoError(t, <-done)
+		require.EqualValues(t, 1, closes.Load())
+
+		// Further admissions are rejected after Close.
+		_, err = cache.Get(ctx, tableKey{FileNum: 3})
+		require.ErrorIs(t, err, ErrClosed)
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+		ctx := context.Background()
+		var closes atomic.Int32
+		cache := newTestCache(t, tableCacheOptions{
+			CapBytes: 1,
+			Close: func(*SStable) error {
+				closes.Add(1)
+				return nil
+			},
+		})
+
+		k := tableKey{FileNum: 1}
+		h, err := cache.Get(ctx, k)
+		require.NoError(t, err)
+
+		err = cache.Close(ctx, 10*time.Millisecond)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "handles still busy")
+		require.EqualValues(t, 0, closes.Load(), "handle should remain open on timeout")
+
+		h.Unref()
+		require.EqualValues(t, 1, closes.Load(), "handle should close after late Unref")
+	})
+}
