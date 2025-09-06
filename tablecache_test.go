@@ -114,3 +114,34 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
+
+func TestTableCacheTombstoneExpiry(t *testing.T) {
+	ctx := context.Background()
+	var opens atomic.Int32
+	ttl := 10 * time.Millisecond
+	cache := newTestCache(t, tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			opens.Add(1)
+			return &SStable{}, nil
+		},
+		TombstoneTTL: ttl,
+	})
+
+	k := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k)
+	require.NoError(t, err)
+	h.Unref()
+
+	cache.Delete(ctx, k)
+
+	_, err = cache.Get(ctx, k)
+	require.ErrorIs(t, err, ErrObsolete)
+	require.EqualValues(t, 1, opens.Load())
+
+	time.Sleep(ttl + time.Millisecond)
+
+	h, err = cache.Get(ctx, k)
+	require.NoError(t, err)
+	h.Unref()
+	require.EqualValues(t, 2, opens.Load())
+}

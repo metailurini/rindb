@@ -142,6 +142,7 @@ db, err := rindb.InitRinDB(ctx,
     rindb.WithBloomFalsePositiveRate(0.01),
     rindb.WithCacheBytes(64<<20), // 64MB table cache
     rindb.WithCacheShards(8),
+    rindb.WithCacheTombstoneTTL(30 * time.Second),
 )
 if err != nil {
     fmt.Println("Error:", err)
@@ -156,6 +157,8 @@ The sample CLI accepts `--cache-bytes` and `--cache-shards` flags to tune the ca
 
 RinDB keeps recently used SSTables open in a sharded SLRU cache. The cache size and
 number of shards are controlled via `WithCacheBytes` and `WithCacheShards`.
+Deleted tables leave temporary tombstones, blocking re-admission until the
+`WithCacheTombstoneTTL` duration elapses (default 5m).
 You can inspect runtime metrics to observe hit/miss ratios and byte usage:
 
 ```go

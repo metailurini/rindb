@@ -53,7 +53,7 @@ type shard struct {
 	corrupt map[tableKey]time.Time
 
 	// tombstones to prevent re-admission after Delete/obsolete
-	tombstone map[tableKey]struct{}
+	tombstone map[tableKey]time.Time
 
 	// per-shard singleflight for open de-dup
 	flight singleflight.Group

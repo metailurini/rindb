@@ -45,6 +45,8 @@ type tableCacheOptions struct {
 	Verify func(*SStable) error
 	// CorruptTTL defines how long a key stays quarantined after a corruption failure.
 	CorruptTTL time.Duration
+	// TombstoneTTL defines how long a key stays tombstoned after Delete.
+	TombstoneTTL time.Duration
 
 	// FDLimiter limits concurrent open FDs. If nil, no limit.
 	FDLimiter FDLimiter
@@ -129,7 +131,7 @@ func newTableCache(opt tableCacheOptions) *tableCache {
 		s := &shard{
 			items:        make(map[tableKey]*entry, defaultShardItemCapacity),
 			corrupt:      make(map[tableKey]time.Time, defaultCorruptMapCapacity),
-			tombstone:    make(map[tableKey]struct{}, defaultTombstoneMapCapacity),
+			tombstone:    make(map[tableKey]time.Time, defaultTombstoneMapCapacity),
 			capBytes:     per,
 			parent:       c,
 			probCapBytes: int64(float64(per) * fr),
@@ -157,8 +159,11 @@ func (c *tableCache) TryGet(k tableKey) (h *Handle, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, dead := s.tombstone[k]; dead {
-		return nil, false
+	if exp, dead := s.tombstone[k]; dead {
+		if time.Now().Before(exp) {
+			return nil, false
+		}
+		delete(s.tombstone, k)
 	}
 	if exp, bad := s.corrupt[k]; bad {
 		if time.Now().Before(exp) {
@@ -203,9 +208,12 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	// Fast path: map hit
 	s.mu.Lock()
 	// deny install if tombstoned (obsolete)
-	if _, dead := s.tombstone[k]; dead {
-		s.mu.Unlock()
-		return nil, ErrObsolete
+	if exp, dead := s.tombstone[k]; dead {
+		if time.Now().Before(exp) {
+			s.mu.Unlock()
+			return nil, ErrObsolete
+		}
+		delete(s.tombstone, k)
 	}
 	// deny if quarantined for corruption
 	if exp, bad := s.corrupt[k]; bad {
@@ -302,14 +310,17 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		}
 		return nil, ErrClosed
 	}
-	if _, dead := s.tombstone[k]; dead {
-		s.mu.Unlock()
-		if h.closed.CompareAndSwap(false, true) {
-			_ = c.opt.Close(h.Table)
-			s.closes.Add(1)
-			cacheCloses.Add(ctx, 1)
+	if exp, dead := s.tombstone[k]; dead {
+		if time.Now().Before(exp) {
+			s.mu.Unlock()
+			if h.closed.CompareAndSwap(false, true) {
+				_ = c.opt.Close(h.Table)
+				s.closes.Add(1)
+				cacheCloses.Add(ctx, 1)
+			}
+			return nil, ErrObsolete
 		}
-		return nil, ErrObsolete
+		delete(s.tombstone, k)
 	}
 	if existing, ok := s.items[k]; ok {
 		// Another goroutine installed first. Use it.
@@ -349,14 +360,19 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 }
 
 // Delete marks a key obsolete and unlinks it from the cache immediately.
-// Actual close happens immediately only if refcount hits zero.
+// The tombstone expires after TombstoneTTL. Actual close happens immediately
+// only if the refcount hits zero.
 func (c *tableCache) Delete(ctx context.Context, k tableKey) {
 	s := c.shardFor(k)
 	var toClose *Handle
 
 	s.mu.Lock()
 	// Set tombstone first to block racing admissions
-	s.tombstone[k] = struct{}{}
+	ttl := c.opt.TombstoneTTL
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	s.tombstone[k] = time.Now().Add(ttl)
 	if e, ok := s.items[k]; ok {
 		e.h.evictWhenZero.Store(true)
 		s.unlink(e) // remove from SLRU
