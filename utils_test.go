@@ -136,8 +136,8 @@ func (ts *testRindbSetup) Cleanup() {
 	}
 }
 
-// newSSTableFS creates a new FileSystem for a given level with automatic cleanup.
-func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
+// newSSTableFS creates a new FileSystem with automatic cleanup.
+func (ts *testRindbSetup) newSSTableFS() *FileSystem {
 	fs, err := ts.Manager.newSSTableFS(context.Background())
 	assert.NoError(ts.T, err)
 	ts.addCleanup(func() { fs.Close() })
@@ -145,8 +145,8 @@ func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
 }
 
 // createSSTable creates an SSTable with the given key-value pairs.
-func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStable {
-	fs := ts.newSSTableFS(level)
+func (ts *testRindbSetup) createSSTable(kvs map[string]string) *SStable {
+	fs := ts.newSSTableFS()
 	mem := InitMemtable(*ts.Config)
 	var seqNum uint64 = 0
 	for k, v := range kvs {
@@ -159,8 +159,8 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 }
 
 // createSSTableWithSequence creates an SSTable with the given key-value pairs and a starting sequence number.
-func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]string, startSeqNum uint64) *SStable {
-	fs := ts.newSSTableFS(level)
+func (ts *testRindbSetup) createSSTableWithSequence(kvs map[string]string, startSeqNum uint64) *SStable {
+	fs := ts.newSSTableFS()
 	mem := InitMemtable(*ts.Config)
 	seqNum := startSeqNum
 	for k, v := range kvs {
