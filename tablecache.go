@@ -57,7 +57,6 @@ type tableCacheOptions struct {
 }
 
 // FDLimiter is a minimal semaphore interface (Acquire before Open, Release after Close).
-// TODO: provide concrete implementations.
 type FDLimiter interface {
 	Acquire(ctx context.Context) error
 	Release()
