@@ -464,22 +464,19 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	var wg sync.WaitGroup
 	for _, entry := range busy {
 		wg.Add(1)
-		prev := entry.onClose.Load()
 		var once sync.Once
-		wrapper := func() {
-			if prev != nil {
-				(*prev)()
-			}
-			once.Do(func() { wg.Done() })
-		}
-		for !entry.onClose.CompareAndSwap(prev, &wrapper) {
-			prev = entry.onClose.Load()
-			wrapper = func() {
+		prev := entry.onClose.Load()
+		for {
+			wrapper := func() {
 				if prev != nil {
 					(*prev)()
 				}
 				once.Do(func() { wg.Done() })
 			}
+			if entry.onClose.CompareAndSwap(prev, &wrapper) {
+				break
+			}
+			prev = entry.onClose.Load()
 		}
 		if entry.closed.Load() {
 			once.Do(func() { wg.Done() })
