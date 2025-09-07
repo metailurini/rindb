@@ -29,7 +29,7 @@ func TestBeginCopiesExistingData(t *testing.T) {
 	require.NoError(t, fs.Sync())
 
 	tm := newTransactionManager()
-	txn, err := tm.begin(fs)
+	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 	require.NotNil(t, txn)
 
@@ -56,7 +56,7 @@ func TestBeginCopyOpenError(t *testing.T) {
 	osOpen = func(string) (*os.File, error) { return nil, wantErr }
 	defer func() { osOpen = origOpen }()
 
-	txn, err := tm.begin(fs)
+	txn, err := tm.begin(context.Background(), fs)
 	require.ErrorIs(t, err, wantErr)
 	require.Nil(t, txn)
 
@@ -74,7 +74,7 @@ func TestBeginCopyCopyError(t *testing.T) {
 	ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, wantErr }
 	defer func() { ioCopy = origCopy }()
 
-	txn, err := tm.begin(fs)
+	txn, err := tm.begin(context.Background(), fs)
 	require.ErrorIs(t, err, wantErr)
 	require.Nil(t, txn)
 
@@ -86,7 +86,7 @@ func TestBeginCopyCopyError(t *testing.T) {
 func TestWriteAndCommit(t *testing.T) {
 	fs := newTempFS(t)
 	tm := newTransactionManager()
-	txn, err := tm.begin(fs)
+	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
 	_, err = txn.write([]byte("hello"))
@@ -105,7 +105,7 @@ func TestRollback(t *testing.T) {
 	require.NoError(t, fs.Sync())
 
 	tm := newTransactionManager()
-	txn, err := tm.begin(fs)
+	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
 	_, err = txn.write([]byte("new"))
@@ -120,7 +120,7 @@ func TestRollback(t *testing.T) {
 func TestWriteAfterCommit(t *testing.T) {
 	fs := newTempFS(t)
 	tm := newTransactionManager()
-	txn, err := tm.begin(fs)
+	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
 	_, err = txn.write([]byte("data"))
@@ -142,7 +142,7 @@ func TestConcurrentBegin(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			fs := newTempFS(t)
-			tx, err := tm.begin(fs)
+			tx, err := tm.begin(context.Background(), fs)
 			require.NoError(t, err)
 			txns[i] = tx
 		}(i)
@@ -158,7 +158,7 @@ func TestConcurrentBegin(t *testing.T) {
 func TestConcurrentWrite(t *testing.T) {
 	tm := newTransactionManager()
 	fs := newTempFS(t)
-	tx, err := tm.begin(fs)
+	tx, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
 	const numWrites = 100
@@ -185,9 +185,9 @@ func TestTransactionCommitRollbackConcurrency(t *testing.T) {
 
 	tm := newTransactionManager()
 
-	txCommit, err := tm.begin(w.FileSystem)
+	txCommit, err := tm.begin(ctx, w.FileSystem)
 	require.NoError(t, err)
-	txRollback, err := tm.begin(w.FileSystem)
+	txRollback, err := tm.begin(ctx, w.FileSystem)
 	require.NoError(t, err)
 
 	seq := uint64(1)

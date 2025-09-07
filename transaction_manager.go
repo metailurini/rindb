@@ -31,7 +31,7 @@ func newTransactionManager() *transactionManager {
 }
 
 // begin starts a new transaction for the provided FileSystem.
-func (tm *transactionManager) begin(fs *FileSystem) (*transaction, error) {
+func (tm *transactionManager) begin(ctx context.Context, fs *FileSystem) (*transaction, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -45,7 +45,7 @@ func (tm *transactionManager) begin(fs *FileSystem) (*transaction, error) {
 	dir := filepath.Dir(path)
 	shadowPath := filepath.Join(dir, fmt.Sprintf("txn-%d.log", id))
 
-	shadowFS, err := OpenFS(context.Background(), shadowPath)
+	shadowFS, err := OpenFS(ctx, shadowPath)
 	if err != nil {
 		return nil, err
 	}
