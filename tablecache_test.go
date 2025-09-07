@@ -342,20 +342,12 @@ func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
 		},
 	})
 
-	k1 := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k1)
-	require.NoError(t, err)
-	h.Unref()
-
-	k2 := tableKey{FileNum: 2}
-	h, err = cache.Get(ctx, k2)
-	require.NoError(t, err)
-	h.Unref()
-
-	k3 := tableKey{FileNum: 3}
-	h, err = cache.Get(ctx, k3)
-	require.NoError(t, err)
-	h.Unref()
+	for i := 1; i <= len(actuals); i++ {
+		k := tableKey{FileNum: uint64(i)}
+		h, err := cache.Get(ctx, k)
+		require.NoError(t, err)
+		h.Unref()
+	}
 
 	st := cache.Stats()
 	require.EqualValues(t, 7, st.UsedBytes)
@@ -367,22 +359,19 @@ func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 10})
 
-	k1 := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k1)
-	require.NoError(t, err)
-	h.Unref()
-
-	k2 := tableKey{FileNum: 2}
-	h, err = cache.Get(ctx, k2)
-	require.NoError(t, err)
-	h.Unref()
+	keys := []tableKey{{FileNum: 1}, {FileNum: 2}}
+	for _, k := range keys {
+		h, err := cache.Get(ctx, k)
+		require.NoError(t, err)
+		h.Unref()
+	}
 
 	st := cache.Stats()
 	require.EqualValues(t, 2, st.UsedBytes)
 	require.EqualValues(t, 2, cache.shards[0].usedBytes)
 	require.EqualValues(t, 2, cache.totalBytes.Load())
 
-	cache.Delete(ctx, k1)
+	cache.Delete(ctx, keys[0])
 
 	st = cache.Stats()
 	require.EqualValues(t, 1, st.UsedBytes)
