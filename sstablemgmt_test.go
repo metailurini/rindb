@@ -927,7 +927,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		ts.AddSSTable(0, &sst2)
 
 		target := ts.newSSTableFS()
-		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []*TableCacheEntry{{Table: &sst1}, {Table: &sst2}}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -966,7 +966,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS()
-		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2}, true, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []*TableCacheEntry{{Table: &sst1}, {Table: &sst2}}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1008,7 +1008,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS()
-		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, true, 2)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []*TableCacheEntry{{Table: &sst1}, {Table: &sst2}, {Table: &sst3}}, true, 2)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1052,7 +1052,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS()
-		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst1, sst2, sst3}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []*TableCacheEntry{{Table: &sst1}, {Table: &sst2}, {Table: &sst3}}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.NotNil(t, merged)
 
@@ -1061,7 +1061,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.Nil(t, v)
 
 		target2 := ts.newSSTableFS()
-		merged2, _, err := mergeSSTablesV2(ctx, *ts.Config, target2, []SStable{sst1, sst2, sst3}, true, math.MaxUint64)
+		merged2, _, err := mergeSSTablesV2(ctx, *ts.Config, target2, []*TableCacheEntry{{Table: &sst1}, {Table: &sst2}, {Table: &sst3}}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged2)
 	})
@@ -1072,7 +1072,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		defer ts.Cleanup()
 
 		target := ts.newSSTableFS()
-		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []*TableCacheEntry{}, false, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged)
 	})
@@ -1088,7 +1088,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		assert.NoError(t, err)
 
 		target := ts.newSSTableFS()
-		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []SStable{sst}, true, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(ctx, *ts.Config, target, []*TableCacheEntry{{Table: &sst}}, true, math.MaxUint64)
 		assert.NoError(t, err)
 		assert.Nil(t, merged)
 	})
@@ -1106,7 +1106,7 @@ func Test_mergeSSTablesV2(t *testing.T) {
 		target := ts.newSSTableFS()
 		cancelCtx, cancel := context.WithCancel(context.Background())
 		cancel()
-		merged, _, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []SStable{sst}, false, math.MaxUint64)
+		merged, _, err := mergeSSTablesV2(cancelCtx, *ts.Config, target, []*TableCacheEntry{{Table: &sst}}, false, math.MaxUint64)
 		assert.ErrorIs(t, err, context.Canceled)
 		assert.Nil(t, merged)
 	})
