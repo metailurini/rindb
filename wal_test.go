@@ -179,7 +179,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 
 		recordsSize := 1_000
 		records := make([]Record, 0, recordsSize)
-		for i := 0; i < recordsSize; i++ {
+		for i := range recordsSize {
 			records = append(records, newRecord(Bytes(fmt.Sprintf("key.%d", i)), Bytes(fmt.Sprintf("value.%d", i)), uint64(i)))
 		}
 		err = w.AppendMany(context.Background(), records)
@@ -187,7 +187,7 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 		validateWALFormat(t, w.file)
 		mem, err := w.Load(context.Background())
 		assert.NoError(t, err)
-		for i := 0; i < recordsSize; i++ {
+		for i := range recordsSize {
 			key := Bytes(fmt.Sprintf("key.%d", i))
 			expectedValue := Bytes(fmt.Sprintf("value.%d", i))
 			got, err := mem.Get(key)
