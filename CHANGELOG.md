@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/metailurini/rindb/compare/v0.8.0...v0.8.1) (2025-09-07)
+
+
+### Bug Fixes
+
+* Improve error handling for missing SSTables ([b7af8aa](https://github.com/metailurini/rindb/commit/b7af8aa7f6fae047db4445878023c7248a71d69b))
+
 ## [0.8.0](https://github.com/metailurini/rindb/compare/v0.7.0...v0.8.0) (2025-09-07)
 
 
