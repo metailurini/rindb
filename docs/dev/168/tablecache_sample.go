@@ -68,8 +68,8 @@ type FDLimiter interface {
 	Release()
 }
 
-// Handle wraps a live SStable + refcount + size accounting.
-type Handle struct {
+// TableCacheEntry wraps a live SStable + refcount + size accounting.
+type TableCacheEntry struct {
 	Table *SStable
 
 	refs          atomic.Int32 // pin/unpin (must be >0 when returned by Get/TryGet)
@@ -84,11 +84,11 @@ type Handle struct {
 }
 
 // Pin increments the refcount.
-func (h *Handle) Pin() { h.refs.Add(1) }
+func (h *TableCacheEntry) Pin() { h.refs.Add(1) }
 
 // Unref drops a refcount; if it hits zero AND eviction/obsolete was requested,
 // the underlying table is finally closed.
-func (h *Handle) Unref() {
+func (h *TableCacheEntry) Unref() {
 	if h.refs.Add(-1) == 0 && h.evictWhenZero.Load() {
 		if h.closed.CompareAndSwap(false, true) {
 			_ = h.closer(h.Table)
@@ -111,7 +111,7 @@ const (
 
 type entry struct {
 	key    tableKey
-	h      *Handle
+	h      *TableCacheEntry
 	seg    segment
 	elem   *list.Element // element in prob/prot list
 	pinned bool          // pin top-N / critical tables
@@ -202,7 +202,7 @@ func (c *TableCache) shardFor(k tableKey) *shard {
 
 // TryGet returns a pinned handle if present without doing any I/O.
 // ok=false if not resident or tombstoned/quarantined.
-func (c *TableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool) {
+func (c *TableCache) TryGet(ctx context.Context, k tableKey) (h *TableCacheEntry, ok bool) {
 	s := c.shardFor(k)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -239,7 +239,7 @@ func (c *TableCache) TryRef(ctx context.Context, k tableKey) bool {
 // Get returns a pinned handle; caller MUST Unref() when done.
 // On miss it opens exactly once per key (singleflight), then installs into SLRU.
 // ctx is used for Open() and for optional FDLimiter acquisition.
-func (c *TableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
+func (c *TableCache) Get(ctx context.Context, k tableKey) (*TableCacheEntry, error) {
 	s := c.shardFor(k)
 
 	// admission stopped?
@@ -302,7 +302,7 @@ func (c *TableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 				actual = 1
 			}
 		}
-		h := &Handle{
+		h := &TableCacheEntry{
 			Table:        t,
 			logicalBytes: logical,
 			actualBytes:  actual,
@@ -324,7 +324,7 @@ func (c *TableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		}
 		return nil, err
 	}
-	h := v.(*Handle)
+	h := v.(*TableCacheEntry)
 
 	// Install (idempotent in case someone else won the race).
 	s.mu.Lock()
@@ -379,7 +379,7 @@ func (c *TableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 // Actual close happens immediately only if refcount hits zero.
 func (c *TableCache) Delete(k tableKey) {
 	s := c.shardFor(k)
-	var toClose *Handle
+	var toClose *TableCacheEntry
 
 	s.mu.Lock()
 	// Set tombstone first to block racing admissions
@@ -434,7 +434,7 @@ func (c *TableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	// fast unlink all entries (non-blocking I/O outside locks)
 	type hpair struct {
 		s *shard
-		h *Handle
+		h *TableCacheEntry
 	}
 	var toClose []hpair
 
@@ -585,7 +585,7 @@ func (s *shard) evictOrDemoteLocked() {
 	}
 
 	// Then evict until within total cap.
-	var toClose []*Handle
+	var toClose []*TableCacheEntry
 	for s.usedBytes > s.capBytes {
 		v := s.chooseVictim()
 		if v == nil {
@@ -627,7 +627,7 @@ func (s *shard) evictOrDemoteLocked() {
 	}
 }
 
-func (s *shard) closeNow(h *Handle) {
+func (s *shard) closeNow(h *TableCacheEntry) {
 	if h.closed.CompareAndSwap(false, true) {
 		_ = h.closer(h.Table)
 		s.closes.Add(1)

@@ -5,7 +5,7 @@ The complete reference implementation used to inform this plan is available in [
 ## Plan
 1. Add a sharded SLRU table cache in this package (no new subpackage).
    - define typed errors, `tableKey`, `Options`, `FDLimiter`, and core structs
-   - implement `Handle`, `shard`, singleflight-backed `Get`, and eviction helpers
+   - implement `TableCacheEntry`, `shard`, singleflight-backed `Get`, and eviction helpers
    - expose `Stats`, `Delete`, and graceful `Close`
 
 2. Wire the cache into `ssTableManager`.

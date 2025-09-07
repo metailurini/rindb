@@ -115,7 +115,7 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
 
-func TestTableCacheCloseDrainsBusyHandles(t *testing.T) {
+func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
@@ -291,11 +291,11 @@ func TestTableCacheClose(t *testing.T) {
 
 		err = cache.Close(ctx, 10*time.Millisecond)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "handles still busy")
-		require.EqualValues(t, 0, closes.Load(), "handle should remain open on timeout")
+		require.Contains(t, err.Error(), "entries still busy")
+		require.EqualValues(t, 0, closes.Load(), "entry should remain open on timeout")
 
 		h.Unref()
-		require.EqualValues(t, 1, closes.Load(), "handle should close after late Unref")
+		require.EqualValues(t, 1, closes.Load(), "entry should close after late Unref")
 	})
 }
 
