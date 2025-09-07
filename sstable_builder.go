@@ -38,7 +38,10 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 		return nil, fmt.Errorf("failed to clean file system: %w", err)
 	}
 	tm := newTransactionManager()
-	tx := tm.begin()
+	tx, err := tm.begin(fs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
 	var bloom *BloomFilter
 	if expected > 0 {
 		bloom = NewBloomFilter(
@@ -134,7 +137,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 			b.bloom.Insert(ko.key)
 		}
 	}
-	sparseIndexOffset := int64(b.tx.buffer.Len())
+	sparseIndexOffset := b.tx.size()
 	for _, ko := range b.index {
 		if err = writeKeyOffset(b.tx, ko); err != nil {
 			return
@@ -144,8 +147,8 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 		err = fmt.Errorf("failed to write sparse index offset: %w", err)
 		return
 	}
-	written = b.tx.buffer.Len()
-	if err = b.tx.commit(ctx, b.fs); err != nil {
+	written = int(b.tx.size())
+	if err = b.tx.commit(ctx); err != nil {
 		err = fmt.Errorf("failed to commit transaction: %w", err)
 		return
 	}
