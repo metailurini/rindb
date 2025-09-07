@@ -65,7 +65,7 @@ func TestPromoteOnHitDemoteAndBreak(t *testing.T) {
 	require.Equal(t, segProbation, e.seg)
 	require.Equal(t, 1, s.prob.Len())
 	require.Equal(t, 0, s.prot.Len())
-	require.Greater(t, s.protBytes, int64(0))
+	require.EqualValues(t, 1, s.protBytes)
 }
 
 // TestChooseVictimFromProtectedSkipsPinned covers iteration over protected list.
