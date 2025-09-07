@@ -158,6 +158,28 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ---
 
+### Table Cache and File Descriptor Management
+
+**Goal**: Improve table cache efficiency and manage file descriptors effectively.
+
+- **Tasks**:
+  - [x] Implement SSTable Table Cache.
+  - [x] Add expiry for table cache tombstones.
+  - [x] Cache SSTable handles.
+  - [x] Expose table cache configuration and stats.
+  - [x] Add semaphore-based FD limiter.
+  - [x] Fix various bugs related to table cache and FD limiter.
+
+- **Deliverables**:
+  - Efficient and robust SSTable table cache.
+  - Controlled file descriptor usage.
+  - Enhanced stability and performance.
+
+- **Version**: `v0.8.0`
+  - **Rationale**: These features significantly improve the performance and reliability of the database by optimizing SSTable access and managing system resources more effectively, justifying a minor version bump.
+
+---
+
 ### Production Readiness
 
 **Goal**: Ensure reliability and completeness for real-world use.
@@ -221,5 +243,6 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 - **`v0.5.0`**: Snapshot and Concurrency (point-in-time snapshots, stability improvements).
 - **`v0.6.0`**: SSTable Enhancements and Reliability (SSTable builder, checksums, bug fixes).
 - **`v0.7.0`**: Manifest and Version Management (manifest rotation, repair mode, file tracking).
+- **`v0.8.0`**: Table Cache and File Descriptor Management (table cache, FD limiter, bug fixes).
 - **`v1.0.0`**: Production Readiness (replication, backup, advanced transactions, full CLI, packaging).
 - **`v1.1.0`**: Ecosystem and Community (bindings, plugins, community engagement, optional time-series).
