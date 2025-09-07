@@ -377,6 +377,21 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.Equal(t, value, result)
 	})
 
+	t.Run("Tombstone returns ErrKeyNotFound", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		key := Bytes("dead-key")
+		fs0 := ts.newSSTableFS()
+		sst := createSSTable(t, cfg, fs0, [2]Bytes{key, nil})
+		ts.AddSSTable(0, &sst)
+
+		result, err := ts.Manager.SearchKey(ctx, key)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.Nil(t, result)
+	})
+
 	t.Run("Tombstone in level 0 overrides level 1", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
