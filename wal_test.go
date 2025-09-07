@@ -280,7 +280,7 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 
 	// Simulate a crash during the write of a third record
 	record3 := newRecord(Bytes("key3"), Bytes("value3"), 3)
-	tx, err := w.tm.begin(w.FileSystem)
+	tx, err := w.tm.begin(context.Background(), w.FileSystem)
 	require.NoError(t, err)
 	defer tx.rollback(context.Background())
 

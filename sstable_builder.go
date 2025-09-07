@@ -39,7 +39,7 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 		return nil, fmt.Errorf("failed to clean file system: %w", err)
 	}
 	tm := newTransactionManager()
-	tx, err := tm.begin(fs)
+	tx, err := tm.begin(ctx, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}

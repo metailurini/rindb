@@ -111,7 +111,7 @@ func (w *wal) Append(ctx context.Context, record Record) error {
 		span.End()
 	}()
 
-	tx, err := w.tm.begin(w.FileSystem)
+	tx, err := w.tm.begin(ctx, w.FileSystem)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (w *wal) AppendMany(ctx context.Context, records []Record) error {
 		span.End()
 	}()
 
-	tx, err := w.tm.begin(w.FileSystem)
+	tx, err := w.tm.begin(ctx, w.FileSystem)
 	if err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func (w *wal) Clean(ctx context.Context, minSeq uint64) error {
 		if rec.GetSequenceNumber() < minSeq {
 			continue
 		}
-		tx, err := w.tm.begin(tmpFS)
+		tx, err := w.tm.begin(ctx, tmpFS)
 		if err != nil {
 			cleanupTemp(tmpFS, tmpPath)
 			return fmt.Errorf("failed to begin transaction: %w", err)
