@@ -245,9 +245,14 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*TableCacheEntry, err
 	}
 	s.mu.Unlock()
 
+	// quick ctx check before starting the flight
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// Miss: singleflight open (no locks while doing I/O).
 	keyStr := fmt.Sprintf("%d/%d", k.DBID, k.FileNum)
-	v, err, _ := s.flight.Do(keyStr, func() (any, error) {
+	ch := s.flight.DoChan(keyStr, func() (any, error) {
 		// FD limiter (optional)
 		if c.opt.FDLimiter != nil {
 			if err := c.opt.FDLimiter.Acquire(ctx); err != nil {
@@ -287,6 +292,17 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*TableCacheEntry, err
 		entry.refs.Store(1) // caller's ref
 		return entry, nil
 	})
+
+	var (
+		v   any
+		err error
+	)
+	select {
+	case res := <-ch:
+		v, err = res.Val, res.Err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		// quarantine on corruption
 		if errors.Is(err, ErrCorruption) {

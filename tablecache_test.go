@@ -115,6 +115,58 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
 
+func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
+	ctx := context.Background()
+	openStart := make(chan struct{})
+	release := make(chan struct{})
+	var opens atomic.Int32
+	cache := newTestCache(t, tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			opens.Add(1)
+			close(openStart)
+			<-release
+			return &SStable{}, nil
+		},
+	})
+
+	key := tableKey{FileNum: 1}
+
+	// Hold the singleflight with the first call.
+	done := make(chan struct{})
+	go func() {
+		h, err := cache.Get(ctx, key)
+		if err == nil {
+			h.Unref()
+		}
+		close(done)
+	}()
+
+	<-openStart // ensure first open started and is blocking
+
+	ctx2, cancel := context.WithCancel(ctx)
+	errCh := make(chan error)
+	go func() {
+		_, err := cache.Get(ctx2, key)
+		errCh <- err
+	}()
+
+	time.Sleep(10 * time.Millisecond) // let second call join the flight
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("Get did not return after context cancellation")
+	}
+
+	// Release first call and wait for it to finish.
+	close(release)
+	<-done
+
+	require.EqualValues(t, 1, opens.Load())
+}
+
 func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
