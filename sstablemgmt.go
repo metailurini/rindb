@@ -666,9 +666,6 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 
 	ssts, err := h.GetRelevantSSTables(ctx, key, key)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, ErrKeyNotFound
-		}
 		return nil, err
 	}
 	for _, entry := range ssts {

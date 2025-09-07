@@ -424,7 +424,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		assert.NoError(t, err)
 
 		result, err := ts.Manager.SearchKey(ctx, key)
-		assert.ErrorIs(t, err, ErrKeyNotFound)
+		assert.ErrorIs(t, err, os.ErrNotExist)
 		assert.Nil(t, result)
 
 		_, statErr := os.Stat(path)
