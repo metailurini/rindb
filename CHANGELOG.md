@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.8.0](https://github.com/metailurini/rindb/compare/v0.7.0...v0.8.0) (2025-09-07)
+
+
+### Features
+
+* add expiry for table cache tombstones ([557d856](https://github.com/metailurini/rindb/commit/557d856902019392312aa2c7152d827973b04ce8))
+* add semaphore-based FD limiter ([23b2c6c](https://github.com/metailurini/rindb/commit/23b2c6c3b2ded02b80e6bbbc8c5bccef04c5edde))
+* cache sstable handles ([01dc784](https://github.com/metailurini/rindb/commit/01dc7842ecd4c6a19cfee395e9d2bc087ca8b9ab))
+* expose table cache configuration and stats ([6a75b70](https://github.com/metailurini/rindb/commit/6a75b70ade80d6bee643309325c66ff22b0f3b57))
+* Implement SSTable Table Cache ([dd29624](https://github.com/metailurini/rindb/commit/dd29624aeb8d62636b49a78a40f58f0b17abda44))
+
+
+### Bug Fixes
+
+* avoid metrics in TryRef ([93f6f26](https://github.com/metailurini/rindb/commit/93f6f26a0489668b1f596090e273ec9efd32943e))
+* clear corrupt quarantine on delete ([691cc38](https://github.com/metailurini/rindb/commit/691cc38dd4d613c175fccd7c7f76e9fedcecab67))
+* drop dead pinned-victim branch ([745286c](https://github.com/metailurini/rindb/commit/745286cfdbaebb1eeb79b6ddbcba251d45e90e72))
+* enforce FD limiter invariants ([d5c8002](https://github.com/metailurini/rindb/commit/d5c8002a770963b24feccb7f4bfc577970c9c1e0))
+* evict over-budget entries on unpin ([de3e1e8](https://github.com/metailurini/rindb/commit/de3e1e84edcd2ea5b142fa0f3f91bb52673ab6a0))
+* handle pinned cache overflow ([7e833df](https://github.com/metailurini/rindb/commit/7e833dfecf6482712a2ccdf1242c57af0e4c5f32))
+* keep SSTable handles cached during search ([d7322c1](https://github.com/metailurini/rindb/commit/d7322c1d82f6db969d461b5e50f554d7c1444892))
+* prevent table cache Close/Unref race ([c93cd4d](https://github.com/metailurini/rindb/commit/c93cd4d696b1778ae68ccd8f067aa5bedf3220a9))
+* refactor onClose CAS loop ([174a001](https://github.com/metailurini/rindb/commit/174a001ae3f2d9bb7d8a8eb72204eddcd273c095))
+* release sstable handles and tighten cache shutdown ([67d4c1d](https://github.com/metailurini/rindb/commit/67d4c1ded6a8165db4c913178c68a5f41f6efce3))
+* respect context cancellation in table cache ([39eac6e](https://github.com/metailurini/rindb/commit/39eac6efd111ecd3e297ce6046d94d23cee9c308))
+* track segment bytes and drain busy handles ([f9011f0](https://github.com/metailurini/rindb/commit/f9011f0baf6e7220bc1f2ae96d79a714b1eaeb20))
+* track TryGet misses in table cache stats ([926f7bd](https://github.com/metailurini/rindb/commit/926f7bd88b781c0dbc4f4479ed0aaf4af7a44ef6))
+* unref handle in table cache TryRef ([8826d79](https://github.com/metailurini/rindb/commit/8826d796ce6342acde2a93e52a123e0d79ae53d1))
+* unref table cache entries instead of releasing ([1829483](https://github.com/metailurini/rindb/commit/1829483193de1f2716ae172655bb2606cb8a2432))
+
 ## [0.7.0](https://github.com/metailurini/rindb/compare/v0.6.0...v0.7.0) (2025-09-04)
 
 
