@@ -272,7 +272,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	cleanupOpened := func() {
 		for _, o := range opened {
-			o.Release()
+			o.Unref()
 		}
 	}
 

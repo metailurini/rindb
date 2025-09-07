@@ -582,10 +582,12 @@ func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64)
 }
 
 // GetRelevantSSTables gathers SSTables whose ranges overlap [startKey, endKey].
-// Level 0 files are returned in newest-first order while higher levels retain
-// their existing ordering. If an SSTable referenced in the current version is
-// missing on disk, the function returns the error so callers can retry with a
-// fresh view.
+// Each returned TableCacheEntry is pinned in the cache; callers MUST invoke
+// Unref on every entry when finished. Use Release only when the SSTable is
+// obsolete and should be evicted once all references drain. Level 0 files are
+// returned in newest-first order while higher levels retain their existing
+// ordering. If an SSTable referenced in the current version is missing on disk,
+// the function returns the error so callers can retry with a fresh view.
 func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*TableCacheEntry, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.GetRelevantSSTables")
 	start := time.Now()
@@ -645,7 +647,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 		entry, err := h.openByNumber(ctx, num)
 		if err != nil {
 			for _, o := range entries {
-				o.Release()
+				o.Unref()
 			}
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
 				return nil, err
