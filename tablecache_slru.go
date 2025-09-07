@@ -20,7 +20,7 @@ const (
 
 type entry struct {
 	key    tableKey
-	h      *Handle
+	entry  *TableCacheEntry
 	seg    segment
 	elem   *list.Element // element in prob/prot list
 	pinned bool          // pin top-N / critical tables
@@ -86,10 +86,10 @@ func (s *shard) promoteOnHit(ctx context.Context, e *entry) {
 		if e.elem != nil {
 			s.prob.Remove(e.elem)
 		}
-		s.probBytes -= e.h.actualBytes
+		s.probBytes -= e.entry.actualBytes
 		e.elem = s.prot.PushFront(e)
 		e.seg = segProtected
-		s.protBytes += e.h.actualBytes
+		s.protBytes += e.entry.actualBytes
 		s.promotions.Add(1)
 		cachePromotions.Add(ctx, 1)
 
@@ -100,10 +100,10 @@ func (s *shard) promoteOnHit(ctx context.Context, e *entry) {
 				if dem.elem != nil {
 					s.prot.Remove(dem.elem)
 				}
-				s.protBytes -= dem.h.actualBytes
+				s.protBytes -= dem.entry.actualBytes
 				dem.elem = s.prob.PushFront(dem)
 				dem.seg = segProbation
-				s.probBytes += dem.h.actualBytes
+				s.probBytes += dem.entry.actualBytes
 			} else {
 				break
 			}
@@ -122,12 +122,12 @@ func (s *shard) unlink(e *entry) {
 		if e.elem != nil {
 			s.prob.Remove(e.elem)
 		}
-		s.probBytes -= e.h.actualBytes
+		s.probBytes -= e.entry.actualBytes
 	case segProtected:
 		if e.elem != nil {
 			s.prot.Remove(e.elem)
 		}
-		s.protBytes -= e.h.actualBytes
+		s.protBytes -= e.entry.actualBytes
 	}
 	e.elem = nil
 	e.seg = segNone
@@ -160,16 +160,16 @@ func (s *shard) segmentBytes(seg segment) int64 {
 	}
 }
 
-func (s *shard) evictEntryLocked(ctx context.Context, e *entry, toClose *[]*Handle) {
+func (s *shard) evictEntryLocked(ctx context.Context, e *entry, toClose *[]*TableCacheEntry) {
 	s.unlink(e)
 	delete(s.items, e.key)
-	s.usedBytes -= e.h.actualBytes
-	s.parent.totalBytes.Add(-e.h.actualBytes)
+	s.usedBytes -= e.entry.actualBytes
+	s.parent.totalBytes.Add(-e.entry.actualBytes)
 
-	if e.h.refs.Load() > 0 {
-		e.h.evictWhenZero.Store(true)
+	if e.entry.refs.Load() > 0 {
+		e.entry.evictWhenZero.Store(true)
 	} else {
-		*toClose = append(*toClose, e.h)
+		*toClose = append(*toClose, e.entry)
 	}
 	s.evicts.Add(1)
 	cacheEvicts.Add(ctx, 1)
@@ -188,17 +188,17 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
 			if dem.elem != nil {
 				s.prot.Remove(dem.elem)
 			}
-			s.protBytes -= dem.h.actualBytes
+			s.protBytes -= dem.entry.actualBytes
 			dem.elem = s.prob.PushFront(dem)
 			dem.seg = segProbation
-			s.probBytes += dem.h.actualBytes
+			s.probBytes += dem.entry.actualBytes
 		} else {
 			break
 		}
 	}
 
 	// Then evict until within total cap.
-	var toClose []*Handle
+	var toClose []*TableCacheEntry
 	for s.usedBytes > s.capBytes {
 		v := s.chooseVictim()
 		if v == nil {
@@ -214,8 +214,8 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
 
 	if len(toClose) > 0 {
 		s.mu.Unlock()
-		for _, h := range toClose {
-			s.closeNow(ctx, h)
+		for _, entry := range toClose {
+			s.closeNow(ctx, entry)
 		}
 		s.mu.Lock()
 	}
@@ -226,9 +226,9 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
 	return true
 }
 
-func (s *shard) closeNow(ctx context.Context, h *Handle) {
-	if h.closed.CompareAndSwap(false, true) {
-		_ = h.closer(h.Table)
+func (s *shard) closeNow(ctx context.Context, entry *TableCacheEntry) {
+	if entry.closed.CompareAndSwap(false, true) {
+		_ = entry.closer(entry.Table)
 		s.closes.Add(1)
 		cacheCloses.Add(ctx, 1)
 	}

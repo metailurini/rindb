@@ -479,22 +479,22 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		return nil
 	}
 
-	handles := make([]*Handle, 0, len(inputs))
+	entries := make([]*TableCacheEntry, 0, len(inputs))
 	defer func() {
-		// release handles to input SSTables
-		for _, hnd := range handles {
-			hnd.Release()
+		// release entries to input SSTables
+		for _, entry := range entries {
+			entry.Release()
 		}
 	}()
 
 	sources := make([]SStable, 0, len(inputs))
 	for _, fm := range inputs {
-		hnd, err := h.openByNumber(ctx, fm.Number)
+		entry, err := h.openByNumber(ctx, fm.Number)
 		if err != nil {
 			return err
 		}
-		handles = append(handles, hnd)
-		sources = append(sources, *hnd.Table)
+		entries = append(entries, entry)
+		sources = append(sources, *entry.Table)
 	}
 
 	newFS, err := h.newSSTableFS(ctx)
@@ -564,9 +564,9 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	return nil
 }
 
-// openByNumber returns a pinned handle for the given SSTable number using the
-// table cache. Callers must invoke `Unref` on the returned handle when done.
-func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*Handle, error) {
+// openByNumber returns a pinned TableCacheEntry for the given SSTable number using the
+// table cache. Callers must invoke `Unref` on the returned entry when done.
+func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*TableCacheEntry, error) {
 	return h.cache.Get(ctx, tableKey{FileNum: num})
 }
 
@@ -575,9 +575,9 @@ func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*Handle,
 // returned so registration can proceed.
 func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64) {
 	k := tableKey{FileNum: fileNum}
-	if hnd, err := h.cache.Get(ctx, k); err == nil {
+	if entry, err := h.cache.Get(ctx, k); err == nil {
 		h.cache.PinKey(k)
-		hnd.Unref()
+		entry.Unref()
 	} else {
 		warn(ctx, "Failed to cache new SSTable %d: %v", fileNum, err)
 	}
@@ -588,7 +588,7 @@ func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64)
 // their existing ordering. If an SSTable referenced in the current version is
 // missing on disk, the function returns the error so callers can retry with a
 // fresh view.
-func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*Handle, error) {
+func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*TableCacheEntry, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
@@ -642,11 +642,11 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}
 	h.mu.RUnlock()
 
-	out := make([]*Handle, 0, len(nums))
+	entries := make([]*TableCacheEntry, 0, len(nums))
 	for _, num := range nums {
-		hnd, err := h.openByNumber(ctx, num)
+		entry, err := h.openByNumber(ctx, num)
 		if err != nil {
-			for _, o := range out {
+			for _, o := range entries {
 				o.Release()
 			}
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
@@ -655,10 +655,10 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			warn(ctx, "Failed to open SSTable %d: %v", num, err)
 			return nil, fmt.Errorf("failed to open SSTable %d: %w", num, err)
 		}
-		out = append(out, hnd)
+		entries = append(entries, entry)
 	}
-	getRelevantSSTables.Add(ctx, int64(len(out)))
-	return out, nil
+	getRelevantSSTables.Add(ctx, int64(len(entries)))
+	return entries, nil
 }
 
 func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -679,9 +679,9 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 			}
 			return nil, err
 		}
-		for _, hnd := range ssts {
-			val, err := hnd.Table.GetValue(ctx, key, maxSeq)
-			hnd.Unref()
+		for _, entry := range ssts {
+			val, err := entry.Table.GetValue(ctx, key, maxSeq)
+			entry.Unref()
 			if err == nil {
 				return val, nil
 			}

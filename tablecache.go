@@ -69,8 +69,8 @@ type noopFDLimiter struct{}
 func (noopFDLimiter) Acquire(context.Context) error { return nil }
 func (noopFDLimiter) Release()                      {}
 
-// Handle wraps a live SStable + refcount + size accounting.
-type Handle struct {
+// TableCacheEntry wraps a live SStable along with refcount and size accounting.
+type TableCacheEntry struct {
 	Table *SStable
 
 	refs          atomic.Int32 // pin/unpin (must be >0 when returned by Get/TryGet)
@@ -85,26 +85,26 @@ type Handle struct {
 }
 
 // Pin increments the refcount.
-func (h *Handle) Pin() { h.refs.Add(1) }
+func (e *TableCacheEntry) Pin() { e.refs.Add(1) }
 
 // Unref drops a refcount; if it hits zero AND eviction/obsolete was requested,
 // the underlying table is finally closed.
-func (h *Handle) Unref() {
-	if h.refs.Add(-1) == 0 && h.evictWhenZero.Load() {
-		if h.closed.CompareAndSwap(false, true) {
-			_ = h.closer(h.Table)
-			if h.onClose != nil {
-				h.onClose()
+func (e *TableCacheEntry) Unref() {
+	if e.refs.Add(-1) == 0 && e.evictWhenZero.Load() {
+		if e.closed.CompareAndSwap(false, true) {
+			_ = e.closer(e.Table)
+			if e.onClose != nil {
+				e.onClose()
 			}
 		}
 	}
 }
 
-// Release marks the handle for closure and drops a refcount. The underlying
+// Release marks the entry for closure and drops a refcount. The underlying
 // resources are released when the reference count reaches zero.
-func (h *Handle) Release() {
-	h.evictWhenZero.Store(true)
-	h.Unref()
+func (e *TableCacheEntry) Release() {
+	e.evictWhenZero.Store(true)
+	e.Unref()
 }
 
 // --- SLRU internals ---
@@ -157,9 +157,9 @@ func (c *tableCache) shardFor(k tableKey) *shard {
 	return c.shards[h&c.shardMask]
 }
 
-// TryGet returns a pinned handle if present without doing any I/O.
+// TryGet returns a pinned TableCacheEntry if present without doing any I/O.
 // ok=false if not resident or tombstoned/quarantined.
-func (c *tableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool) {
+func (c *tableCache) TryGet(ctx context.Context, k tableKey) (entry *TableCacheEntry, ok bool) {
 	s := c.shardFor(k)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -174,17 +174,17 @@ func (c *tableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool
 		delete(s.corrupt, k)
 	}
 	if e, ok := s.items[k]; ok {
-		if e.h.closed.Load() {
+		if e.entry.closed.Load() {
 			s.unlink(e)
 			delete(s.items, k)
-			s.usedBytes -= e.h.actualBytes
-			c.totalBytes.Add(-e.h.actualBytes)
+			s.usedBytes -= e.entry.actualBytes
+			c.totalBytes.Add(-e.entry.actualBytes)
 		} else {
-			e.h.Pin()
+			e.entry.Pin()
 			s.promoteOnHit(ctx, e)
 			s.hits.Add(1)
 			cacheHits.Add(ctx, 1)
-			return e.h, true
+			return e.entry, true
 		}
 	}
 	return nil, false
@@ -194,17 +194,17 @@ func (c *tableCache) TryGet(ctx context.Context, k tableKey) (h *Handle, ok bool
 // It briefly pins the handle to promote the entry and immediately unrefs it,
 // so no reference is retained on success.
 func (c *tableCache) TryRef(ctx context.Context, k tableKey) bool {
-	h, ok := c.TryGet(ctx, k)
+	entry, ok := c.TryGet(ctx, k)
 	if ok {
-		h.Unref()
+		entry.Unref()
 	}
 	return ok
 }
 
-// Get returns a pinned handle; caller MUST Unref() when done.
+// Get returns a pinned TableCacheEntry; caller MUST Unref() when done.
 // On miss it opens exactly once per key (singleflight), then installs into SLRU.
 // ctx is used for Open() and for optional FDLimiter acquisition.
-func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
+func (c *tableCache) Get(ctx context.Context, k tableKey) (*TableCacheEntry, error) {
 	s := c.shardFor(k)
 
 	// admission stopped?
@@ -229,18 +229,18 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		delete(s.corrupt, k)
 	}
 	if e, ok := s.items[k]; ok {
-		if e.h.closed.Load() {
+		if e.entry.closed.Load() {
 			s.unlink(e)
 			delete(s.items, k)
-			s.usedBytes -= e.h.actualBytes
-			c.totalBytes.Add(-e.h.actualBytes)
+			s.usedBytes -= e.entry.actualBytes
+			c.totalBytes.Add(-e.entry.actualBytes)
 		} else {
-			e.h.Pin()
+			e.entry.Pin()
 			s.promoteOnHit(ctx, e)
 			s.hits.Add(1)
 			cacheHits.Add(ctx, 1)
 			s.mu.Unlock()
-			return e.h, nil
+			return e.entry, nil
 		}
 	}
 	s.mu.Unlock()
@@ -278,14 +278,14 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 				actual = 1
 			}
 		}
-		h := &Handle{
+		entry := &TableCacheEntry{
 			Table:        t,
 			logicalBytes: logical,
 			actualBytes:  actual,
 			closer:       c.opt.Close,
 		}
-		h.refs.Store(1) // caller's ref
-		return h, nil
+		entry.refs.Store(1) // caller's ref
+		return entry, nil
 	})
 	if err != nil {
 		// quarantine on corruption
@@ -300,15 +300,15 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 		}
 		return nil, err
 	}
-	h := v.(*Handle)
+	ce := v.(*TableCacheEntry)
 
 	// Install (idempotent in case someone else won the race).
 	s.mu.Lock()
 	// Recheck admission stop or tombstone (race with Delete/Close):
 	if s.stopAdmission.Load() {
 		s.mu.Unlock()
-		if h.closed.CompareAndSwap(false, true) {
-			_ = c.opt.Close(h.Table)
+		if ce.closed.CompareAndSwap(false, true) {
+			_ = c.opt.Close(ce.Table)
 			s.closes.Add(1)
 			cacheCloses.Add(ctx, 1)
 		}
@@ -316,8 +316,8 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	}
 	if s.isTombstoned(k) {
 		s.mu.Unlock()
-		if h.closed.CompareAndSwap(false, true) {
-			_ = c.opt.Close(h.Table)
+		if ce.closed.CompareAndSwap(false, true) {
+			_ = c.opt.Close(ce.Table)
 			s.closes.Add(1)
 			cacheCloses.Add(ctx, 1)
 		}
@@ -325,42 +325,42 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 	}
 	if existing, ok := s.items[k]; ok {
 		// Another goroutine installed first. Use it.
-		existing.h.Pin()
+		existing.entry.Pin()
 		s.promoteOnHit(ctx, existing)
 		s.hits.Add(1)
 		cacheHits.Add(ctx, 1)
 		s.mu.Unlock()
 		// Close duplicate we just opened.
-		if h != existing.h && h.closed.CompareAndSwap(false, true) {
-			_ = c.opt.Close(h.Table)
+		if ce != existing.entry && ce.closed.CompareAndSwap(false, true) {
+			_ = c.opt.Close(ce.Table)
 			s.closes.Add(1)
 			cacheCloses.Add(ctx, 1)
 		}
-		return existing.h, nil
+		return existing.entry, nil
 	}
 
-	e := &entry{key: k, h: h, seg: segProbation}
-	// hook: when handle closes via Unref path, count closes
-	h.onClose = func() {
+	e := &entry{key: k, entry: ce, seg: segProbation}
+	// hook: when entry closes via Unref path, count closes
+	ce.onClose = func() {
 		s.closes.Add(1)
 		cacheCloses.Add(ctx, 1)
 	}
 
 	e.elem = s.prob.PushFront(e)
 	s.items[k] = e
-	s.usedBytes += h.actualBytes
-	s.probBytes += h.actualBytes
-	c.totalBytes.Add(h.actualBytes)
+	s.usedBytes += ce.actualBytes
+	s.probBytes += ce.actualBytes
+	c.totalBytes.Add(ce.actualBytes)
 	s.misses.Add(1)
 	cacheMisses.Add(ctx, 1)
 
 	// Evict/demote to budget (may close victims outside the lock).
 	if !s.evictOrDemoteLocked(ctx, e) {
-		// Entry was dropped due to full pinned cache; the handle remains valid
+		// Entry was dropped due to full pinned cache; the table remains valid
 		// but won't be reachable through the cache and will close on Unref().
 	}
 	s.mu.Unlock()
-	return h, nil
+	return ce, nil
 }
 
 // Delete marks a key obsolete and unlinks it from the cache immediately.
@@ -368,7 +368,7 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*Handle, error) {
 // only if the refcount hits zero.
 func (c *tableCache) Delete(ctx context.Context, k tableKey) {
 	s := c.shardFor(k)
-	var toClose *Handle
+	var toClose *TableCacheEntry
 
 	s.mu.Lock()
 	// Set tombstone first to block racing admissions
@@ -378,13 +378,13 @@ func (c *tableCache) Delete(ctx context.Context, k tableKey) {
 	}
 	s.tombstone[k] = time.Now().Add(ttl)
 	if e, ok := s.items[k]; ok {
-		e.h.evictWhenZero.Store(true)
+		e.entry.evictWhenZero.Store(true)
 		s.unlink(e) // remove from SLRU
 		delete(s.items, k)
-		s.usedBytes -= e.h.actualBytes
-		c.totalBytes.Add(-e.h.actualBytes)
-		if e.h.refs.Load() == 0 {
-			toClose = e.h
+		s.usedBytes -= e.entry.actualBytes
+		c.totalBytes.Add(-e.entry.actualBytes)
+		if e.entry.refs.Load() == 0 {
+			toClose = e.entry
 		}
 	}
 	s.mu.Unlock()
@@ -425,26 +425,26 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	}
 
 	// fast unlink all entries (non-blocking I/O outside locks)
-	type hpair struct {
-		s *shard
-		h *Handle
+	type entryPair struct {
+		s     *shard
+		entry *TableCacheEntry
 	}
-	var toClose []hpair
-	var busy []*Handle
+	var toClose []entryPair
+	var busy []*TableCacheEntry
 
 	for _, s := range c.shards {
 		s.mu.Lock()
 		for k, e := range s.items {
 			_ = k // keep for clarity; we drop the map entry
-			e.h.evictWhenZero.Store(true)
+			e.entry.evictWhenZero.Store(true)
 			s.unlink(e)
 			delete(s.items, k)
-			s.usedBytes -= e.h.actualBytes
-			c.totalBytes.Add(-e.h.actualBytes)
-			if e.h.refs.Load() == 0 {
-				toClose = append(toClose, hpair{s: s, h: e.h})
+			s.usedBytes -= e.entry.actualBytes
+			c.totalBytes.Add(-e.entry.actualBytes)
+			if e.entry.refs.Load() == 0 {
+				toClose = append(toClose, entryPair{s: s, entry: e.entry})
 			} else {
-				busy = append(busy, e.h)
+				busy = append(busy, e.entry)
 			}
 		}
 		s.mu.Unlock()
@@ -452,7 +452,7 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 
 	// close the cold ones immediately
 	for _, p := range toClose {
-		p.s.closeNow(ctx, p.h)
+		p.s.closeNow(ctx, p.entry)
 	}
 
 	// bounded wait for busy ones to drain
@@ -462,9 +462,9 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 
 	var wg sync.WaitGroup
 	wg.Add(len(busy))
-	for _, h := range busy {
-		orig := h.onClose
-		h.onClose = func() {
+	for _, entry := range busy {
+		orig := entry.onClose
+		entry.onClose = func() {
 			if orig != nil {
 				orig()
 			}
@@ -485,13 +485,13 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 		return ctx.Err()
 	case <-time.After(drainTimeout):
 		remaining := 0
-		for _, h := range busy {
-			if h.refs.Load() > 0 {
+		for _, entry := range busy {
+			if entry.refs.Load() > 0 {
 				remaining++
 			}
 		}
 		if remaining > 0 {
-			return fmt.Errorf("%d handles still busy after timeout", remaining)
+			return fmt.Errorf("%d entries still busy after timeout", remaining)
 		}
 		return nil
 	}
