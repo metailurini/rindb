@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -11,8 +12,19 @@ import (
 )
 
 func main() {
+	cacheBytes := flag.Int64("cache-bytes", 0, "table cache byte budget")
+	cacheShards := flag.Int("cache-shards", 0, "number of table cache shards")
+	flag.Parse()
+
 	ctx := context.Background()
-	db, err := rindb.InitRinDB(ctx)
+	var opts []rindb.Option
+	if *cacheBytes > 0 {
+		opts = append(opts, rindb.WithCacheBytes(*cacheBytes))
+	}
+	if *cacheShards > 0 {
+		opts = append(opts, rindb.WithCacheShards(*cacheShards))
+	}
+	db, err := rindb.InitRinDB(ctx, opts...)
 	if err != nil {
 		fmt.Println("Error initializing database:", err)
 		return
@@ -96,6 +108,10 @@ func main() {
 			fmt.Printf("RemoveCalls: %d\n", s.RemoveCalls)
 			fmt.Printf("IRangeCalls: %d\n", s.IRangeCalls)
 			fmt.Printf("Flushes: %d\n", s.Flushes)
+			tc := db.TableCacheStats()
+			fmt.Printf("TableCacheUsedBytes: %d\n", tc.UsedBytes)
+			fmt.Printf("TableCacheHits: %d\n", tc.Hits)
+			fmt.Printf("TableCacheMisses: %d\n", tc.Misses)
 		case "exit":
 			return
 		default:

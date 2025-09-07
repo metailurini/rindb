@@ -87,7 +87,7 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	mem1 := InitMemtable(cfg)
 	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
-	sst1, meta, err := flush(ctx, cfg, mem1, ts.newSSTableFS(0))
+	sst1, meta, err := flush(ctx, cfg, mem1, ts.newSSTableFS())
 	assert.NoError(t, err)
 	require.NotZero(t, meta.Number)
 	ts.AddSSTable(0, &sst1)
@@ -97,13 +97,19 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	num, err := fileNum(sst1.Path())
 	require.NoError(t, err)
-	ts.Manager.mu.RLock()
-	opened := ts.Manager.openedByNum[num]
-	ts.Manager.mu.RUnlock()
-	assert.NotNil(t, opened)
-	assert.True(t, opened.IsOpened())
+	h, ok := ts.Manager.cache.TryGet(ctx, tableKey{FileNum: num})
+	require.True(t, ok)
+	assert.True(t, h.Table.IsOpened())
+	assert.Equal(t, int32(2), h.refs.Load())
+	h.Unref()
+	assert.Equal(t, int32(1), h.refs.Load())
 	assert.NoError(t, iter.Close())
-	assert.False(t, opened.IsOpened())
+	assert.Equal(t, int32(0), h.refs.Load())
+	h, ok = ts.Manager.cache.TryGet(ctx, tableKey{FileNum: num})
+	require.True(t, ok)
+	assert.Equal(t, int32(1), h.refs.Load())
+	h.Unref()
+	assert.Equal(t, int32(0), h.refs.Load())
 }
 
 func TestRangeIteratorPrepare(t *testing.T) {

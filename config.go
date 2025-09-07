@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"time"
 )
 
 // NewWALFunc defines the signature for a function that creates a WAL instance.
@@ -82,6 +83,18 @@ type Config struct {
 	// manifestSizeThreshold triggers manifest rotation once the MANIFEST
 	// file grows beyond this size in bytes.
 	manifestSizeThreshold int64
+
+	// table cache configuration
+	cacheBytes             int64
+	cacheShards            int
+	cacheProbationFraction float64
+	cacheCorruptTTL        time.Duration
+	cacheTombstoneTTL      time.Duration
+
+	// fdLimiter limits concurrent open file descriptors. A nil value means
+	// no limit is enforced, which may lead to resource exhaustion on busy
+	// systems. Provide an implementation to bound FD usage.
+	fdLimiter FDLimiter
 }
 
 // Option defines a functional option type for Config.
@@ -121,6 +134,12 @@ func DefaultConfig() Config {
 		newManifestWriterFunc:     newManifestWriter,
 		manifestSizeThreshold:     1 << 20, // 1MiB
 		repairMode:                false,
+		cacheBytes:                64 << 20, // 64MiB table cache budget
+		cacheShards:               64,
+		cacheProbationFraction:    0.25,
+		cacheCorruptTTL:           5 * time.Minute,
+		cacheTombstoneTTL:         0,
+		fdLimiter:                 noopFDLimiter{},
 	}
 }
 
@@ -183,6 +202,24 @@ func (c Config) Validate() {
 	if c.manifestSizeThreshold <= 0 {
 		panic("manifestSizeThreshold must be greater than zero")
 	}
+	if c.cacheBytes < 0 {
+		panic("cacheBytes must be >= 0")
+	}
+	if c.cacheShards <= 0 {
+		panic("cacheShards must be > 0")
+	}
+	if c.cacheProbationFraction <= 0 || c.cacheProbationFraction >= 1 {
+		panic("cacheProbationFraction must be between 0 and 1")
+	}
+	if c.cacheCorruptTTL <= 0 {
+		panic("cacheCorruptTTL must be > 0")
+	}
+	if c.fdLimiter == nil {
+		panic("fdLimiter cannot be nil")
+	}
+	if c.cacheTombstoneTTL < 0 {
+		panic("cacheTombstoneTTL must be >= 0")
+	}
 }
 
 func WithConfig(cfg Config) Option {
@@ -197,6 +234,38 @@ func WithDatabaseDir(dir string) Option {
 // WithRepairMode enables repair mode which scans SSTables from disk on startup.
 func WithRepairMode(v bool) Option {
 	return func(c *Config) { c.repairMode = v }
+}
+
+// WithCacheBytes sets the total byte budget for the table cache.
+func WithCacheBytes(v int64) Option {
+	return func(c *Config) { c.cacheBytes = v }
+}
+
+// WithCacheShards sets the number of shards for the table cache.
+func WithCacheShards(v int) Option {
+	return func(c *Config) { c.cacheShards = v }
+}
+
+// WithCacheProbationFraction sets the probation segment fraction for the table cache.
+func WithCacheProbationFraction(v float64) Option {
+	return func(c *Config) { c.cacheProbationFraction = v }
+}
+
+// WithCacheCorruptTTL sets the corruption quarantine duration for the table cache.
+func WithCacheCorruptTTL(d time.Duration) Option {
+	return func(c *Config) { c.cacheCorruptTTL = d }
+}
+
+// WithCacheTombstoneTTL sets the tombstone duration for the table cache.
+func WithCacheTombstoneTTL(d time.Duration) Option {
+	return func(c *Config) { c.cacheTombstoneTTL = d }
+}
+
+// WithFDLimiter sets the file descriptor limiter used by the table cache. The
+// provided limiter must not be nil. Omit this option to use the default
+// unlimited implementation.
+func WithFDLimiter(l FDLimiter) Option {
+	return func(c *Config) { c.fdLimiter = l }
 }
 
 // WithMaxMemtableSize sets the maximum number of entries allowed in the memtable before flushing.

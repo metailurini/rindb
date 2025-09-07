@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // isTempoEndpointResolvable checks if tempo.magpie-gopher.ts.net is resolvable via DNS.
@@ -137,8 +136,8 @@ func (ts *testRindbSetup) Cleanup() {
 	}
 }
 
-// newSSTableFS creates a new FileSystem for a given level with automatic cleanup.
-func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
+// newSSTableFS creates a new FileSystem with automatic cleanup.
+func (ts *testRindbSetup) newSSTableFS() *FileSystem {
 	fs, err := ts.Manager.newSSTableFS(context.Background())
 	assert.NoError(ts.T, err)
 	ts.addCleanup(func() { fs.Close() })
@@ -146,8 +145,8 @@ func (ts *testRindbSetup) newSSTableFS(level int) *FileSystem {
 }
 
 // createSSTable creates an SSTable with the given key-value pairs.
-func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStable {
-	fs := ts.newSSTableFS(level)
+func (ts *testRindbSetup) createSSTable(kvs map[string]string) *SStable {
+	fs := ts.newSSTableFS()
 	mem := InitMemtable(*ts.Config)
 	var seqNum uint64 = 0
 	for k, v := range kvs {
@@ -160,8 +159,8 @@ func (ts *testRindbSetup) createSSTable(level int, kvs map[string]string) *SStab
 }
 
 // createSSTableWithSequence creates an SSTable with the given key-value pairs and a starting sequence number.
-func (ts *testRindbSetup) createSSTableWithSequence(level int, kvs map[string]string, startSeqNum uint64) *SStable {
-	fs := ts.newSSTableFS(level)
+func (ts *testRindbSetup) createSSTableWithSequence(kvs map[string]string, startSeqNum uint64) *SStable {
+	fs := ts.newSSTableFS()
 	mem := InitMemtable(*ts.Config)
 	seqNum := startSeqNum
 	for k, v := range kvs {
@@ -189,6 +188,16 @@ func (ts *testRindbSetup) AddSSTable(level int, sstable *SStable) {
 	assert.NoError(ts.T, err)
 	meta := fileMeta{Number: num, Level: level, Smallest: InternalKey{UserKey: small}, Largest: InternalKey{UserKey: large}, Size: uint64(info.Size()), SeqHi: seqHi}
 	assert.NoError(ts.T, ts.Manager.addSSTable(context.Background(), meta, seqHi))
+}
+
+// removeFromCache deletes an SSTable from the manager's cache and fails the
+// test if the entry remains.
+func (ts *testRindbSetup) removeFromCache(num uint64) {
+	ts.T.Helper()
+	ts.Manager.cache.Delete(context.Background(), tableKey{FileNum: num})
+	if _, ok := ts.Manager.cache.TryGet(context.Background(), tableKey{FileNum: num}); ok {
+		ts.T.Fatalf("cache still has entry for %d", num)
+	}
 }
 
 // initTempFileSystems creates n temporary FileSystem instances for testing and returns a cleanup function.
@@ -362,24 +371,6 @@ func assertIteratorRecords(t *testing.T, iter Iterator[Record], expected []Recor
 	if c, ok := iter.(interface{ Close() error }); ok {
 		assert.NoError(t, c.Close())
 	}
-}
-
-// assertLinkedListContents checks if the contents of a linkedList match the expected slice.
-func assertLinkedListContents[T comparable](t *testing.T, l *linkedList[T], expected []T) {
-	t.Helper()
-	assert.Equal(t, len(expected), l.size(), "linkedList length does not match expected length")
-	it := l.iterator()
-	idx := 0
-	for it.hasNext() {
-		require.Less(t, idx, len(expected), "iterator has more items than expected")
-		v, err := it.next()
-		require.NoError(t, err)
-		assert.Equal(t, expected[idx], v, "value mismatch at index %d", idx)
-		idx++
-	}
-	assert.Equal(t, len(expected), idx, "iterator returned fewer items than expected")
-	_, err := it.next()
-	assert.ErrorIs(t, err, EOI, "iterator should return EOI at the end")
 }
 
 // newRecord is a helper function to create a RecordImpl instance for tests.

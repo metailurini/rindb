@@ -189,6 +189,15 @@ func (r *Rindb) Stats() Stats {
 	return stats
 }
 
+func (r *Rindb) TableCacheStats() tableCacheStats {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.SSTableManager == nil {
+		return tableCacheStats{}
+	}
+	return r.SSTableManager.TableCacheStats()
+}
+
 // Get retrieves the value associated with the given key from the database.
 // It first checks the memtable and then the SSTables if the key is not found in the memtable.
 // Parameters:
@@ -255,20 +264,20 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq)}
 
-	ssts, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
+	entries, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
 		return nil, err
 	}
-	opened := ssts
+	opened := entries
 
 	cleanupOpened := func() {
 		for _, o := range opened {
-			_ = o.Close()
+			o.Unref()
 		}
 	}
 
-	for _, sst := range ssts {
-		rangeIter, err := sst.IRange(start, end, maxSeq)
+	for _, entry := range entries {
+		rangeIter, err := entry.Table.IRange(start, end, maxSeq)
 		if err != nil {
 			cleanupOpened()
 			return nil, err

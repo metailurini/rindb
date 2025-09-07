@@ -26,6 +26,7 @@
 - **Concurrent Access**: Thread-safe operations with transaction support.
 - **Range Queries**: Efficient retrieval of key-value pairs within a specified key range.
 - **Telemetry**: OpenTelemetry integration for metrics and tracing to monitor database performance.
+- **Table Cache**: Reuses open SSTables via a sharded SLRU cache.
 
 ## Installation
 
@@ -123,10 +124,13 @@ it.Close()
 ```go
 s := db.Stats()
 fmt.Println("Active snapshots:", s.ActiveSnapshots)
+tc := db.TableCacheStats()
+fmt.Println("Cache hits:", tc.Hits)
 ```
 
 The `Stats` method reports metrics such as memtable size, sequence number,
 active snapshot count, per-level SSTable counts, WAL usage, and operation counters.
+`TableCacheStats` exposes cache hit/miss ratios and byte usage.
 
 ### Custom Configuration
 
@@ -136,6 +140,9 @@ db, err := rindb.InitRinDB(ctx,
     rindb.WithDatabaseDir("./mydb"),
     rindb.WithMaxMemtableSize(1024*1024), // 1MB
     rindb.WithBloomFalsePositiveRate(0.01),
+    rindb.WithCacheBytes(64<<20), // 64MB table cache
+    rindb.WithCacheShards(8),
+    rindb.WithCacheTombstoneTTL(30 * time.Second),
 )
 if err != nil {
     fmt.Println("Error:", err)
@@ -143,6 +150,25 @@ if err != nil {
 }
 defer db.Close()
 ```
+
+The sample CLI accepts `--cache-bytes` and `--cache-shards` flags to tune the cache.
+
+### Table Cache
+
+RinDB keeps recently used SSTables open in a sharded SLRU cache. The cache size and
+number of shards are controlled via `WithCacheBytes` and `WithCacheShards`.
+Deleted tables leave temporary tombstones, blocking re-admission until the
+`WithCacheTombstoneTTL` duration elapses (default 5m).
+You can inspect runtime metrics to observe hit/miss ratios and byte usage:
+
+```go
+stats := db.TableCacheStats()
+fmt.Printf("cache hits=%d misses=%d\n", stats.Hits, stats.Misses)
+```
+
+Files that fail verification are quarantined automatically, and the cache evicts
+least-recently-used entries while respecting internally pinned tables during
+compaction.
 
 ## Building and Testing
 

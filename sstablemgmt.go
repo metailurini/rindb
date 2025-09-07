@@ -42,11 +42,11 @@ const writeRateAlpha = 0.2
 // - Manages file handles for SSTables
 // - Coordinates concurrent access with read/write locks
 type ssTableManager struct {
-	openedByNum map[uint64]*SStable // open SSTables keyed by file number
-	versionSet  *versionSet
-	manifest    manifestWriter
-	config      Config
-	mu          sync.RWMutex
+	cache      *tableCache
+	versionSet *versionSet
+	manifest   manifestWriter
+	config     Config
+	mu         sync.RWMutex
 
 	// minSnapshotSeq is the smallest sequence number of any active
 	// snapshot. When no snapshots are active it is set to
@@ -73,6 +73,13 @@ type ssTableManager struct {
 	// dependency injection for testing
 	now         func() time.Time
 	diskSampler func() (uint64, error)
+}
+
+func (h *ssTableManager) TableCacheStats() tableCacheStats {
+	if h.cache == nil {
+		return tableCacheStats{}
+	}
+	return h.cache.Stats()
 }
 
 func (h *ssTableManager) sstInfo(num uint64) (os.FileInfo, error) {
@@ -163,8 +170,31 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 		}
 	}
 
+	tc := newTableCache(tableCacheOptions{
+		CapBytes:          config.cacheBytes,
+		Shards:            config.cacheShards,
+		ProbationFraction: config.cacheProbationFraction,
+		CorruptTTL:        config.cacheCorruptTTL,
+		TombstoneTTL:      config.cacheTombstoneTTL,
+		FDLimiter:         config.fdLimiter,
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			p := path.Join(config.databaseDir, sstPath(k.FileNum))
+			fs, err := OpenExistingFS(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			sst, err := NewSSTable(ctx, config, fs)
+			if err != nil {
+				_ = fs.Close()
+				return nil, err
+			}
+			return &sst, nil
+		},
+		Close: func(s *SStable) error { return s.Close() },
+	})
+
 	h := &ssTableManager{
-		openedByNum:       make(map[uint64]*SStable),
+		cache:             tc,
 		versionSet:        vs,
 		manifest:          mw,
 		config:            config,
@@ -316,6 +346,7 @@ func (h *ssTableManager) addSSTable(ctx context.Context, meta fileMeta, lastSeq 
 		return err
 	}
 	h.config.fileNumberAllocator.apply(edit)
+	h.cacheAndPinSSTable(ctx, meta.Number)
 	info(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
 	return nil
 }
@@ -335,19 +366,8 @@ func (h *ssTableManager) Close(ctx context.Context) {
 		close(h.stopIOLoadSampler)
 		h.ioSamplerWG.Wait()
 	}
-
-	h.mu.Lock()
-	sstablesToClose := make([]*SStable, 0, len(h.openedByNum))
-	for _, s := range h.openedByNum {
-		sstablesToClose = append(sstablesToClose, s)
-	}
-	h.openedByNum = make(map[uint64]*SStable)
-	h.mu.Unlock()
-
-	for _, s := range sstablesToClose {
-		if err := s.Close(); err != nil {
-			warn(ctx, "Error closing sstable %s: %v", s.Path(), err)
-		}
+	if err := h.cache.Close(ctx, 5*time.Second); err != nil {
+		warn(ctx, "Error closing table cache: %v", err)
 	}
 }
 
@@ -459,20 +479,24 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		return nil
 	}
 
-	var sources []SStable
+	entries := make([]*TableCacheEntry, 0, len(inputs))
+	defer func() {
+		// release entries to input SSTables
+		for _, entry := range entries {
+			entry.Release()
+		}
+	}()
+
 	for _, fm := range inputs {
-		fs := &FileSystem{filePath: path.Join(h.config.databaseDir, sstPath(fm.Number))}
-		sst, err := h.openAndLoadSSTable(ctx, fs)
+		entry, err := h.openByNumber(ctx, fm.Number)
 		if err != nil {
-			h.closeSSTables(ctx, sources)
 			return err
 		}
-		sources = append(sources, *sst)
+		entries = append(entries, entry)
 	}
 
 	newFS, err := h.newSSTableFS(ctx)
 	if err != nil {
-		h.closeSSTables(ctx, sources)
 		return err
 	}
 
@@ -486,14 +510,16 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		}
 	}
 
-	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, sources, bottom, h.minSnapshotSeq)
-	h.closeSSTables(ctx, sources)
+	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, entries, bottom, h.minSnapshotSeq)
 	if err != nil || merged == nil {
 		_ = newFS.Close()
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
 			errorf(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
 		}
 		return err
+	}
+	if err := merged.Close(); err != nil {
+		warn(ctx, "Error closing merged sstable %s: %v", newFS.Path(), err)
 	}
 
 	var (
@@ -522,6 +548,13 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 	h.config.fileNumberAllocator.apply(edit)
 
+	h.cacheAndPinSSTable(ctx, meta.Number)
+	for _, fm := range inputs {
+		k := tableKey{FileNum: fm.Number}
+		h.cache.UnpinKey(ctx, k)
+		h.cache.Delete(ctx, k)
+	}
+
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
 		errorf(ctx, "Error removing files: %v", err)
 		return err
@@ -529,50 +562,33 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	return nil
 }
 
-func (h *ssTableManager) closeSSTables(ctx context.Context, sstables []SStable) {
-	for i := range sstables {
-		if err := sstables[i].Close(); err != nil {
-			warn(ctx, "Error closing sstable %s: %v", sstables[i].Path(), err)
-		}
-	}
+// openByNumber returns a pinned TableCacheEntry for the given SSTable number using the
+// table cache. Callers must invoke `Unref` on the returned entry when done.
+func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*TableCacheEntry, error) {
+	return h.cache.Get(ctx, tableKey{FileNum: num})
 }
 
-// openByNumber returns an opened SSTable for the given file number. The
-// SSTable is cached so repeated lookups reuse the same handle.
-func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*SStable, error) {
-	h.mu.RLock()
-	if sst, ok := h.openedByNum[num]; ok {
-		h.mu.RUnlock()
-		return sst, nil
+// cacheAndPinSSTable loads the SSTable into the cache and pins it to keep it
+// resident for future users. Any error during caching is logged but not
+// returned so registration can proceed.
+func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64) {
+	k := tableKey{FileNum: fileNum}
+	if entry, err := h.cache.Get(ctx, k); err == nil {
+		h.cache.PinKey(k)
+		entry.Unref()
+	} else {
+		warn(ctx, "Failed to cache new SSTable %d: %v", fileNum, err)
 	}
-	h.mu.RUnlock()
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if sst, ok := h.openedByNum[num]; ok {
-		return sst, nil
-	}
-
-	path := path.Join(h.config.databaseDir, sstPath(num))
-	fs, err := OpenExistingFS(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	sst, err := NewSSTable(ctx, h.config, fs)
-	if err != nil {
-		_ = fs.Close()
-		return nil, err
-	}
-	h.openedByNum[num] = &sst
-	return &sst, nil
 }
 
 // GetRelevantSSTables gathers SSTables whose ranges overlap [startKey, endKey].
-// Level 0 files are returned in newest-first order while higher levels retain
-// their existing ordering. If an SSTable referenced in the current version is
-// missing on disk, the function returns the error so callers can retry with a
-// fresh view.
-func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*SStable, error) {
+// Each returned TableCacheEntry is pinned in the cache; callers MUST invoke
+// Unref on every entry when finished. Use Release only when the SSTable is
+// obsolete and should be evicted once all references drain. Level 0 files are
+// returned in newest-first order while higher levels retain their existing
+// ordering. If an SSTable referenced in the current version is missing on disk,
+// the function returns the error so callers can retry with a fresh view.
+func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*TableCacheEntry, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
@@ -626,23 +642,23 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}
 	h.mu.RUnlock()
 
-	out := make([]*SStable, 0, len(nums))
+	entries := make([]*TableCacheEntry, 0, len(nums))
 	for _, num := range nums {
-		sst, err := h.openByNumber(ctx, num)
+		entry, err := h.openByNumber(ctx, num)
 		if err != nil {
-			for _, s := range out {
-				_ = s.Close()
+			for _, o := range entries {
+				o.Unref()
 			}
-			if errors.Is(err, os.ErrNotExist) {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
 				return nil, err
 			}
 			warn(ctx, "Failed to open SSTable %d: %v", num, err)
 			return nil, fmt.Errorf("failed to open SSTable %d: %w", num, err)
 		}
-		out = append(out, sst)
+		entries = append(entries, entry)
 	}
-	getRelevantSSTables.Add(ctx, int64(len(out)))
-	return out, nil
+	getRelevantSSTables.Add(ctx, int64(len(entries)))
+	return entries, nil
 }
 
 func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -663,8 +679,9 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 			}
 			return nil, err
 		}
-		for _, sst := range ssts {
-			val, err := sst.GetValue(ctx, key, maxSeq)
+		for _, entry := range ssts {
+			val, err := entry.Table.GetValue(ctx, key, maxSeq)
+			entry.Unref()
 			if err == nil {
 				return val, nil
 			}
@@ -680,14 +697,14 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 	return nil, ErrKeyNotFound
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []*TableCacheEntry, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
 	if len(sources) == 0 {
 		return nil, fileMeta{}, nil
 	}
 
 	iterators := make([]Iterator[Record], 0, len(sources))
-	for _, sstable := range sources {
-		iter, err := sstable.Iterator()
+	for _, entry := range sources {
+		iter, err := entry.Table.Iterator()
 		if err != nil {
 			return nil, fileMeta{}, err
 		}
@@ -705,8 +722,8 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 	}()
 
 	expected := 0
-	for _, sstable := range sources {
-		expected += len(sstable.SparseIndex)
+	for _, entry := range sources {
+		expected += len(entry.Table.SparseIndex)
 	}
 
 	builder, err := NewSSTableBuilder(ctx, config, target, expected)
