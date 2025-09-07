@@ -662,3 +662,131 @@ func TestTableCacheUnpinTriggersEviction(t *testing.T) {
 	_, ok = cache.TryGet(ctx, k2)
 	require.True(t, ok, "still pinned key stays")
 }
+
+func TestTableCacheStopAdmissionDuringInstall(t *testing.T) {
+	ctx := context.Background()
+	var closes atomic.Int32
+	openStart := make(chan struct{})
+	release := make(chan struct{})
+	cache := newTestCache(t, tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			close(openStart)
+			<-release
+			return &SStable{}, nil
+		},
+		Close: func(*SStable) error {
+			closes.Add(1)
+			return nil
+		},
+	})
+
+	key := tableKey{FileNum: 1}
+	errCh := make(chan error)
+	go func() {
+		_, err := cache.Get(ctx, key)
+		errCh <- err
+	}()
+
+	<-openStart
+	s := cache.shardFor(key)
+	s.stopAdmission.Store(true)
+	close(release)
+
+	err := <-errCh
+	require.ErrorIs(t, err, ErrClosed)
+	require.EqualValues(t, 1, closes.Load())
+
+	s.mu.Lock()
+	_, ok := s.items[key]
+	s.mu.Unlock()
+	require.False(t, ok)
+}
+
+func TestTableCacheTombstoneDuringInstall(t *testing.T) {
+	ctx := context.Background()
+	var closes atomic.Int32
+	openStart := make(chan struct{})
+	release := make(chan struct{})
+	cache := newTestCache(t, tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			close(openStart)
+			<-release
+			return &SStable{}, nil
+		},
+		Close: func(*SStable) error {
+			closes.Add(1)
+			return nil
+		},
+	})
+
+	key := tableKey{FileNum: 1}
+	errCh := make(chan error)
+	go func() {
+		_, err := cache.Get(ctx, key)
+		errCh <- err
+	}()
+
+	<-openStart
+	cache.Delete(ctx, key)
+	close(release)
+
+	err := <-errCh
+	require.ErrorIs(t, err, ErrObsolete)
+	require.EqualValues(t, 1, closes.Load())
+
+	s := cache.shardFor(key)
+	s.mu.Lock()
+	_, ok := s.items[key]
+	s.mu.Unlock()
+	require.False(t, ok)
+}
+
+func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
+	ctx := context.Background()
+	var closes atomic.Int32
+	var inserted atomic.Bool
+	var cache *tableCache
+	cache = newTestCache(t, tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			if !inserted.Load() {
+				s := cache.shardFor(k)
+				s.mu.Lock()
+				existing := &TableCacheEntry{
+					Table:        &SStable{},
+					logicalBytes: 0,
+					actualBytes:  1,
+					closer:       cache.opt.Close,
+				}
+				existing.refs.Store(1)
+				e := &entry{key: k, entry: existing, seg: segProbation}
+				e.elem = s.prob.PushFront(e)
+				s.items[k] = e
+				s.usedBytes += existing.actualBytes
+				s.probBytes += existing.actualBytes
+				cache.totalBytes.Add(existing.actualBytes)
+				s.mu.Unlock()
+				inserted.Store(true)
+			}
+			return &SStable{}, nil
+		},
+		Close: func(*SStable) error {
+			closes.Add(1)
+			return nil
+		},
+	})
+
+	key := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, key)
+	require.NoError(t, err)
+
+	s := cache.shardFor(key)
+	s.mu.Lock()
+	existing := s.items[key].entry
+	s.mu.Unlock()
+	require.Equal(t, existing, h)
+	require.EqualValues(t, 1, closes.Load())
+
+	h.Unref()
+	existing.Release()
+	require.EqualValues(t, 2, closes.Load())
+}
