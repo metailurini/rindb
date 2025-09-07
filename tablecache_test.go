@@ -2,6 +2,8 @@ package rindb
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -297,6 +299,36 @@ func TestTableCacheClose(t *testing.T) {
 		h.Unref()
 		require.EqualValues(t, 1, closes.Load(), "entry should close after late Unref")
 	})
+}
+
+func TestTableCacheCloseUnrefRace(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
+
+	k := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k)
+	require.NoError(t, err)
+
+	startG := runtime.NumGoroutine()
+	var unrefWG sync.WaitGroup
+	unrefWG.Add(1)
+	go func() {
+		defer unrefWG.Done()
+		time.Sleep(10 * time.Millisecond)
+		h.Unref()
+	}()
+
+	start := time.Now()
+	err = cache.Close(ctx, time.Second)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.Less(t, elapsed, time.Second)
+
+	unrefWG.Wait()
+
+	require.Eventually(t, func() bool {
+		return runtime.NumGoroutine() <= startG+1
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestTableCacheTombstoneExpiry(t *testing.T) {
