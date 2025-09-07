@@ -391,12 +391,13 @@ func (c *tableCache) PinKey(k tableKey) bool {
 	return false
 }
 
-// UnpinKey removes the pin flag.
-func (c *tableCache) UnpinKey(k tableKey) {
+// UnpinKey removes the pin flag and enforces the cache's capacity.
+func (c *tableCache) UnpinKey(ctx context.Context, k tableKey) {
 	s := c.shardFor(k)
 	s.mu.Lock()
 	if e, ok := s.items[k]; ok {
 		e.pinned = false
+		s.evictOrDemoteLocked(ctx, nil)
 	}
 	s.mu.Unlock()
 }
