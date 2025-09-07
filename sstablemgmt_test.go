@@ -659,6 +659,48 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		require.Nil(t, ssts)
 	})
 
+	t.Run("Obsolete SSTable error propagates", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		good := ts.createSSTable(map[string]string{"a": "1"})
+		bad := ts.createSSTable(map[string]string{"b": "2"})
+		ts.AddSSTable(1, good)
+		ts.AddSSTable(1, bad)
+
+		numBad, err := fileNum(bad.Path())
+		require.NoError(t, err)
+		ts.Manager.cache.Delete(ctx, tableKey{FileNum: numBad})
+
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		require.ErrorIs(t, err, ErrObsolete)
+		require.Nil(t, ssts)
+	})
+
+	t.Run("Corrupt SSTable error propagates", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		good := ts.createSSTable(map[string]string{"a": "1"})
+		bad := ts.createSSTable(map[string]string{"b": "2"})
+		ts.AddSSTable(1, good)
+		ts.AddSSTable(1, bad)
+
+		numBad, err := fileNum(bad.Path())
+		require.NoError(t, err)
+		k := tableKey{FileNum: numBad}
+		s := ts.Manager.cache.shardFor(k)
+		s.mu.Lock()
+		s.corrupt[k] = time.Now().Add(time.Hour)
+		s.mu.Unlock()
+
+		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+		require.ErrorIs(t, err, ErrCorruption)
+		require.Nil(t, ssts)
+	})
+
 	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
