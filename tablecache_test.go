@@ -362,6 +362,46 @@ func TestTableCacheTombstoneExpiry(t *testing.T) {
 	require.EqualValues(t, 2, opens.Load())
 }
 
+func TestTableCacheDeleteClearsCorruptQuarantine(t *testing.T) {
+	ctx := context.Background()
+	var opens atomic.Int32
+	var verifies atomic.Int32
+	ttl := 100 * time.Millisecond
+	cache := newTestCache(t, tableCacheOptions{
+		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+			opens.Add(1)
+			return &SStable{}, nil
+		},
+		Verify: func(*SStable) error {
+			if verifies.Add(1) == 1 {
+				return ErrCorruption
+			}
+			return nil
+		},
+		CorruptTTL:   time.Hour,
+		TombstoneTTL: ttl,
+	})
+
+	k := tableKey{FileNum: 1}
+	_, err := cache.Get(ctx, k)
+	require.ErrorIs(t, err, ErrCorruption)
+	require.EqualValues(t, 1, opens.Load())
+
+	cache.Delete(ctx, k)
+
+	// Admission is blocked by tombstone.
+	_, err = cache.Get(ctx, k)
+	require.ErrorIs(t, err, ErrObsolete)
+	require.EqualValues(t, 1, opens.Load())
+
+	time.Sleep(ttl + time.Millisecond)
+
+	h, err := cache.Get(ctx, k)
+	require.NoError(t, err)
+	h.Unref()
+	require.EqualValues(t, 2, opens.Load())
+}
+
 func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
 	ctx := context.Background()
 	actuals := []int64{0, 5, -7}
