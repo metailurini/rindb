@@ -664,35 +664,25 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
 	maxSeq := getMaxSeq(seq...)
 
-	// Compaction may remove SSTables while a lookup is in progress. If we
-	// encounter a missing file, retry the search with a fresh view of the
-	// levels to pick up the replacement SSTables. A small retry budget keeps
-	// us from looping indefinitely in pathological cases.
-	const maxRetries = 2
-
-	for retries := 0; retries <= maxRetries; retries++ {
-		ssts, err := h.GetRelevantSSTables(ctx, key, key)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				// SSTable was removed, likely due to a concurrent compaction.
-				continue
-			}
+	ssts, err := h.GetRelevantSSTables(ctx, key, key)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrKeyNotFound
+		}
+		return nil, err
+	}
+	for _, entry := range ssts {
+		val, err := entry.Table.GetValue(ctx, key, maxSeq)
+		entry.Unref()
+		if err == nil {
+			return val, nil
+		}
+		if errors.Is(err, ErrTombstoneFound) {
+			return nil, ErrKeyNotFound
+		}
+		if !errors.Is(err, ErrKeyNotFound) {
 			return nil, err
 		}
-		for _, entry := range ssts {
-			val, err := entry.Table.GetValue(ctx, key, maxSeq)
-			entry.Unref()
-			if err == nil {
-				return val, nil
-			}
-			if errors.Is(err, ErrTombstoneFound) {
-				return nil, ErrKeyNotFound
-			}
-			if !errors.Is(err, ErrKeyNotFound) {
-				return nil, err
-			}
-		}
-		return nil, ErrKeyNotFound
 	}
 	return nil, ErrKeyNotFound
 }
