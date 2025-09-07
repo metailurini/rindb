@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path"
@@ -422,6 +423,31 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		result, err := ts.Manager.SearchKey(ctx, Bytes("absent-key"))
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 		assert.Nil(t, result)
+	})
+
+	t.Run("Propagates underlying error", func(t *testing.T) {
+		ctx := context.Background()
+		ts := newTestRindbSetup(t, ctx, &cfg)
+		defer ts.Cleanup()
+
+		key := Bytes("err-key")
+		value := Bytes("val")
+		sst := ts.createSSTable(map[string]string{string(key): string(value)})
+		ts.AddSSTable(0, sst)
+
+		rec := newRecord(key, value, 1)
+		offset := int64(CalOnDiskSize(rec)) - checksumSize
+		f, err := os.OpenFile(sst.Path(), os.O_WRONLY, 0)
+		require.NoError(t, err)
+		_, err = f.Seek(offset, io.SeekStart)
+		require.NoError(t, err)
+		_, err = f.Write([]byte{0, 0, 0, 0})
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		res, err := ts.Manager.SearchKey(ctx, key)
+		assert.Nil(t, res)
+		assert.True(t, errors.Is(err, ErrChecksumMismatch))
 	})
 
 	t.Run("Missing SSTable is not recreated", func(t *testing.T) {

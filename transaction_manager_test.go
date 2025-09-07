@@ -83,6 +83,49 @@ func TestBeginCopyCopyError(t *testing.T) {
 	require.Len(t, entries, 1)
 }
 
+func TestBeginCloseError(t *testing.T) {
+	fs := newTempFS(t)
+	// Close underlying file without updating fs to simulate close error
+	require.NoError(t, fs.file.Close())
+
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.Error(t, err)
+	require.Nil(t, txn)
+}
+
+func TestBeginShadowFSOpenError(t *testing.T) {
+	fs := newTempFS(t)
+	dir := filepath.Dir(fs.Path())
+	require.NoError(t, fs.Close())
+	require.NoError(t, os.RemoveAll(dir))
+
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.Error(t, err)
+	require.Nil(t, txn)
+}
+
+func TestBeginSrcCloseError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+
+	tmp, err := os.CreateTemp("", "src")
+	require.NoError(t, err)
+	require.NoError(t, tmp.Close())
+	defer os.Remove(tmp.Name())
+
+	origOpen := osOpen
+	origCopy := ioCopy
+	osOpen = func(string) (*os.File, error) { return tmp, nil }
+	ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, nil }
+	defer func() { osOpen = origOpen; ioCopy = origCopy }()
+
+	txn, err := tm.begin(context.Background(), fs)
+	require.Error(t, err)
+	require.Nil(t, txn)
+}
+
 func TestWriteAndCommit(t *testing.T) {
 	fs := newTempFS(t)
 	tm := newTransactionManager()
@@ -219,4 +262,126 @@ func TestTransactionCommitRollbackConcurrency(t *testing.T) {
 	val, err := mem.Get(Bytes("key"))
 	require.NoError(t, err)
 	require.Equal(t, Bytes("commit"), val)
+}
+
+func TestCommitSyncError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("sync fail")
+	origSync := fsSync
+	fsSync = func(*FileSystem) error { return wantErr }
+	defer func() { fsSync = origSync }()
+
+	err = txn.commit(context.Background())
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestCommitLogCloseError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("log close fail")
+	origSync := fsSync
+	origClose := fsClose
+	fsSync = func(*FileSystem) error { return nil }
+	fsClose = func(f *FileSystem) error {
+		if f == txn.log {
+			return wantErr
+		}
+		return origClose(f)
+	}
+	defer func() { fsSync = origSync; fsClose = origClose }()
+
+	err = txn.commit(context.Background())
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestCommitRenameError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("rename fail")
+	origRename := osRename
+	osRename = func(_, _ string) error { return wantErr }
+	defer func() { osRename = origRename }()
+
+	err = txn.commit(context.Background())
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestCommitTargetCloseError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("target close fail")
+	origClose := fsClose
+	fsClose = func(f *FileSystem) error {
+		if f == txn.target {
+			return wantErr
+		}
+		return origClose(f)
+	}
+	defer func() { fsClose = origClose }()
+
+	err = txn.commit(context.Background())
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestCommitOpenExistingError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("open existing fail")
+	origOpenExisting := fsOpenExisting
+	fsOpenExisting = func(*FileSystem, context.Context) error { return wantErr }
+	defer func() { fsOpenExisting = origOpenExisting }()
+
+	err = txn.commit(context.Background())
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestRollbackCloseError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("log close fail")
+	origClose := fsClose
+	fsClose = func(f *FileSystem) error {
+		if f == txn.log {
+			return wantErr
+		}
+		return origClose(f)
+	}
+	defer func() { fsClose = origClose }()
+
+	err = txn.rollback(context.Background())
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestRollbackRemoveError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	wantErr := errors.New("remove fail")
+	origRemove := osRemove
+	osRemove = func(string) error { return wantErr }
+	defer func() { osRemove = origRemove }()
+
+	err = txn.rollback(context.Background())
+	require.ErrorIs(t, err, wantErr)
 }
