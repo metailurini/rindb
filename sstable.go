@@ -262,13 +262,13 @@ func (s SStable) MaxSequenceNumber() (uint64, error) {
 func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SStable, fileMeta, error) {
 	ctx, span := sstableTracer.Start(ctx, "flush")
 	start := time.Now()
-	var written int
+	var written int64
 	var meta fileMeta
 	defer func() {
 		span.End()
 		flushLatency.Record(ctx, float64(time.Since(start).Milliseconds()))
 		if written > 0 {
-			flushIOSize.Add(ctx, int64(written))
+			flushIOSize.Add(ctx, written)
 		}
 	}()
 

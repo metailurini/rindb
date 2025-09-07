@@ -113,10 +113,9 @@ func TestSSTableBuilder(t *testing.T) {
 
 		_, _, written, err := builder.Build(ctx)
 		assert.NoError(t, err)
-
 		info, err := os.Stat(fs.Path())
 		assert.NoError(t, err)
-		assert.Equal(t, int64(written), info.Size())
+		assert.Equal(t, written, info.Size())
 	})
 
 	t.Run("Errors", func(t *testing.T) {

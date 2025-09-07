@@ -106,7 +106,7 @@ func (b *SSTableBuilder) Add(rec Record) error {
 	return nil
 }
 
-func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta, written int, err error) {
+func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta, written int64, err error) {
 	if len(b.index) == 0 {
 		return SStable{}, fileMeta{}, 0, fmt.Errorf("no records to build")
 	}
@@ -147,7 +147,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 		err = fmt.Errorf("failed to write sparse index offset: %w", err)
 		return
 	}
-	written = int(b.tx.size())
+	written = b.tx.size()
 	if err = b.tx.commit(ctx); err != nil {
 		err = fmt.Errorf("failed to commit transaction: %w", err)
 		return
