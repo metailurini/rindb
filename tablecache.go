@@ -377,6 +377,7 @@ func (c *tableCache) Delete(ctx context.Context, k tableKey) {
 		ttl = defaultCacheQuarantineTTL
 	}
 	s.tombstone[k] = time.Now().Add(ttl)
+	delete(s.corrupt, k)
 	if e, ok := s.items[k]; ok {
 		e.entry.evictWhenZero.Store(true)
 		s.unlink(e) // remove from SLRU
