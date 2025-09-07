@@ -59,6 +59,35 @@ func TestTableCacheHitMiss(t *testing.T) {
 	require.EqualValues(t, 1, st.Hits)
 }
 
+func TestTableCacheTryGetStats(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{})
+
+	k1 := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h.Unref()
+
+	st := cache.Stats()
+	require.EqualValues(t, 1, st.Misses)
+	require.EqualValues(t, 0, st.Hits)
+
+	h, ok := cache.TryGet(ctx, k1)
+	require.True(t, ok)
+	h.Unref()
+
+	st = cache.Stats()
+	require.EqualValues(t, 1, st.Misses)
+	require.EqualValues(t, 1, st.Hits)
+
+	_, ok = cache.TryGet(ctx, tableKey{FileNum: 2})
+	require.False(t, ok)
+
+	st = cache.Stats()
+	require.EqualValues(t, 2, st.Misses)
+	require.EqualValues(t, 1, st.Hits)
+}
+
 func TestTableCacheEviction(t *testing.T) {
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
@@ -244,7 +273,7 @@ func TestTableCachePinnedOverCapacity(t *testing.T) {
 
 	st := cache.Stats()
 	require.EqualValues(t, 2, st.Hits)
-	require.EqualValues(t, 3, st.Misses)
+	require.EqualValues(t, 4, st.Misses)
 	require.EqualValues(t, 1, st.Evicts)
 	require.EqualValues(t, 1, st.Closes)
 }
