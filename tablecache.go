@@ -171,6 +171,8 @@ func (c *tableCache) TryGet(ctx context.Context, k tableKey) (entry *TableCacheE
 		cacheHits.Add(ctx, 1)
 		return e.entry, true
 	}
+	s.misses.Add(1)
+	cacheMisses.Add(ctx, 1)
 	return nil, false
 }
 
