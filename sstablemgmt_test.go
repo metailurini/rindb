@@ -659,47 +659,54 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		require.Nil(t, ssts)
 	})
 
-	t.Run("Obsolete SSTable error propagates", func(t *testing.T) {
-		ctx := context.Background()
-		ts := newTestRindbSetup(t, ctx, &cfg)
-		defer ts.Cleanup()
+	testCases := []struct {
+		name      string
+		setupBad  func(t *testing.T, ts *testRindbSetup, badSST *SStable)
+		expectErr error
+	}{
+		{
+			name: "Obsolete SSTable error propagates",
+			setupBad: func(t *testing.T, ts *testRindbSetup, badSST *SStable) {
+				ctx := context.Background()
+				numBad, err := fileNum(badSST.Path())
+				require.NoError(t, err)
+				ts.Manager.cache.Delete(ctx, tableKey{FileNum: numBad})
+			},
+			expectErr: ErrObsolete,
+		},
+		{
+			name: "Corrupt SSTable error propagates",
+			setupBad: func(t *testing.T, ts *testRindbSetup, badSST *SStable) {
+				numBad, err := fileNum(badSST.Path())
+				require.NoError(t, err)
+				k := tableKey{FileNum: numBad}
+				s := ts.Manager.cache.shardFor(k)
+				s.mu.Lock()
+				s.corrupt[k] = time.Now().Add(time.Hour)
+				s.mu.Unlock()
+			},
+			expectErr: ErrCorruption,
+		},
+	}
 
-		good := ts.createSSTable(map[string]string{"a": "1"})
-		bad := ts.createSSTable(map[string]string{"b": "2"})
-		ts.AddSSTable(1, good)
-		ts.AddSSTable(1, bad)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			ts := newTestRindbSetup(t, ctx, &cfg)
+			defer ts.Cleanup()
 
-		numBad, err := fileNum(bad.Path())
-		require.NoError(t, err)
-		ts.Manager.cache.Delete(ctx, tableKey{FileNum: numBad})
+			good := ts.createSSTable(map[string]string{"a": "1"})
+			bad := ts.createSSTable(map[string]string{"b": "2"})
+			ts.AddSSTable(1, good)
+			ts.AddSSTable(1, bad)
 
-		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
-		require.ErrorIs(t, err, ErrObsolete)
-		require.Nil(t, ssts)
-	})
+			tc.setupBad(t, ts, bad)
 
-	t.Run("Corrupt SSTable error propagates", func(t *testing.T) {
-		ctx := context.Background()
-		ts := newTestRindbSetup(t, ctx, &cfg)
-		defer ts.Cleanup()
-
-		good := ts.createSSTable(map[string]string{"a": "1"})
-		bad := ts.createSSTable(map[string]string{"b": "2"})
-		ts.AddSSTable(1, good)
-		ts.AddSSTable(1, bad)
-
-		numBad, err := fileNum(bad.Path())
-		require.NoError(t, err)
-		k := tableKey{FileNum: numBad}
-		s := ts.Manager.cache.shardFor(k)
-		s.mu.Lock()
-		s.corrupt[k] = time.Now().Add(time.Hour)
-		s.mu.Unlock()
-
-		ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
-		require.ErrorIs(t, err, ErrCorruption)
-		require.Nil(t, ssts)
-	})
+			ssts, err := ts.Manager.GetRelevantSSTables(ctx, Bytes("a"), Bytes("z"))
+			require.ErrorIs(t, err, tc.expectErr)
+			require.Nil(t, ssts)
+		})
+	}
 
 	t.Run("Mixed levels with overlapping and non-overlapping", func(t *testing.T) {
 		ctx := context.Background()
