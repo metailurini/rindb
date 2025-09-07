@@ -80,8 +80,8 @@ type TableCacheEntry struct {
 	logicalBytes int64
 	actualBytes  int64
 
-	closer  func(*SStable) error // injected from tableCacheOptions.Close
-	onClose func()               // shard hook (metrics)
+	closer  func(*SStable) error   // injected from tableCacheOptions.Close
+	onClose atomic.Pointer[func()] // shard hook (metrics)
 }
 
 // Pin increments the refcount.
@@ -93,8 +93,8 @@ func (e *TableCacheEntry) Unref() {
 	if e.refs.Add(-1) == 0 && e.evictWhenZero.Load() {
 		if e.closed.CompareAndSwap(false, true) {
 			_ = e.closer(e.Table)
-			if e.onClose != nil {
-				e.onClose()
+			if f := e.onClose.Load(); f != nil {
+				(*f)()
 			}
 		}
 	}
@@ -341,10 +341,11 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*TableCacheEntry, err
 
 	e := &entry{key: k, entry: ce, seg: segProbation}
 	// hook: when entry closes via Unref path, count closes
-	ce.onClose = func() {
+	fn := func() {
 		s.closes.Add(1)
 		cacheCloses.Add(ctx, 1)
 	}
+	ce.onClose.Store(&fn)
 
 	e.elem = s.prob.PushFront(e)
 	s.items[k] = e
@@ -461,14 +462,27 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(len(busy))
 	for _, entry := range busy {
-		orig := entry.onClose
-		entry.onClose = func() {
-			if orig != nil {
-				orig()
+		wg.Add(1)
+		prev := entry.onClose.Load()
+		var once sync.Once
+		wrapper := func() {
+			if prev != nil {
+				(*prev)()
 			}
-			wg.Done()
+			once.Do(func() { wg.Done() })
+		}
+		for !entry.onClose.CompareAndSwap(prev, &wrapper) {
+			prev = entry.onClose.Load()
+			wrapper = func() {
+				if prev != nil {
+					(*prev)()
+				}
+				once.Do(func() { wg.Done() })
+			}
+		}
+		if entry.closed.Load() {
+			once.Do(func() { wg.Done() })
 		}
 	}
 
