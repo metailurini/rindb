@@ -487,14 +487,12 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		}
 	}()
 
-	sources := make([]SStable, 0, len(inputs))
 	for _, fm := range inputs {
 		entry, err := h.openByNumber(ctx, fm.Number)
 		if err != nil {
 			return err
 		}
 		entries = append(entries, entry)
-		sources = append(sources, *entry.Table)
 	}
 
 	newFS, err := h.newSSTableFS(ctx)
@@ -512,7 +510,7 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		}
 	}
 
-	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, sources, bottom, h.minSnapshotSeq)
+	merged, meta, err := mergeSSTablesV2(ctx, h.config, newFS, entries, bottom, h.minSnapshotSeq)
 	if err != nil || merged == nil {
 		_ = newFS.Close()
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
@@ -697,14 +695,14 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 	return nil, ErrKeyNotFound
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []SStable, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []*TableCacheEntry, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
 	if len(sources) == 0 {
 		return nil, fileMeta{}, nil
 	}
 
 	iterators := make([]Iterator[Record], 0, len(sources))
-	for _, sstable := range sources {
-		iter, err := sstable.Iterator()
+	for _, entry := range sources {
+		iter, err := entry.Table.Iterator()
 		if err != nil {
 			return nil, fileMeta{}, err
 		}
@@ -722,8 +720,8 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 	}()
 
 	expected := 0
-	for _, sstable := range sources {
-		expected += len(sstable.SparseIndex)
+	for _, entry := range sources {
+		expected += len(entry.Table.SparseIndex)
 	}
 
 	builder, err := NewSSTableBuilder(ctx, config, target, expected)
