@@ -79,6 +79,32 @@ func (s *shard) isTombstoned(k tableKey) bool {
 	return false
 }
 
+// getEntryLocked finds an entry in the cache, handling tombstones, corruption,
+// and closed entries. It must be called with s.mu held.
+func (s *shard) getEntryLocked(k tableKey) (*entry, error) {
+	if s.isTombstoned(k) {
+		return nil, ErrObsolete
+	}
+	if exp, bad := s.corrupt[k]; bad {
+		if time.Now().Before(exp) {
+			return nil, ErrCorruption
+		}
+		delete(s.corrupt, k)
+	}
+	e, ok := s.items[k]
+	if !ok {
+		return nil, nil
+	}
+	if e.entry.closed.Load() {
+		s.unlink(e)
+		delete(s.items, k)
+		s.usedBytes -= e.entry.actualBytes
+		s.parent.totalBytes.Add(-e.entry.actualBytes)
+		return nil, nil
+	}
+	return e, nil
+}
+
 func (s *shard) promoteOnHit(ctx context.Context, e *entry) {
 	switch e.seg {
 	case segProbation:

@@ -164,28 +164,12 @@ func (c *tableCache) TryGet(ctx context.Context, k tableKey) (entry *TableCacheE
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.isTombstoned(k) {
-		return nil, false
-	}
-	if exp, bad := s.corrupt[k]; bad {
-		if time.Now().Before(exp) {
-			return nil, false
-		}
-		delete(s.corrupt, k)
-	}
-	if e, ok := s.items[k]; ok {
-		if e.entry.closed.Load() {
-			s.unlink(e)
-			delete(s.items, k)
-			s.usedBytes -= e.entry.actualBytes
-			c.totalBytes.Add(-e.entry.actualBytes)
-		} else {
-			e.entry.Pin()
-			s.promoteOnHit(ctx, e)
-			s.hits.Add(1)
-			cacheHits.Add(ctx, 1)
-			return e.entry, true
-		}
+	if e, _ := s.getEntryLocked(k); e != nil {
+		e.entry.Pin()
+		s.promoteOnHit(ctx, e)
+		s.hits.Add(1)
+		cacheHits.Add(ctx, 1)
+		return e.entry, true
 	}
 	return nil, false
 }
@@ -196,27 +180,8 @@ func (c *tableCache) TryRef(ctx context.Context, k tableKey) bool {
 	s := c.shardFor(k)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if s.isTombstoned(k) {
-		return false
-	}
-	if exp, bad := s.corrupt[k]; bad {
-		if time.Now().Before(exp) {
-			return false
-		}
-		delete(s.corrupt, k)
-	}
-	if e, ok := s.items[k]; ok {
-		if e.entry.closed.Load() {
-			s.unlink(e)
-			delete(s.items, k)
-			s.usedBytes -= e.entry.actualBytes
-			c.totalBytes.Add(-e.entry.actualBytes)
-			return false
-		}
-		return true
-	}
-	return false
+	e, _ := s.getEntryLocked(k)
+	return e != nil
 }
 
 // Get returns a pinned TableCacheEntry; caller MUST Unref() when done.
@@ -232,34 +197,18 @@ func (c *tableCache) Get(ctx context.Context, k tableKey) (*TableCacheEntry, err
 
 	// Fast path: map hit
 	s.mu.Lock()
-	// deny install if tombstoned (obsolete)
-	if s.isTombstoned(k) {
+	ent, lookupErr := s.getEntryLocked(k)
+	if lookupErr != nil {
 		s.mu.Unlock()
-		return nil, ErrObsolete
+		return nil, lookupErr
 	}
-	// deny if quarantined for corruption
-	if exp, bad := s.corrupt[k]; bad {
-		if time.Now().Before(exp) {
-			s.mu.Unlock()
-			return nil, ErrCorruption
-		}
-		// expired quarantine — drop it
-		delete(s.corrupt, k)
-	}
-	if e, ok := s.items[k]; ok {
-		if e.entry.closed.Load() {
-			s.unlink(e)
-			delete(s.items, k)
-			s.usedBytes -= e.entry.actualBytes
-			c.totalBytes.Add(-e.entry.actualBytes)
-		} else {
-			e.entry.Pin()
-			s.promoteOnHit(ctx, e)
-			s.hits.Add(1)
-			cacheHits.Add(ctx, 1)
-			s.mu.Unlock()
-			return e.entry, nil
-		}
+	if ent != nil {
+		ent.entry.Pin()
+		s.promoteOnHit(ctx, ent)
+		s.hits.Add(1)
+		cacheHits.Add(ctx, 1)
+		s.mu.Unlock()
+		return ent.entry, nil
 	}
 	s.mu.Unlock()
 
