@@ -1,7 +1,7 @@
 export GOTOOLCHAIN ?= go1.25.0
 GO = go
 UNAME_S := $(shell uname -s)
-PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd$$' -e '/cmd/' -e '/fuzzing/')
+PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd$$' -e '/cmd/' -e '/fuzzing')
 
 check:
 	@$(MAKE) check-spanname

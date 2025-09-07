@@ -20,6 +20,8 @@ const (
 	OpSnap
 )
 
+const OpInvariantCheck OpKind = 255
+
 // Op models a single fuzzing operation.
 type Op struct {
 	Kind    OpKind
@@ -209,7 +211,7 @@ func (h *Harness) run(r *rand.Rand, cfg Cfg, n int) error {
 			return err
 		}
 		if err := h.checkInvariants(r, cfg); err != nil {
-			return h.fail(h.ops, Op{Kind: 255}, err)
+			return h.fail(h.ops, Op{Kind: OpInvariantCheck}, err)
 		}
 		if cfg.TelemetryEvery > 0 && h.telemetry != nil && h.ops%cfg.TelemetryEvery == 0 {
 			h.telemetry(h.Seq, h.ops)
@@ -229,12 +231,8 @@ func (h *Harness) Run(cfg Cfg, n int) error {
 	return h.run(r, cfg, n)
 }
 
-func (h *Harness) runForever(cfg Cfg) error {
-	return h.Run(cfg, -1)
-}
-
 // RunForever starts the fuzz loop and never returns unless an error occurs.
-func (h *Harness) RunForever(cfg Cfg) error { return h.runForever(cfg) }
+func (h *Harness) RunForever(cfg Cfg) error { return h.Run(cfg, -1) }
 
 func (h *Harness) fail(i int, op Op, cause error) error {
 	_ = h.log.Sync()
@@ -242,7 +240,7 @@ func (h *Harness) fail(i int, op Op, cause error) error {
 }
 
 func (h *Harness) mismatch(i int, op Op, mv []byte, mok bool, sv []byte, sok bool) error {
-	return h.fail(i, op, fmt.Errorf("mismatch my=%v ref=%v", mok, sok))
+	return h.fail(i, op, fmt.Errorf("mismatch: my=(ok=%v, val=%q) ref=(ok=%v, val=%q)", mok, mv, sok, sv))
 }
 
 func compareKVLists(a, b []KV) error {

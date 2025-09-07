@@ -49,6 +49,7 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(dir)
 	dbDir := filepath.Join(dir, "db")
 	refPath := filepath.Join(dir, "ref.db")
 	db, err := rindb.InitRinDB(context.Background(), append([]rindb.Option{rindb.WithDatabaseDir(dbDir)}, opts...)...)
@@ -64,9 +65,11 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 	if err != nil {
 		return err
 	}
-	defer h.Close()
-	defer eng.Close()
-	defer ref.Close()
+	defer func() {
+		_ = h.Close()
+		_ = eng.Close()
+		_ = ref.Close()
+	}()
 
 	cfg := fuzzing.Cfg{
 		KeyLen:    4,
