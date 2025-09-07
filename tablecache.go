@@ -421,7 +421,6 @@ func (c *tableCache) Close(ctx context.Context, drainTimeout time.Duration) erro
 	for _, s := range c.shards {
 		s.mu.Lock()
 		for k, e := range s.items {
-			_ = k // keep for clarity; we drop the map entry
 			e.entry.evictWhenZero.Store(true)
 			s.unlink(e)
 			delete(s.items, k)
@@ -522,6 +521,21 @@ func (c *tableCache) Stats() tableCacheStats {
 	return st
 }
 
+/*
+nextPow2 returns the next power of two >= x, or x if it's already a power of two.
+
+| Input (`x`) | Output | Explanation                                |
+| ----------- | ------ | ------------------------------------------ |
+| 0           | 1      | The smallest power of 2 is 1.              |
+| 1           | 1      | 1 is 2⁰, which is a power of 2.            |
+| 2           | 2      | 2 is 2¹, which is a power of 2.            |
+| 3           | 4      | The next power of 2 after 3 is 4 (2²).     |
+| 7           | 8      | The next power of 2 after 7 is 8 (2³).     |
+| 8           | 8      | 8 is 2³, which is a power of 2.            |
+| 15          | 16     | The next power of 2 after 15 is 16 (2⁴).   |
+| 17          | 32     | The next power of 2 after 17 is 32 (2⁵).   |
+| 100         | 128    | The next power of 2 after 100 is 128 (2⁷). |
+*/
 func nextPow2(x uint64) int {
 	if x <= 1 {
 		return 1
