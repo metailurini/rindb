@@ -225,15 +225,33 @@ func (c *TableCache) TryGet(ctx context.Context, k tableKey) (h *TableCacheEntry
 	return nil, false
 }
 
-// TryRef returns true if the key is present in the cache.
-// It briefly pins the handle to promote the entry and immediately unrefs it,
-// so no reference is retained on success.
+// TryRef returns true if the key is resident in the cache without updating
+// hit/miss counters or promoting the entry.
 func (c *TableCache) TryRef(ctx context.Context, k tableKey) bool {
-	h, ok := c.TryGet(ctx, k)
-	if ok {
-		h.Unref()
+	s := c.shardFor(k)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.isTombstoned(k) {
+		return false
 	}
-	return ok
+	if exp, bad := s.corrupt[k]; bad {
+		if time.Now().Before(exp) {
+			return false
+		}
+		delete(s.corrupt, k)
+	}
+	if e, ok := s.items[k]; ok {
+		if e.h.closed.Load() {
+			s.unlink(e)
+			delete(s.items, k)
+			s.usedBytes -= e.h.actualBytes
+			c.totalBytes.Add(-e.h.actualBytes)
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 // Get returns a pinned handle; caller MUST Unref() when done.

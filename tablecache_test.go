@@ -44,12 +44,17 @@ func TestTableCacheHitMiss(t *testing.T) {
 	require.NoError(t, err)
 	h.Unref()
 
+	require.True(t, cache.TryRef(ctx, key))
+	st := cache.Stats()
+	require.EqualValues(t, 1, st.Misses)
+	require.EqualValues(t, 0, st.Hits)
+
 	h, err = cache.Get(ctx, key)
 	require.NoError(t, err)
 	h.Unref()
 
 	require.EqualValues(t, 1, opens.Load())
-	st := cache.Stats()
+	st = cache.Stats()
 	require.EqualValues(t, 1, st.Misses)
 	require.EqualValues(t, 1, st.Hits)
 }
