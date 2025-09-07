@@ -100,6 +100,30 @@ func TestWAL_Clean(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestWAL_AppendCommitFailure(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	w := NewWAL(cfg, fs)
+	w.txCommit = func(tx *transaction, ctx context.Context) error { return errors.New("commit fail") }
+
+	err := w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1))
+	require.Error(t, err)
+
+	data, err := os.ReadFile(fs.Path())
+	require.NoError(t, err)
+	require.Len(t, data, 0)
+
+	entries, err := os.ReadDir(cfg.databaseDir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.NotContains(t, e.Name(), "txn-")
+	}
+}
+
 func TestWAL_CleanErrors(t *testing.T) {
 	cfg := testConfig()
 

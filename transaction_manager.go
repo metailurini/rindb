@@ -11,7 +11,11 @@ import (
 	"sync/atomic"
 )
 
-var globalTxnID atomic.Uint64
+var (
+	globalTxnID atomic.Uint64
+	osOpen      = os.Open
+	ioCopy      = io.Copy
+)
 
 // transactionManager manages transactions with a mutex for safe creation.
 type transactionManager struct {
@@ -46,8 +50,8 @@ func (tm *transactionManager) begin(fs *FileSystem) (*transaction, error) {
 		return nil, err
 	}
 
-	if src, err := os.Open(path); err == nil {
-		if _, err := io.Copy(shadowFS, src); err != nil {
+	if src, err := osOpen(path); err == nil {
+		if _, err := ioCopy(shadowFS, src); err != nil {
 			_ = shadowFS.Close()
 			_ = os.Remove(shadowPath)
 			_ = src.Close()

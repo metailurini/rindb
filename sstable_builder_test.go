@@ -3,6 +3,7 @@ package rindb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -173,5 +174,30 @@ func TestSSTableBuilder(t *testing.T) {
 		require.Equal(t, int64(0), info.Size())
 
 		require.NoError(t, fs.Close())
+	})
+
+	t.Run("CommitFailure", func(t *testing.T) {
+		ctx := context.Background()
+		cfg := testConfig()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+
+		builder, err := NewSSTableBuilder(ctx, cfg, fs, 1)
+		require.NoError(t, err)
+		require.NoError(t, builder.Add(newRecord(Bytes("a"), Bytes("1"), 1)))
+
+		builder.commit = func(tx *transaction, ctx context.Context) error {
+			return errors.New("commit fail")
+		}
+
+		_, _, _, err = builder.Build(ctx)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "commit fail")
+		require.NoError(t, builder.Close(ctx))
+
+		info, err := os.Stat(fs.Path())
+		require.NoError(t, err)
+		require.Equal(t, int64(0), info.Size())
 	})
 }

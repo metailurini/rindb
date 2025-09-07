@@ -2,6 +2,8 @@ package rindb
 
 import (
 	"context"
+	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -34,6 +36,51 @@ func TestBeginCopiesExistingData(t *testing.T) {
 	data, err := os.ReadFile(txn.log.Path())
 	require.NoError(t, err)
 	require.Equal(t, []byte("old"), data)
+
+	_, err = txn.write([]byte("new"))
+	require.NoError(t, err)
+	require.NoError(t, txn.commit(context.Background()))
+
+	final, err := os.ReadFile(fs.Path())
+	require.NoError(t, err)
+	require.Equal(t, []byte("oldnew"), final)
+}
+
+func TestBeginCopyOpenError(t *testing.T) {
+	fs := newTempFS(t)
+	require.NoError(t, fs.Close())
+	tm := newTransactionManager()
+
+	wantErr := errors.New("open fail")
+	origOpen := osOpen
+	osOpen = func(string) (*os.File, error) { return nil, wantErr }
+	defer func() { osOpen = origOpen }()
+
+	txn, err := tm.begin(fs)
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, txn)
+
+	entries, err := os.ReadDir(filepath.Dir(fs.Path()))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+}
+
+func TestBeginCopyCopyError(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+
+	wantErr := errors.New("copy fail")
+	origCopy := ioCopy
+	ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, wantErr }
+	defer func() { ioCopy = origCopy }()
+
+	txn, err := tm.begin(fs)
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, txn)
+
+	entries, err := os.ReadDir(filepath.Dir(fs.Path()))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 func TestWriteAndCommit(t *testing.T) {
