@@ -83,6 +83,13 @@ Close() error
 
 ## SQLite Oracle (Go Adapter)
 
+The harness needs an oracle that mirrors the `Engine` interface but accepts
+explicit sequence numbers. Implement at least the following helpers:
+
+* `PutWithSeq(k, v, seq)` and `DelWithSeq(k, seq)` – append writes.
+* `GetWithSeq(k, snap) ([]byte, bool, error)` – read latest visible value.
+* `RangeWithSeq(lo, hi, snap, limit) ([]KV, error)` – range query at a snapshot.
+
 ```go
 // sqlite_oracle.go
 package fuzzing
@@ -119,7 +126,8 @@ _, err := o.db.Exec(`INSERT INTO kv(user_key, seq, val) VALUES(?, ?, NULL)`, k, 
 return err
 }
 
-func (o *SQLiteOracle) GetAt(k []byte, snap uint64) ([]byte, bool, error) {
+// GetWithSeq returns the latest visible value for k at snapshot snap.
+func (o *SQLiteOracle) GetWithSeq(k []byte, snap uint64) ([]byte, bool, error) {
 row := o.db.QueryRow(`SELECT val FROM kv WHERE user_key=? AND seq<=? ORDER BY seq DESC LIMIT 1`, k, snap)
 var val []byte
 if err := row.Scan(&val); err != nil {
@@ -130,20 +138,22 @@ if val == nil { return nil, false, nil } // tombstone
 return val, true, nil
 }
 
-func (o *SQLiteOracle) RangeAt(lo, hi []byte, snap uint64, limit int) ([]KV, error) {
+// RangeWithSeq emits the first non-tombstoned version for each key in [lo,hi).
+func (o *SQLiteOracle) RangeWithSeq(lo, hi []byte, snap uint64, limit int) ([]KV, error) {
 q := `
-WITH candidates AS (
-  SELECT user_key, seq, val
+WITH ranked_kv AS (
+  SELECT
+    user_key,
+    val,
+    ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY seq DESC) AS rn
   FROM kv
   WHERE user_key >= ? AND user_key < ? AND seq <= ?
-),
-latest AS (
-  SELECT user_key,
-         FIRST_VALUE(val) OVER (PARTITION BY user_key ORDER BY seq DESC) AS val
-  FROM candidates
-  GROUP BY user_key, seq, val
 )
-SELECT user_key, val FROM latest WHERE val IS NOT NULL ORDER BY user_key LIMIT ?;
+SELECT user_key, val
+FROM ranked_kv
+WHERE rn = 1 AND val IS NOT NULL
+ORDER BY user_key
+LIMIT ?;
 `
 rows, err := o.db.Query(q, lo, hi, snap, limit)
 if err != nil { return nil, err }
@@ -198,7 +208,7 @@ return nil
 }
 
 func (r *RinDB) Get(k []byte, snapshot uint64) ([]byte, bool, error) {
-// If your API is Get(k) and GetAt(k, snap), use the right one.
+// If your API has both Get(k) and GetAt/GetWithSeq variants, use the right one.
 // Implement snapshot mapping as needed.
 return nil, false, nil
 }
@@ -232,8 +242,8 @@ return nil, nil
 package fuzzing
 
 import (
+"bytes"
 cryptoRand "crypto/rand"
-"encoding/hex"
 "encoding/json"
 "errors"
 "fmt"
@@ -317,13 +327,13 @@ case OpGet:
 S := h.pickSnapshot(r)
 return Op{Kind: OpGet, K: randKey(r, cfg.KeyLen), SnapSeq: S}
 case OpRange:
-lo := randKey(r, cfg.KeyLen)
-hi := make([]byte, len(lo))
-copy(hi, lo)
-// ensure hi > lo (simple last byte bump)
-hi[len(hi)-1]++
-S := h.pickSnapshot(r)
-return Op{Kind: OpRange, Lo: lo, Hi: hi, SnapSeq: S, Limit: 1000}
+    lo := randKey(r, cfg.KeyLen)
+    hi := randKey(r, cfg.KeyLen)
+    for bytes.Compare(hi, lo) <= 0 {
+        hi = randKey(r, cfg.KeyLen)
+    }
+    S := h.pickSnapshot(r)
+    return Op{Kind: OpRange, Lo: lo, Hi: hi, SnapSeq: S, Limit: 1000}
 case OpSnap:
 return Op{Kind: OpSnap}
 default:
@@ -366,21 +376,21 @@ h.Seq++
 if err := h.My.Delete(op.K); err != nil { return h.fail(i, op, err) }
 if err := h.Ref.DelWithSeq(op.K, h.Seq); err != nil { return h.fail(i, op, err) }
 case OpGet:
-mv, mok, me := h.My.Get(op.K, op.SnapSeq)
-if me != nil { return h.fail(i, op, me) }
-sv, sok, se := h.Ref.GetAt(op.K, op.SnapSeq)
-if se != nil { return h.fail(i, op, se) }
-if mok != sok || !equal(mv, sv) {
-return h.mismatch(i, op, mv, mok, sv, sok)
-}
+    mv, mok, me := h.My.Get(op.K, op.SnapSeq)
+    if me != nil { return h.fail(i, op, me) }
+    sv, sok, se := h.Ref.GetWithSeq(op.K, op.SnapSeq)
+    if se != nil { return h.fail(i, op, se) }
+    if mok != sok || !equal(mv, sv) {
+        return h.mismatch(i, op, mv, mok, sv, sok)
+    }
 case OpRange:
-mres, me := h.My.Range(op.Lo, op.Hi, op.SnapSeq, op.Limit)
-if me != nil { return h.fail(i, op, me) }
-sres, se := h.Ref.RangeAt(op.Lo, op.Hi, op.SnapSeq, op.Limit)
-if se != nil { return h.fail(i, op, se) }
-if err := compareKVLists(mres, sres); err != nil {
-return h.fail(i, op, err)
-}
+    mres, me := h.My.Range(op.Lo, op.Hi, op.SnapSeq, op.Limit)
+    if me != nil { return h.fail(i, op, me) }
+    sres, se := h.Ref.RangeWithSeq(op.Lo, op.Hi, op.SnapSeq, op.Limit)
+    if se != nil { return h.fail(i, op, se) }
+    if err := compareKVLists(mres, sres); err != nil {
+        return h.fail(i, op, err)
+    }
 case OpSnap:
 // Freeze current seq as a new snapshot
 h.Snapshots = append(h.Snapshots, h.Seq)
@@ -397,46 +407,14 @@ return h.fail(i, Op{Kind: 255}, err)
 }
 }
 
-func (h *Harness) checkInvariants() error {
-// Spot-check monotonicity across two random snapshots
-if len(h.Snapshots) < 2 { return nil }
-S1, S2 := h.Snapshots[len(h.Snapshots)/3], h.Snapshots[len(h.Snapshots)-1]
-if S1 > S2 { S1, S2 = S2, S1 }
-
-// Sample random keys to ensure monotonic reads (if visible at S1, at S2 value is same or newer).
-// This requires access to underlying iteration; keep it simple or skip if heavy.
-return nil
-}
-
-func equal(a, b []byte) bool {
-if len(a) != len(b) { return false }
-for i := range a { if a[i] != b[i] { return false } }
-return true
-}
-
-func compareKVLists(a, b []KV) error {
-if len(a) != len(b) {
-return fmt.Errorf("len mismatch: got=%d want=%d", len(a), len(b))
-}
-for i := range a {
-if !equal(a[i].K, b[i].K) || !equal(a[i].V, b[i].V) {
-return fmt.Errorf("kv[%d] mismatch: got=(%s,%s) want=(%s,%s)",
-i, hex.EncodeToString(a[i].K), hex.EncodeToString(a[i].V),
-hex.EncodeToString(b[i].K), hex.EncodeToString(b[i].V))
-}
-}
-return nil
-}
-
+// Helper stubs referenced above; fill in as needed.
+func (h *Harness) fail(i int, op Op, cause error) error { /* flush log & wrap error */ }
 func (h *Harness) mismatch(i int, op Op, mv []byte, mok bool, sv []byte, sok bool) error {
-return h.fail(i, op, fmt.Errorf(
-"GET mismatch mok=%v sok=%v mv=%x sv=%x", mok, sok, mv, sv))
+    /* convenience wrapper around fail for mismatched reads */
 }
-
-func (h *Harness) fail(i int, op Op, cause error) error {
-_ = h.LogFile.Sync()
-return fmt.Errorf("fuzz fail at i=%d seq=%d kind=%d: %w", i, h.Seq, op.Kind, cause)
-}
+func compareKVLists(a, b []KV) error { /* compare lengths and each KV pair */ }
+func (h *Harness) checkInvariants() error { /* periodic consistency checks */ }
+func equal(a, b []byte) bool { /* byte-wise equality */ return bytes.Equal(a, b) }
 ```
 
 ---
@@ -616,5 +594,5 @@ go run ./cmd/rindb-fuzz -seed=$$SEED -log=repro-$$SEED.jsonl
 ## Testing Notes
 
 - The fuzz harness lives under `fuzzing/` and is intended solely for differential testing. All harness files reside directly in the `fuzzing` package with no subpackages.
-- Coverage reports ignore `fuzzing` packages to keep metrics focused on core packages.
+- Coverage and unit-test runs that generate coverage data ignore `fuzzing` to keep metrics focused on core packages.
 
