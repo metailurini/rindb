@@ -439,11 +439,11 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		offset := int64(CalOnDiskSize(rec)) - checksumSize
 		f, err := os.OpenFile(sst.Path(), os.O_WRONLY, 0)
 		require.NoError(t, err)
+		defer func() { _ = f.Close() }()
 		_, err = f.Seek(offset, io.SeekStart)
 		require.NoError(t, err)
 		_, err = f.Write([]byte{0, 0, 0, 0})
 		require.NoError(t, err)
-		require.NoError(t, f.Close())
 
 		res, err := ts.Manager.SearchKey(ctx, key)
 		assert.Nil(t, res)
