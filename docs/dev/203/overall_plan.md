@@ -11,6 +11,13 @@ This doc gives you a ready-to-run framework to **continuously** compare your LSM
 * Produce **reproducible** failure logs (seed + op log) and **shrinkable** repros.
 * Run **forever** (or until error) with periodic invariant checks.
 
+## Implementation Steps
+
+1. Set up a harness and shared `Engine` interface that logs every operation and tracks snapshots with a global sequence counter.
+2. Implement a SQLite-backed oracle that mirrors the `Engine` interface but accepts explicit sequence numbers for writes and reads.
+3. Drive both engines with randomized `Put`, `Delete`, `Get`, and `Range` operations, comparing results and running invariant checks on each step.
+4. Extend the harness with metamorphic configuration runs, crash/recovery hooks, and telemetry to expose long‑run correctness issues.
+
 ---
 
 ## Behavioral Model & Assumptions
@@ -67,13 +74,15 @@ SELECT COALESCE(MAX(seq), 0) AS max_seq FROM kv;
 // engine.go — your DB + the oracle adapters share this shape
 package fuzzing
 
+import "context"
+
 type KV struct{ K, V []byte }
 
 type Engine interface {
-Put(k, v []byte) error                     // latest write; engine tags with seq internally
-Delete(k []byte) error                     // tombstone
-Get(k []byte, snapshot uint64) ([]byte, bool, error)
-Range(lo, hi []byte, snapshot uint64, limit int) ([]KV, error)
+Put(ctx context.Context, k, v []byte) error // latest write; engine tags with seq internally
+Delete(ctx context.Context, k []byte) error // tombstone
+Get(ctx context.Context, k []byte, snapshot uint64) ([]byte, bool, error)
+Range(ctx context.Context, lo, hi []byte, snapshot uint64, limit int) ([]KV, error)
 // Optional: expose internal "now" for snapshot mapping; else the harness holds seq.
 Close() error
 }
