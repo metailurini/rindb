@@ -741,30 +741,45 @@ func TestTableCacheTombstoneDuringInstall(t *testing.T) {
 	require.False(t, ok)
 }
 
+// installEntryForTest inserts an entry directly into the cache shard.
+// It mirrors the installation path within tableCache.Get and must be kept in
+// sync with it.
+func installEntryForTest(t *testing.T, ctx context.Context, cache *tableCache, k tableKey) *TableCacheEntry {
+	t.Helper()
+	s := cache.shardFor(k)
+	s.mu.Lock()
+	existing := &TableCacheEntry{
+		Table:        &SStable{},
+		logicalBytes: 0,
+		actualBytes:  1,
+		closer:       cache.opt.Close,
+	}
+	existing.refs.Store(1)
+	e := &entry{key: k, entry: existing, seg: segProbation}
+	fn := func() {
+		s.closes.Add(1)
+		cacheCloses.Add(ctx, 1)
+	}
+	existing.onClose.Store(&fn)
+	e.elem = s.prob.PushFront(e)
+	s.items[k] = e
+	s.usedBytes += existing.actualBytes
+	s.probBytes += existing.actualBytes
+	cache.totalBytes.Add(existing.actualBytes)
+	s.mu.Unlock()
+	return existing
+}
+
 func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
 	ctx := context.Background()
 	var closes atomic.Int32
 	var inserted atomic.Bool
 	var cache *tableCache
+	var existing *TableCacheEntry
 	cache = newTestCache(t, tableCacheOptions{
 		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
 			if !inserted.Load() {
-				s := cache.shardFor(k)
-				s.mu.Lock()
-				existing := &TableCacheEntry{
-					Table:        &SStable{},
-					logicalBytes: 0,
-					actualBytes:  1,
-					closer:       cache.opt.Close,
-				}
-				existing.refs.Store(1)
-				e := &entry{key: k, entry: existing, seg: segProbation}
-				e.elem = s.prob.PushFront(e)
-				s.items[k] = e
-				s.usedBytes += existing.actualBytes
-				s.probBytes += existing.actualBytes
-				cache.totalBytes.Add(existing.actualBytes)
-				s.mu.Unlock()
+				existing = installEntryForTest(t, ctx, cache, k)
 				inserted.Store(true)
 			}
 			return &SStable{}, nil
@@ -778,11 +793,6 @@ func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
 	key := tableKey{FileNum: 1}
 	h, err := cache.Get(ctx, key)
 	require.NoError(t, err)
-
-	s := cache.shardFor(key)
-	s.mu.Lock()
-	existing := s.items[key].entry
-	s.mu.Unlock()
 	require.Equal(t, existing, h)
 	require.EqualValues(t, 1, closes.Load())
 
