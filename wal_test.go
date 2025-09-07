@@ -143,7 +143,7 @@ func TestWAL_CleanErrors(t *testing.T) {
 		w := NewWAL(cfg, fs)
 		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
 
-		w.txCommit = func(tx *transaction, ctx context.Context, w io.Writer) error {
+		w.txCommit = func(tx *transaction, ctx context.Context) error {
 			return errors.New("commit fail")
 		}
 
@@ -256,7 +256,8 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 
 	// Simulate a crash during the write of a third record
 	record3 := newRecord(Bytes("key3"), Bytes("value3"), 3)
-	tx := w.tm.begin()
+	tx, err := w.tm.begin(w.FileSystem)
+	require.NoError(t, err)
 	defer tx.rollback(context.Background())
 
 	// Write only the internal key length and value length of the third record
@@ -264,7 +265,7 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 	assert.NoError(t, writeNumber(tx, uint64(len(record3.GetValue()))))
 
 	// Commit the partial transaction to the file
-	assert.NoError(t, tx.commit(context.Background(), w.file))
+	assert.NoError(t, tx.commit(context.Background()))
 	assert.NoError(t, w.Sync())
 
 	// Truncate the file to simulate a crash before writing key/value bytes

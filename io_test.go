@@ -2,13 +2,17 @@ package rindb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // errorReader simulates an io.Reader that returns an error.
@@ -20,9 +24,24 @@ func (er *errorReader) Read(p []byte) (n int, err error) {
 	return 0, er.err
 }
 
+func newFileTx(t *testing.T) (*transaction, string) {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "txn.log")
+	fs, err := OpenFS(context.Background(), p)
+	require.NoError(t, err)
+	return &transaction{log: fs, state: "active"}, p
+}
+
+func writeNumberBuf(buf *bytes.Buffer, n uint64) {
+	var b [mdByteSize]byte
+	byteOrder.PutUint64(b[:], n)
+	buf.Write(b[:])
+}
+
 func Test_rw(t *testing.T) {
 	t.Run("Write key with size = 0", func(t *testing.T) {
-		tx := newTransactionManager().begin()
+		tx, path := newFileTx(t)
 
 		testKey := Bytes(nil)
 		testValue := Bytes("value")
@@ -30,14 +49,16 @@ func Test_rw(t *testing.T) {
 		err := writeRecord(tx, newRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
-		record, err := ReadRecord(tx.buffer)
+		data, err := os.ReadFile(path)
+		assert.NoError(t, err)
+		record, err := ReadRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes(nil), record.GetKey())
 		assert.Equal(t, testValue, record.GetValue())
 	})
 
 	t.Run("Write key and value with size = 0", func(t *testing.T) {
-		tx := newTransactionManager().begin()
+		tx, path := newFileTx(t)
 
 		testKey := Bytes(nil)
 		testValue := Bytes(nil)
@@ -45,14 +66,16 @@ func Test_rw(t *testing.T) {
 		err := writeRecord(tx, newRecord(testKey, testValue, 0))
 		assert.NoError(t, err)
 
-		record, err := ReadRecord(tx.buffer)
+		data, err := os.ReadFile(path)
+		assert.NoError(t, err)
+		record, err := ReadRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, testKey, record.GetKey())
 		assert.Equal(t, testValue, record.GetValue())
 	})
 
 	t.Run("Write key and value with size > 255", func(t *testing.T) {
-		tx := newTransactionManager().begin()
+		tx, path := newFileTx(t)
 
 		testKey := ""
 		testValue := ""
@@ -64,19 +87,23 @@ func Test_rw(t *testing.T) {
 		err := writeRecord(tx, newRecord(Bytes(testKey), Bytes(testValue), 0))
 		assert.NoError(t, err)
 
-		record, err := ReadRecord(tx.buffer)
+		data, err := os.ReadFile(path)
+		assert.NoError(t, err)
+		record, err := ReadRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, testKey, string(record.GetKey()))
 		assert.Equal(t, testValue, string(record.GetValue()))
 	})
 
 	t.Run("Write key and value with size < 255", func(t *testing.T) {
-		tx := newTransactionManager().begin()
+		tx, path := newFileTx(t)
 
 		err := writeRecord(tx, newRecord(Bytes("key"), Bytes("value"), 0))
 		assert.NoError(t, err)
 
-		record, err := ReadRecord(tx.buffer)
+		data, err := os.ReadFile(path)
+		assert.NoError(t, err)
+		record, err := ReadRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, "key", string(record.GetKey()))
 		assert.Equal(t, "value", string(record.GetValue()))
@@ -93,7 +120,7 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading value length", func(t *testing.T) {
 		var buf bytes.Buffer
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5) // Internal key length
+		writeNumberBuf(&buf, 5)
 		reader := io.MultiReader(&buf, &errorReader{err: errors.New("read value length failed")})
 		_, err := ReadRecord(reader)
 		assert.ErrorContains(t, err, "failed to read value length")
@@ -102,9 +129,9 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading internal key bytes", func(t *testing.T) {
 		var buf bytes.Buffer
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5) // Internal key length
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5) // Value length
-		buf.Write([]byte("key"))                                    // only 3 bytes of internal key
+		writeNumberBuf(&buf, 5)
+		writeNumberBuf(&buf, 5)
+		buf.Write([]byte("key"))
 		_, err := ReadRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read internal key bytes")
 		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
@@ -112,10 +139,10 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading value bytes (EOF)", func(t *testing.T) {
 		var buf bytes.Buffer
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length for "key"
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)                      // Value length
+		writeNumberBuf(&buf, 3+internalKeySuffixLen)
+		writeNumberBuf(&buf, 5)
 		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
-		buf.Write([]byte("val")) // only 3 bytes of value
+		buf.Write([]byte("val"))
 		_, err := ReadRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read value bytes")
 		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
@@ -123,8 +150,8 @@ func TestReadRecord_Errors(t *testing.T) {
 
 	t.Run("Error reading value bytes (iotest)", func(t *testing.T) {
 		var buf bytes.Buffer
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 3+internalKeySuffixLen) // Internal key length
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)                      // Value length
+		writeNumberBuf(&buf, 3+internalKeySuffixLen)
+		writeNumberBuf(&buf, 5)
 		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		reader := io.MultiReader(&buf, iotest.ErrReader(errors.New("read value bytes failed")))
 		_, err := ReadRecord(reader)
@@ -135,8 +162,8 @@ func TestReadRecord_Errors(t *testing.T) {
 	t.Run("Error reading checksum", func(t *testing.T) {
 		var buf bytes.Buffer
 		ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
-		writeNumber(&transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)
+		writeNumberBuf(&buf, uint64(len(ikey)))
+		writeNumberBuf(&buf, 5)
 		buf.Write(ikey)
 		buf.Write([]byte("value"))
 		_, err := ReadRecord(&buf)
@@ -147,8 +174,8 @@ func TestReadRecord_Errors(t *testing.T) {
 	t.Run("Checksum mismatch", func(t *testing.T) {
 		var buf bytes.Buffer
 		ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
-		writeNumber(&transaction{buffer: &buf, state: "active"}, uint64(len(ikey)))
-		writeNumber(&transaction{buffer: &buf, state: "active"}, 5)
+		writeNumberBuf(&buf, uint64(len(ikey)))
+		writeNumberBuf(&buf, 5)
 		buf.Write(ikey)
 		buf.Write([]byte("value"))
 		buf.Write([]byte{0, 0, 0, 0})
