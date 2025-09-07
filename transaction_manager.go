@@ -12,9 +12,14 @@ import (
 )
 
 var (
-	globalTxnID atomic.Uint64
-	osOpen      = os.Open
-	ioCopy      = io.Copy
+	globalTxnID    atomic.Uint64
+	osOpen         = os.Open
+	ioCopy         = io.Copy
+	osRename       = os.Rename
+	osRemove       = os.Remove
+	fsSync         = (*FileSystem).Sync
+	fsClose        = (*FileSystem).Close
+	fsOpenExisting = (*FileSystem).OpenExisting
 )
 
 // transactionManager manages transactions with a mutex for safe creation.
@@ -119,19 +124,19 @@ func (t *transaction) commit(ctx context.Context) error {
 		return errors.New("transaction is not active")
 	}
 
-	if err := t.log.Sync(); err != nil {
+	if err := fsSync(t.log); err != nil {
 		return err
 	}
-	if err := t.log.Close(); err != nil {
+	if err := fsClose(t.log); err != nil {
 		return err
 	}
-	if err := os.Rename(t.log.Path(), t.target.Path()); err != nil {
+	if err := osRename(t.log.Path(), t.target.Path()); err != nil {
 		return err
 	}
-	if err := t.target.Close(); err != nil && !errors.Is(err, ErrFileNotOpened) {
+	if err := fsClose(t.target); err != nil && !errors.Is(err, ErrFileNotOpened) {
 		return err
 	}
-	if err := t.target.OpenExisting(ctx); err != nil {
+	if err := fsOpenExisting(t.target, ctx); err != nil {
 		return err
 	}
 
@@ -153,10 +158,10 @@ func (t *transaction) rollback(ctx context.Context) error {
 	}
 
 	shadowPath := t.log.Path()
-	if err := t.log.Close(); err != nil {
+	if err := fsClose(t.log); err != nil {
 		return err
 	}
-	if err := os.Remove(shadowPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := osRemove(shadowPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to remove shadow log %q during rollback: %w", shadowPath, err)
 	}
 
