@@ -551,7 +551,7 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	h.cacheAndPinSSTable(ctx, meta.Number)
 	for _, fm := range inputs {
 		k := tableKey{FileNum: fm.Number}
-		h.cache.UnpinKey(k)
+		h.cache.UnpinKey(ctx, k)
 		h.cache.Delete(ctx, k)
 	}
 

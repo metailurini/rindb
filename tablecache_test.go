@@ -587,7 +587,7 @@ func TestTableCachePinnedByteAccounting(t *testing.T) {
 	_, ok := cache.TryGet(ctx, k2)
 	require.False(t, ok)
 
-	cache.UnpinKey(k1)
+	cache.UnpinKey(ctx, k1)
 	h, err = cache.Get(ctx, k2)
 	require.NoError(t, err)
 	h.Unref()
@@ -598,4 +598,38 @@ func TestTableCachePinnedByteAccounting(t *testing.T) {
 	require.False(t, ok)
 	_, ok = cache.TryGet(ctx, k2)
 	require.True(t, ok)
+}
+
+func TestTableCacheUnpinTriggersEviction(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
+
+	k1 := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h.Unref()
+	require.True(t, cache.PinKey(k1))
+
+	k2 := tableKey{FileNum: 2}
+	h, err = cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h.Unref()
+	require.True(t, cache.PinKey(k2))
+
+	// Drop the capacity so the shard exceeds its budget while entries are pinned.
+	cache.shards[0].capBytes = 1
+
+	st := cache.Stats()
+	require.EqualValues(t, 2, st.UsedBytes)
+
+	cache.UnpinKey(ctx, k1)
+
+	st = cache.Stats()
+	require.EqualValues(t, 1, st.UsedBytes)
+
+	_, ok := cache.TryGet(ctx, k1)
+	require.False(t, ok, "unpinned key should be evicted")
+
+	_, ok = cache.TryGet(ctx, k2)
+	require.True(t, ok, "still pinned key stays")
 }
