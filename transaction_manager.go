@@ -47,8 +47,21 @@ func (tm *transactionManager) begin(fs *FileSystem) (*transaction, error) {
 	}
 
 	if src, err := os.Open(path); err == nil {
-		_, _ = io.Copy(shadowFS, src)
-		_ = src.Close()
+		if _, err := io.Copy(shadowFS, src); err != nil {
+			_ = shadowFS.Close()
+			_ = os.Remove(shadowPath)
+			_ = src.Close()
+			return nil, err
+		}
+		if err := src.Close(); err != nil {
+			_ = shadowFS.Close()
+			_ = os.Remove(shadowPath)
+			return nil, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		_ = shadowFS.Close()
+		_ = os.Remove(shadowPath)
+		return nil, err
 	}
 
 	txn := &transaction{
@@ -102,10 +115,16 @@ func (t *transaction) commit(ctx context.Context) error {
 		return errors.New("transaction is not active")
 	}
 
+	if err := t.log.Sync(); err != nil {
+		return err
+	}
 	if err := t.log.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(t.log.Path(), t.target.Path()); err != nil {
+		return err
+	}
+	if err := t.target.Close(); err != nil && !errors.Is(err, ErrFileNotOpened) {
 		return err
 	}
 	if err := t.target.OpenExisting(ctx); err != nil {
@@ -133,9 +152,8 @@ func (t *transaction) rollback(ctx context.Context) error {
 	if err := t.log.Close(); err != nil {
 		return err
 	}
-	_ = os.Remove(shadowPath)
-	if err := t.target.OpenExisting(ctx); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	if err := os.Remove(shadowPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to remove shadow log %q during rollback: %w", shadowPath, err)
 	}
 
 	t.state = "rolledback"
