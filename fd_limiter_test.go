@@ -38,9 +38,9 @@ func TestSemaphoreFDLimiterConcurrentGet(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			h, err := cache.Get(ctx, tableKey{FileNum: uint64(i)})
+			h, err := cache.get(ctx, tableKey{FileNum: uint64(i)})
 			require.NoError(t, err)
-			h.Unref()
+			h.unref()
 		}(i)
 	}
 	wg.Wait()

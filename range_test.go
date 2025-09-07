@@ -97,18 +97,18 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 
 	num, err := fileNum(sst1.Path())
 	require.NoError(t, err)
-	h, ok := ts.Manager.cache.TryGet(ctx, tableKey{FileNum: num})
+	h, ok := ts.Manager.cache.tryGet(ctx, tableKey{FileNum: num})
 	require.True(t, ok)
 	assert.True(t, h.Table.IsOpened())
 	assert.Equal(t, int32(2), h.refs.Load())
-	h.Unref()
+	h.unref()
 	assert.Equal(t, int32(1), h.refs.Load())
 	assert.NoError(t, iter.Close())
 	assert.Equal(t, int32(0), h.refs.Load())
-	h, ok = ts.Manager.cache.TryGet(ctx, tableKey{FileNum: num})
+	h, ok = ts.Manager.cache.tryGet(ctx, tableKey{FileNum: num})
 	require.True(t, ok)
 	assert.Equal(t, int32(1), h.refs.Load())
-	h.Unref()
+	h.unref()
 	assert.Equal(t, int32(0), h.refs.Load())
 }
 

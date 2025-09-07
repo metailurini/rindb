@@ -20,7 +20,7 @@ const (
 
 type entry struct {
 	key    tableKey
-	entry  *TableCacheEntry
+	entry  *tableCacheEntry
 	seg    segment
 	elem   *list.Element // element in prob/prot list
 	pinned bool          // pin top-N / critical tables
@@ -186,7 +186,7 @@ func (s *shard) segmentBytes(seg segment) int64 {
 	}
 }
 
-func (s *shard) evictEntryLocked(ctx context.Context, e *entry, toClose *[]*TableCacheEntry) {
+func (s *shard) evictEntryLocked(ctx context.Context, e *entry, toClose *[]*tableCacheEntry) {
 	s.unlink(e)
 	delete(s.items, e.key)
 	s.usedBytes -= e.entry.actualBytes
@@ -224,7 +224,7 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
 	}
 
 	// Then evict until within total cap.
-	var toClose []*TableCacheEntry
+	var toClose []*tableCacheEntry
 	for s.usedBytes > s.capBytes {
 		v := s.chooseVictim()
 		if v == nil {
@@ -252,7 +252,7 @@ func (s *shard) evictOrDemoteLocked(ctx context.Context, recent *entry) bool {
 	return true
 }
 
-func (s *shard) closeNow(ctx context.Context, entry *TableCacheEntry) {
+func (s *shard) closeNow(ctx context.Context, entry *tableCacheEntry) {
 	if entry.closed.CompareAndSwap(false, true) {
 		_ = entry.closer(entry.Table)
 		s.closes.Add(1)

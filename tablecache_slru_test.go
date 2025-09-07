@@ -15,7 +15,7 @@ func TestShardGetEntryLockedRemovesClosedEntry(t *testing.T) {
 		parent: parent,
 	}
 	key := tableKey{FileNum: 1}
-	tcEntry := &TableCacheEntry{
+	tcEntry := &tableCacheEntry{
 		Table:       &SStable{},
 		actualBytes: 1,
 		closer:      func(*SStable) error { return nil },
@@ -52,7 +52,7 @@ func TestPromoteOnHitDemoteAndBreak(t *testing.T) {
 	key := tableKey{FileNum: 1}
 	e := &entry{
 		key:   key,
-		entry: &TableCacheEntry{actualBytes: 1},
+		entry: &tableCacheEntry{actualBytes: 1},
 		seg:   segProbation,
 	}
 	e.elem = s.prob.PushFront(e)
@@ -71,9 +71,9 @@ func TestPromoteOnHitDemoteAndBreak(t *testing.T) {
 // TestChooseVictimFromProtectedSkipsPinned covers iteration over protected list.
 func TestChooseVictimFromProtectedSkipsPinned(t *testing.T) {
 	s := &shard{}
-	eUnpinned := &entry{key: tableKey{FileNum: 1}, entry: &TableCacheEntry{}, seg: segProtected}
+	eUnpinned := &entry{key: tableKey{FileNum: 1}, entry: &tableCacheEntry{}, seg: segProtected}
 	eUnpinned.elem = s.prot.PushBack(eUnpinned)
-	ePinned := &entry{key: tableKey{FileNum: 2}, entry: &TableCacheEntry{}, seg: segProtected, pinned: true}
+	ePinned := &entry{key: tableKey{FileNum: 2}, entry: &tableCacheEntry{}, seg: segProtected, pinned: true}
 	ePinned.elem = s.prot.PushBack(ePinned) // pinned at tail
 
 	victim := s.chooseVictim()
@@ -89,9 +89,9 @@ func TestEvictOrDemoteLockedDemotesTail(t *testing.T) {
 		capBytes:     10,
 		parent:       parent,
 	}
-	e1 := &entry{key: tableKey{FileNum: 1}, entry: &TableCacheEntry{actualBytes: 1}, seg: segProtected}
+	e1 := &entry{key: tableKey{FileNum: 1}, entry: &tableCacheEntry{actualBytes: 1}, seg: segProtected}
 	e1.elem = s.prot.PushFront(e1)
-	e2 := &entry{key: tableKey{FileNum: 2}, entry: &TableCacheEntry{actualBytes: 1}, seg: segProtected}
+	e2 := &entry{key: tableKey{FileNum: 2}, entry: &tableCacheEntry{actualBytes: 1}, seg: segProtected}
 	e2.elem = s.prot.PushBack(e2)
 	s.items[e1.key] = e1
 	s.items[e2.key] = e2
@@ -131,7 +131,7 @@ func TestEvictOrDemoteLockedBreakOnEmptyProtected(t *testing.T) {
 // TestEvictOrDemoteLockedDropsRecentWhenNoVictim ensures recent entry is dropped when all are pinned.
 func TestEvictOrDemoteLockedDropsRecentWhenNoVictim(t *testing.T) {
 	parent := &tableCache{}
-	recentEntry := &TableCacheEntry{
+	recentEntry := &tableCacheEntry{
 		Table:       &SStable{},
 		actualBytes: 2,
 		closer:      func(*SStable) error { return nil },

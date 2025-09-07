@@ -40,21 +40,21 @@ func TestTableCacheHitMiss(t *testing.T) {
 
 	// tests use default DBID 0; override when multi-DB is supported
 	key := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, key)
+	h, err := cache.get(ctx, key)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
-	require.True(t, cache.TryRef(ctx, key))
-	st := cache.Stats()
+	require.True(t, cache.tryRef(key))
+	st := cache.stats()
 	require.EqualValues(t, 1, st.Misses)
 	require.EqualValues(t, 0, st.Hits)
 
-	h, err = cache.Get(ctx, key)
+	h, err = cache.get(ctx, key)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
 	require.EqualValues(t, 1, opens.Load())
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 1, st.Misses)
 	require.EqualValues(t, 1, st.Hits)
 }
@@ -64,26 +64,26 @@ func TestTableCacheTryGetStats(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{})
 
 	k1 := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k1)
+	h, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 1, st.Misses)
 	require.EqualValues(t, 0, st.Hits)
 
-	h, ok := cache.TryGet(ctx, k1)
+	h, ok := cache.tryGet(ctx, k1)
 	require.True(t, ok)
-	h.Unref()
+	h.unref()
 
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 1, st.Misses)
 	require.EqualValues(t, 1, st.Hits)
 
-	_, ok = cache.TryGet(ctx, tableKey{FileNum: 2})
+	_, ok = cache.tryGet(ctx, tableKey{FileNum: 2})
 	require.False(t, ok)
 
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 2, st.Misses)
 	require.EqualValues(t, 1, st.Hits)
 }
@@ -93,18 +93,18 @@ func TestTableCacheEviction(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
 	k1 := tableKey{FileNum: 1}
-	h1, err := cache.Get(ctx, k1)
+	h1, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h1.Unref()
+	h1.unref()
 
 	k2 := tableKey{FileNum: 2}
-	h2, err := cache.Get(ctx, k2)
+	h2, err := cache.get(ctx, k2)
 	require.NoError(t, err)
-	h2.Unref()
+	h2.unref()
 
-	_, ok := cache.TryGet(ctx, k1)
+	_, ok := cache.tryGet(ctx, k1)
 	require.False(t, ok, "k1 should be evicted")
-	_, ok = cache.TryGet(ctx, k2)
+	_, ok = cache.tryGet(ctx, k2)
 	require.True(t, ok, "k2 should remain in cache")
 }
 
@@ -113,19 +113,19 @@ func TestTableCachePinning(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
 	k1 := tableKey{FileNum: 1}
-	h1, err := cache.Get(ctx, k1)
+	h1, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h1.Unref()
-	require.True(t, cache.PinKey(k1))
+	h1.unref()
+	require.True(t, cache.pinKey(k1))
 
 	k2 := tableKey{FileNum: 2}
-	h2, err := cache.Get(ctx, k2)
+	h2, err := cache.get(ctx, k2)
 	require.NoError(t, err)
-	h2.Unref()
+	h2.unref()
 
-	_, ok := cache.TryGet(ctx, k1)
+	_, ok := cache.tryGet(ctx, k1)
 	require.True(t, ok, "pinned k1 should stay resident")
-	_, ok = cache.TryGet(ctx, k2)
+	_, ok = cache.tryGet(ctx, k2)
 	require.False(t, ok, "unpinned k2 should be evicted")
 }
 
@@ -142,11 +142,11 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	})
 
 	k := tableKey{FileNum: 1}
-	_, err := cache.Get(ctx, k)
+	_, err := cache.get(ctx, k)
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load())
 
-	_, err = cache.Get(ctx, k)
+	_, err = cache.get(ctx, k)
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
@@ -170,9 +170,9 @@ func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
 	// Hold the singleflight with the first call.
 	done := make(chan struct{})
 	go func() {
-		h, err := cache.Get(ctx, key)
+		h, err := cache.get(ctx, key)
 		if err == nil {
-			h.Unref()
+			h.unref()
 		}
 		close(done)
 	}()
@@ -182,7 +182,7 @@ func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
 	ctx2, cancel := context.WithCancel(ctx)
 	errCh := make(chan error)
 	go func() {
-		_, err := cache.Get(ctx2, key)
+		_, err := cache.get(ctx2, key)
 		errCh <- err
 	}()
 
@@ -208,33 +208,33 @@ func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
 	k1 := tableKey{FileNum: 1}
-	h1a, err := cache.Get(ctx, k1)
+	h1a, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h1b, err := cache.Get(ctx, k1)
+	h1b, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h1b.Unref()
+	h1b.unref()
 
 	k2 := tableKey{FileNum: 2}
-	h2, err := cache.Get(ctx, k2)
+	h2, err := cache.get(ctx, k2)
 	require.NoError(t, err)
 
 	done := make(chan struct{})
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		h1a.Unref()
-		h2.Unref()
+		h1a.unref()
+		h2.unref()
 		close(done)
 	}()
 
 	start := time.Now()
-	err = cache.Close(ctx, 500*time.Millisecond)
+	err = cache.close(ctx, 500*time.Millisecond)
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
 	require.Less(t, elapsed, 500*time.Millisecond)
 	<-done
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 1, st.Hits)
 	require.EqualValues(t, 2, st.Misses)
 	require.EqualValues(t, 0, st.Evicts)
@@ -246,32 +246,32 @@ func TestTableCachePinnedOverCapacity(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
 	k1 := tableKey{FileNum: 1}
-	h1, err := cache.Get(ctx, k1)
+	h1, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h1.Unref()
-	require.True(t, cache.PinKey(k1))
+	h1.unref()
+	require.True(t, cache.pinKey(k1))
 
 	k2 := tableKey{FileNum: 2}
-	h2, err := cache.Get(ctx, k2)
+	h2, err := cache.get(ctx, k2)
 	require.NoError(t, err)
-	h2.Unref()
-	require.True(t, cache.PinKey(k2))
+	h2.unref()
+	require.True(t, cache.pinKey(k2))
 
 	k3 := tableKey{FileNum: 3}
-	h3, err := cache.Get(ctx, k3)
+	h3, err := cache.get(ctx, k3)
 	require.NoError(t, err)
-	h3.Unref()
+	h3.unref()
 
-	h, ok := cache.TryGet(ctx, k1)
+	h, ok := cache.tryGet(ctx, k1)
 	require.True(t, ok)
-	h.Unref()
-	h, ok = cache.TryGet(ctx, k2)
+	h.unref()
+	h, ok = cache.tryGet(ctx, k2)
 	require.True(t, ok)
-	h.Unref()
-	_, ok = cache.TryGet(ctx, k3)
+	h.unref()
+	_, ok = cache.tryGet(ctx, k3)
 	require.False(t, ok)
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 2, st.Hits)
 	require.EqualValues(t, 4, st.Misses)
 	require.EqualValues(t, 1, st.Evicts)
@@ -295,23 +295,23 @@ func TestTableCacheDelete(t *testing.T) {
 	})
 
 	k := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k)
+	h, err := cache.get(ctx, k)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
 	// Entry should be resident prior to deletion.
-	h2, ok := cache.TryGet(ctx, k)
+	h2, ok := cache.tryGet(ctx, k)
 	require.True(t, ok)
-	h2.Unref()
+	h2.unref()
 	require.EqualValues(t, 0, closes.Load())
 
-	cache.Delete(ctx, k)
+	cache.delete(ctx, k)
 	require.EqualValues(t, 1, closes.Load(), "delete should close handle when refs==0")
 
-	_, ok = cache.TryGet(ctx, k)
+	_, ok = cache.tryGet(ctx, k)
 	require.False(t, ok, "entry should be removed")
 
-	_, err = cache.Get(ctx, k)
+	_, err = cache.get(ctx, k)
 	require.ErrorIs(t, err, ErrObsolete, "tombstone should block re-admission")
 	require.EqualValues(t, 1, opens.Load(), "open should not be called again")
 }
@@ -334,11 +334,11 @@ func TestTableCacheClose(t *testing.T) {
 		})
 
 		k1 := tableKey{FileNum: 1}
-		h, err := cache.Get(ctx, k1)
+		h, err := cache.get(ctx, k1)
 		require.NoError(t, err)
 
 		done := make(chan error)
-		go func() { done <- cache.Close(ctx, 100*time.Millisecond) }()
+		go func() { done <- cache.close(ctx, 100*time.Millisecond) }()
 
 		// New admissions should be rejected.
 		// Poll until cache.Close() has started and rejects new admissions, which is more robust than a fixed sleep.
@@ -346,19 +346,19 @@ func TestTableCacheClose(t *testing.T) {
 			if !cache.shards[0].stopAdmission.Load() {
 				return false
 			}
-			_, err := cache.Get(ctx, tableKey{FileNum: 2})
+			_, err := cache.get(ctx, tableKey{FileNum: 2})
 			return err == ErrClosed
 		}, 50*time.Millisecond, 5*time.Millisecond)
 		require.EqualValues(t, 1, opens.Load())
 		require.EqualValues(t, 0, closes.Load())
 
 		// Release the outstanding handle; Close should return and close it.
-		h.Unref()
+		h.unref()
 		require.NoError(t, <-done)
 		require.EqualValues(t, 1, closes.Load())
 
 		// Further admissions are rejected after Close.
-		_, err = cache.Get(ctx, tableKey{FileNum: 3})
+		_, err = cache.get(ctx, tableKey{FileNum: 3})
 		require.ErrorIs(t, err, ErrClosed)
 	})
 
@@ -374,15 +374,15 @@ func TestTableCacheClose(t *testing.T) {
 		})
 
 		k := tableKey{FileNum: 1}
-		h, err := cache.Get(ctx, k)
+		h, err := cache.get(ctx, k)
 		require.NoError(t, err)
 
-		err = cache.Close(ctx, 10*time.Millisecond)
+		err = cache.close(ctx, 10*time.Millisecond)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "entries still busy")
 		require.EqualValues(t, 0, closes.Load(), "entry should remain open on timeout")
 
-		h.Unref()
+		h.unref()
 		require.EqualValues(t, 1, closes.Load(), "entry should close after late Unref")
 	})
 }
@@ -392,7 +392,7 @@ func TestTableCacheCloseUnrefRace(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
 	k := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k)
+	h, err := cache.get(ctx, k)
 	require.NoError(t, err)
 
 	startG := runtime.NumGoroutine()
@@ -401,11 +401,11 @@ func TestTableCacheCloseUnrefRace(t *testing.T) {
 	go func() {
 		defer unrefWG.Done()
 		time.Sleep(10 * time.Millisecond)
-		h.Unref()
+		h.unref()
 	}()
 
 	start := time.Now()
-	err = cache.Close(ctx, time.Second)
+	err = cache.close(ctx, time.Second)
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	require.Less(t, elapsed, time.Second)
@@ -430,21 +430,21 @@ func TestTableCacheTombstoneExpiry(t *testing.T) {
 	})
 
 	k := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k)
+	h, err := cache.get(ctx, k)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
-	cache.Delete(ctx, k)
+	cache.delete(ctx, k)
 
-	_, err = cache.Get(ctx, k)
+	_, err = cache.get(ctx, k)
 	require.ErrorIs(t, err, ErrObsolete)
 	require.EqualValues(t, 1, opens.Load())
 
 	time.Sleep(ttl + time.Millisecond)
 
-	h, err = cache.Get(ctx, k)
+	h, err = cache.get(ctx, k)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 	require.EqualValues(t, 2, opens.Load())
 }
 
@@ -469,22 +469,22 @@ func TestTableCacheDeleteClearsCorruptQuarantine(t *testing.T) {
 	})
 
 	k := tableKey{FileNum: 1}
-	_, err := cache.Get(ctx, k)
+	_, err := cache.get(ctx, k)
 	require.ErrorIs(t, err, ErrCorruption)
 	require.EqualValues(t, 1, opens.Load())
 
-	cache.Delete(ctx, k)
+	cache.delete(ctx, k)
 
 	// Admission is blocked by tombstone.
-	_, err = cache.Get(ctx, k)
+	_, err = cache.get(ctx, k)
 	require.ErrorIs(t, err, ErrObsolete)
 	require.EqualValues(t, 1, opens.Load())
 
 	time.Sleep(ttl + time.Millisecond)
 
-	h, err := cache.Get(ctx, k)
+	h, err := cache.get(ctx, k)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 	require.EqualValues(t, 2, opens.Load())
 }
 
@@ -502,12 +502,12 @@ func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
 
 	for i := 1; i <= len(actuals); i++ {
 		k := tableKey{FileNum: uint64(i)}
-		h, err := cache.Get(ctx, k)
+		h, err := cache.get(ctx, k)
 		require.NoError(t, err)
-		h.Unref()
+		h.unref()
 	}
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 7, st.UsedBytes)
 	require.EqualValues(t, 7, cache.shards[0].usedBytes)
 	require.EqualValues(t, 7, cache.totalBytes.Load())
@@ -519,19 +519,19 @@ func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
 
 	keys := []tableKey{{FileNum: 1}, {FileNum: 2}}
 	for _, k := range keys {
-		h, err := cache.Get(ctx, k)
+		h, err := cache.get(ctx, k)
 		require.NoError(t, err)
-		h.Unref()
+		h.unref()
 	}
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 2, st.UsedBytes)
 	require.EqualValues(t, 2, cache.shards[0].usedBytes)
 	require.EqualValues(t, 2, cache.totalBytes.Load())
 
-	cache.Delete(ctx, keys[0])
+	cache.delete(ctx, keys[0])
 
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 1, st.UsedBytes)
 	require.EqualValues(t, 1, cache.shards[0].usedBytes)
 	require.EqualValues(t, 1, cache.totalBytes.Load())
@@ -545,18 +545,18 @@ func TestTableCacheEvictOversizedEntry(t *testing.T) {
 	})
 
 	k := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k)
+	h, err := cache.get(ctx, k)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 0, st.UsedBytes)
 	require.EqualValues(t, 0, cache.shards[0].usedBytes)
 	require.EqualValues(t, 0, cache.totalBytes.Load())
 	require.EqualValues(t, 1, st.Evicts)
 	require.EqualValues(t, 1, st.Closes)
 
-	_, ok := cache.TryGet(ctx, k)
+	_, ok := cache.tryGet(ctx, k)
 	require.False(t, ok)
 }
 
@@ -572,14 +572,14 @@ func TestTableCacheMultiShardByteAccounting(t *testing.T) {
 		if _, ok := seen[s]; ok {
 			continue
 		}
-		h, err := cache.Get(ctx, k)
+		h, err := cache.get(ctx, k)
 		require.NoError(t, err)
-		h.Unref()
+		h.unref()
 		keys = append(keys, k)
 		seen[s] = struct{}{}
 	}
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.Equal(t, len(cache.shards), int(st.Shards))
 	require.EqualValues(t, 4, st.Shards)
 	require.EqualValues(t, 8, st.CapBytes)
@@ -596,36 +596,36 @@ func TestTableCachePinnedByteAccounting(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
 	k1 := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k1)
+	h, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h.Unref()
-	require.True(t, cache.PinKey(k1))
+	h.unref()
+	require.True(t, cache.pinKey(k1))
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 1, st.UsedBytes)
 	require.EqualValues(t, 1, cache.shards[0].usedBytes)
 	require.EqualValues(t, 1, cache.totalBytes.Load())
 
 	k2 := tableKey{FileNum: 2}
-	h, err = cache.Get(ctx, k2)
+	h, err = cache.get(ctx, k2)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 1, st.UsedBytes)
-	_, ok := cache.TryGet(ctx, k2)
+	_, ok := cache.tryGet(ctx, k2)
 	require.False(t, ok)
 
-	cache.UnpinKey(ctx, k1)
-	h, err = cache.Get(ctx, k2)
+	cache.unpinKey(ctx, k1)
+	h, err = cache.get(ctx, k2)
 	require.NoError(t, err)
-	h.Unref()
+	h.unref()
 
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 1, st.UsedBytes)
-	_, ok = cache.TryGet(ctx, k1)
+	_, ok = cache.tryGet(ctx, k1)
 	require.False(t, ok)
-	_, ok = cache.TryGet(ctx, k2)
+	_, ok = cache.tryGet(ctx, k2)
 	require.True(t, ok)
 }
 
@@ -634,32 +634,32 @@ func TestTableCacheUnpinTriggersEviction(t *testing.T) {
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
 	k1 := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, k1)
+	h, err := cache.get(ctx, k1)
 	require.NoError(t, err)
-	h.Unref()
-	require.True(t, cache.PinKey(k1))
+	h.unref()
+	require.True(t, cache.pinKey(k1))
 
 	k2 := tableKey{FileNum: 2}
-	h, err = cache.Get(ctx, k2)
+	h, err = cache.get(ctx, k2)
 	require.NoError(t, err)
-	h.Unref()
-	require.True(t, cache.PinKey(k2))
+	h.unref()
+	require.True(t, cache.pinKey(k2))
 
 	// Drop the capacity so the shard exceeds its budget while entries are pinned.
 	cache.shards[0].capBytes = 1
 
-	st := cache.Stats()
+	st := cache.stats()
 	require.EqualValues(t, 2, st.UsedBytes)
 
-	cache.UnpinKey(ctx, k1)
+	cache.unpinKey(ctx, k1)
 
-	st = cache.Stats()
+	st = cache.stats()
 	require.EqualValues(t, 1, st.UsedBytes)
 
-	_, ok := cache.TryGet(ctx, k1)
+	_, ok := cache.tryGet(ctx, k1)
 	require.False(t, ok, "unpinned key should be evicted")
 
-	_, ok = cache.TryGet(ctx, k2)
+	_, ok = cache.tryGet(ctx, k2)
 	require.True(t, ok, "still pinned key stays")
 }
 
@@ -683,7 +683,7 @@ func TestTableCacheStopAdmissionDuringInstall(t *testing.T) {
 	key := tableKey{FileNum: 1}
 	errCh := make(chan error)
 	go func() {
-		_, err := cache.Get(ctx, key)
+		_, err := cache.get(ctx, key)
 		errCh <- err
 	}()
 
@@ -722,12 +722,12 @@ func TestTableCacheTombstoneDuringInstall(t *testing.T) {
 	key := tableKey{FileNum: 1}
 	errCh := make(chan error)
 	go func() {
-		_, err := cache.Get(ctx, key)
+		_, err := cache.get(ctx, key)
 		errCh <- err
 	}()
 
 	<-openStart
-	cache.Delete(ctx, key)
+	cache.delete(ctx, key)
 	close(release)
 
 	err := <-errCh
@@ -744,11 +744,11 @@ func TestTableCacheTombstoneDuringInstall(t *testing.T) {
 // installEntryForTest inserts an entry directly into the cache shard.
 // It mirrors the installation path within tableCache.Get and must be kept in
 // sync with it.
-func installEntryForTest(t *testing.T, ctx context.Context, cache *tableCache, k tableKey) *TableCacheEntry {
+func installEntryForTest(t *testing.T, ctx context.Context, cache *tableCache, k tableKey) *tableCacheEntry {
 	t.Helper()
 	s := cache.shardFor(k)
 	s.mu.Lock()
-	existing := &TableCacheEntry{
+	existing := &tableCacheEntry{
 		Table:        &SStable{},
 		logicalBytes: 0,
 		actualBytes:  1,
@@ -775,7 +775,7 @@ func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
 	var closes atomic.Int32
 	var inserted atomic.Bool
 	var cache *tableCache
-	var existing *TableCacheEntry
+	var existing *tableCacheEntry
 	cache = newTestCache(t, tableCacheOptions{
 		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
 			if !inserted.Load() {
@@ -791,12 +791,12 @@ func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
 	})
 
 	key := tableKey{FileNum: 1}
-	h, err := cache.Get(ctx, key)
+	h, err := cache.get(ctx, key)
 	require.NoError(t, err)
 	require.Equal(t, existing, h)
 	require.EqualValues(t, 1, closes.Load())
 
-	h.Unref()
-	existing.Release()
+	h.unref()
+	existing.release()
 	require.EqualValues(t, 2, closes.Load())
 }

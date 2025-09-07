@@ -113,7 +113,7 @@ func TestTombstoneRemovedAfterSnapshotRelease(t *testing.T) {
 			return false
 		}
 		for _, h := range ssts {
-			h.Unref()
+			h.unref()
 		}
 		return len(ssts) == 0
 	}, 5*time.Second, 100*time.Millisecond)

@@ -79,7 +79,7 @@ func (h *ssTableManager) TableCacheStats() tableCacheStats {
 	if h.cache == nil {
 		return tableCacheStats{}
 	}
-	return h.cache.Stats()
+	return h.cache.stats()
 }
 
 func (h *ssTableManager) sstInfo(num uint64) (os.FileInfo, error) {
@@ -366,7 +366,7 @@ func (h *ssTableManager) Close(ctx context.Context) {
 		close(h.stopIOLoadSampler)
 		h.ioSamplerWG.Wait()
 	}
-	if err := h.cache.Close(ctx, 5*time.Second); err != nil {
+	if err := h.cache.close(ctx, 5*time.Second); err != nil {
 		warn(ctx, "Error closing table cache: %v", err)
 	}
 }
@@ -479,11 +479,11 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 		return nil
 	}
 
-	entries := make([]*TableCacheEntry, 0, len(inputs))
+	entries := make([]*tableCacheEntry, 0, len(inputs))
 	defer func() {
 		// release entries to input SSTables
 		for _, entry := range entries {
-			entry.Release()
+			entry.release()
 		}
 	}()
 
@@ -551,8 +551,8 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	h.cacheAndPinSSTable(ctx, meta.Number)
 	for _, fm := range inputs {
 		k := tableKey{FileNum: fm.Number}
-		h.cache.UnpinKey(ctx, k)
-		h.cache.Delete(ctx, k)
+		h.cache.unpinKey(ctx, k)
+		h.cache.delete(ctx, k)
 	}
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
@@ -564,8 +564,8 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 
 // openByNumber returns a pinned TableCacheEntry for the given SSTable number using the
 // table cache. Callers must invoke `Unref` on the returned entry when done.
-func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*TableCacheEntry, error) {
-	return h.cache.Get(ctx, tableKey{FileNum: num})
+func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*tableCacheEntry, error) {
+	return h.cache.get(ctx, tableKey{FileNum: num})
 }
 
 // cacheAndPinSSTable loads the SSTable into the cache and pins it to keep it
@@ -573,9 +573,9 @@ func (h *ssTableManager) openByNumber(ctx context.Context, num uint64) (*TableCa
 // returned so registration can proceed.
 func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64) {
 	k := tableKey{FileNum: fileNum}
-	if entry, err := h.cache.Get(ctx, k); err == nil {
-		h.cache.PinKey(k)
-		entry.Unref()
+	if entry, err := h.cache.get(ctx, k); err == nil {
+		h.cache.pinKey(k)
+		entry.unref()
 	} else {
 		warn(ctx, "Failed to cache new SSTable %d: %v", fileNum, err)
 	}
@@ -588,7 +588,7 @@ func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64)
 // returned in newest-first order while higher levels retain their existing
 // ordering. If an SSTable referenced in the current version is missing on disk,
 // the function returns the error so callers can retry with a fresh view.
-func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*TableCacheEntry, error) {
+func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endKey Bytes) ([]*tableCacheEntry, error) {
 	ctx, span := sstableMgmtTracer.Start(ctx, "ssTableManager.GetRelevantSSTables")
 	start := time.Now()
 	defer func() {
@@ -642,12 +642,12 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 	}
 	h.mu.RUnlock()
 
-	entries := make([]*TableCacheEntry, 0, len(nums))
+	entries := make([]*tableCacheEntry, 0, len(nums))
 	for _, num := range nums {
 		entry, err := h.openByNumber(ctx, num)
 		if err != nil {
 			for _, o := range entries {
-				o.Unref()
+				o.unref()
 			}
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
 				return nil, err
@@ -670,7 +670,7 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 	}
 	for _, entry := range ssts {
 		val, err := entry.Table.GetValue(ctx, key, maxSeq)
-		entry.Unref()
+		entry.unref()
 		if err == nil {
 			return val, nil
 		}
@@ -684,7 +684,7 @@ func (h *ssTableManager) SearchKey(ctx context.Context, key Bytes, seq ...uint64
 	return nil, ErrKeyNotFound
 }
 
-func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []*TableCacheEntry, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
+func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sources []*tableCacheEntry, bottommost bool, minSeq uint64) (_ *SStable, meta fileMeta, err error) {
 	if len(sources) == 0 {
 		return nil, fileMeta{}, nil
 	}
