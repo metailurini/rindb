@@ -23,6 +23,7 @@ type SSTableBuilder struct {
 	largest  InternalKey
 	seqLo    uint64
 	seqHi    uint64
+	commit   func(tx *transaction, ctx context.Context) error
 }
 
 func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected int) (*SSTableBuilder, error) {
@@ -63,6 +64,9 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 		fs:     fs,
 		config: cfg,
 		seqLo:  math.MaxUint64,
+		commit: func(tx *transaction, ctx context.Context) error {
+			return tx.commit(ctx)
+		},
 	}, nil
 }
 
@@ -148,7 +152,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 		return
 	}
 	written = b.tx.size()
-	if err = b.tx.commit(ctx); err != nil {
+	if err = b.commit(b.tx, ctx); err != nil {
 		err = fmt.Errorf("failed to commit transaction: %w", err)
 		return
 	}

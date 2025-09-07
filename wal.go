@@ -117,10 +117,10 @@ func (w *wal) Append(ctx context.Context, record Record) error {
 	}
 	defer tx.rollback(ctx)
 
-	if err := writeRecord(tx, record); err != nil {
+	if err := w.writeRecord(tx, record); err != nil {
 		return fmt.Errorf("failed to write record to WAL transaction: %w", err)
 	}
-	if err := tx.commit(ctx); err != nil {
+	if err := w.txCommit(tx, ctx); err != nil {
 		return fmt.Errorf("failed to commit WAL transaction to %s: %w", w.Path(), err)
 	}
 
@@ -152,13 +152,13 @@ func (w *wal) AppendMany(ctx context.Context, records []Record) error {
 
 	var totalBytes int
 	for i, record := range records {
-		if err := writeRecord(tx, record); err != nil {
+		if err := w.writeRecord(tx, record); err != nil {
 			return fmt.Errorf("failed to write record %d to WAL transaction: %w", i, err)
 		}
 		totalBytes += CalOnDiskSize(record)
 	}
 
-	if err := tx.commit(ctx); err != nil {
+	if err := w.txCommit(tx, ctx); err != nil {
 		return fmt.Errorf("failed to commit multi-record WAL transaction to %s: %w", w.Path(), err)
 	}
 
