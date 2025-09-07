@@ -1,6 +1,7 @@
 export GOTOOLCHAIN ?= go1.25.0
 GO = go
 UNAME_S := $(shell uname -s)
+PKGS := $(shell $(GO) list ./... | grep -v '/cmd$$')
 
 check:
 	@$(MAKE) check-spanname
@@ -34,7 +35,7 @@ test-integration: test-integration-full
 
 test-coverage: clean-testdata
 	@echo "Running tests with coverage..."
-	@$(GO) test -v -coverprofile=coverage.txt ./...
+	@$(GO) test -v -coverprofile=coverage.txt $(PKGS)
 
 test-pprof:
 	@./scripts/run-pprof-tests.sh
