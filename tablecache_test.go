@@ -329,3 +329,155 @@ func TestTableCacheTombstoneExpiry(t *testing.T) {
 	h.Unref()
 	require.EqualValues(t, 2, opens.Load())
 }
+
+func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
+	ctx := context.Background()
+	actuals := []int64{0, 5, -7}
+	var idx atomic.Int32
+	cache := newTestCache(t, tableCacheOptions{
+		CapBytes: 20,
+		Measure: func(*SStable) (int64, int64) {
+			i := int(idx.Add(1) - 1)
+			return 0, actuals[i]
+		},
+	})
+
+	k1 := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h.Unref()
+
+	k2 := tableKey{FileNum: 2}
+	h, err = cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h.Unref()
+
+	k3 := tableKey{FileNum: 3}
+	h, err = cache.Get(ctx, k3)
+	require.NoError(t, err)
+	h.Unref()
+
+	st := cache.Stats()
+	require.EqualValues(t, 7, st.UsedBytes)
+	require.EqualValues(t, 7, cache.shards[0].usedBytes)
+	require.EqualValues(t, 7, cache.totalBytes.Load())
+}
+
+func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 10})
+
+	k1 := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h.Unref()
+
+	k2 := tableKey{FileNum: 2}
+	h, err = cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h.Unref()
+
+	st := cache.Stats()
+	require.EqualValues(t, 2, st.UsedBytes)
+	require.EqualValues(t, 2, cache.shards[0].usedBytes)
+	require.EqualValues(t, 2, cache.totalBytes.Load())
+
+	cache.Delete(ctx, k1)
+
+	st = cache.Stats()
+	require.EqualValues(t, 1, st.UsedBytes)
+	require.EqualValues(t, 1, cache.shards[0].usedBytes)
+	require.EqualValues(t, 1, cache.totalBytes.Load())
+}
+
+func TestTableCacheEvictOversizedEntry(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{
+		CapBytes: 5,
+		Measure:  func(*SStable) (int64, int64) { return 0, 7 },
+	})
+
+	k := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k)
+	require.NoError(t, err)
+	h.Unref()
+
+	st := cache.Stats()
+	require.EqualValues(t, 0, st.UsedBytes)
+	require.EqualValues(t, 0, cache.shards[0].usedBytes)
+	require.EqualValues(t, 0, cache.totalBytes.Load())
+	require.EqualValues(t, 1, st.Evicts)
+	require.EqualValues(t, 1, st.Closes)
+
+	_, ok := cache.TryGet(ctx, k)
+	require.False(t, ok)
+}
+
+func TestTableCacheMultiShardByteAccounting(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 8, Shards: 4})
+
+	var keys []tableKey
+	seen := make(map[*shard]struct{})
+	for i := 1; len(keys) < len(cache.shards); i++ {
+		k := tableKey{FileNum: uint64(i)}
+		s := cache.shardFor(k)
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		h, err := cache.Get(ctx, k)
+		require.NoError(t, err)
+		h.Unref()
+		keys = append(keys, k)
+		seen[s] = struct{}{}
+	}
+
+	st := cache.Stats()
+	require.Equal(t, len(cache.shards), int(st.Shards))
+	require.EqualValues(t, 4, st.Shards)
+	require.EqualValues(t, 8, st.CapBytes)
+	require.EqualValues(t, 4, st.UsedBytes)
+	for _, s := range cache.shards {
+		require.EqualValues(t, 2, s.capBytes)
+		require.EqualValues(t, 1, s.usedBytes)
+	}
+	require.EqualValues(t, 4, cache.totalBytes.Load())
+}
+
+func TestTableCachePinnedByteAccounting(t *testing.T) {
+	ctx := context.Background()
+	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
+
+	k1 := tableKey{FileNum: 1}
+	h, err := cache.Get(ctx, k1)
+	require.NoError(t, err)
+	h.Unref()
+	require.True(t, cache.PinKey(k1))
+
+	st := cache.Stats()
+	require.EqualValues(t, 1, st.UsedBytes)
+	require.EqualValues(t, 1, cache.shards[0].usedBytes)
+	require.EqualValues(t, 1, cache.totalBytes.Load())
+
+	k2 := tableKey{FileNum: 2}
+	h, err = cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h.Unref()
+
+	st = cache.Stats()
+	require.EqualValues(t, 1, st.UsedBytes)
+	_, ok := cache.TryGet(ctx, k2)
+	require.False(t, ok)
+
+	cache.UnpinKey(k1)
+	h, err = cache.Get(ctx, k2)
+	require.NoError(t, err)
+	h.Unref()
+
+	st = cache.Stats()
+	require.EqualValues(t, 1, st.UsedBytes)
+	_, ok = cache.TryGet(ctx, k1)
+	require.False(t, ok)
+	_, ok = cache.TryGet(ctx, k2)
+	require.True(t, ok)
+}
