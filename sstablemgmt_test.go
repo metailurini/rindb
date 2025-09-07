@@ -601,7 +601,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		for i, h := range ssts {
 			nums[i], err = fileNum(h.Table.Path())
 			require.NoError(t, err)
-			h.Release()
+			h.Unref()
 		}
 		assert.Equal(t, []uint64{nNewer, nOlder}, nums)
 	})
@@ -627,7 +627,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		for i, h := range ssts {
 			nums[i], err = fileNum(h.Table.Path())
 			require.NoError(t, err)
-			h.Release()
+			h.Unref()
 		}
 		assert.Equal(t, []uint64{nOlder, nNewer}, nums)
 	})
@@ -689,7 +689,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 		for i, h := range ssts {
 			nums[i], err = fileNum(h.Table.Path())
 			require.NoError(t, err)
-			h.Release()
+			h.Unref()
 		}
 		assert.Equal(t, []uint64{nL0b, nL0a, nL1}, nums)
 	})
