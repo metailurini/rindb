@@ -9,7 +9,7 @@ import (
 	"time"
 
 	rindb "github.com/metailurini/rindb"
-	"github.com/metailurini/rindb/fuzzing"
+	"github.com/metailurini/rindb/diffharness"
 )
 
 func main() {
@@ -45,7 +45,7 @@ func main() {
 }
 
 func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, opts []rindb.Option) error {
-	dir, err := os.MkdirTemp("", "rindb-fuzz")
+	dir, err := os.MkdirTemp("", "rindb-diffharness")
 	if err != nil {
 		return err
 	}
@@ -56,12 +56,12 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 	if err != nil {
 		return err
 	}
-	eng := fuzzing.NewRinDBEngine(db)
-	ref, err := fuzzing.OpenSQLiteOracle(refPath)
+	eng := diffharness.NewRinDBEngine(db)
+	ref, err := diffharness.OpenSQLiteOracle(refPath)
 	if err != nil {
 		return err
 	}
-	h, err := fuzzing.NewHarness(eng, ref, seed, logPath)
+	h, err := diffharness.NewHarness(eng, ref, seed, logPath)
 	if err != nil {
 		return err
 	}
@@ -71,17 +71,17 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 		_ = ref.Close()
 	}()
 
-	cfg := fuzzing.Cfg{
+	cfg := diffharness.Cfg{
 		KeyLen:    4,
 		ValLenMin: 1,
 		ValLenMax: 8,
 		RangeMax:  32,
-		Weights: map[fuzzing.OpKind]int{
-			fuzzing.OpPut:   1,
-			fuzzing.OpDel:   1,
-			fuzzing.OpGet:   1,
-			fuzzing.OpRange: 1,
-			fuzzing.OpSnap:  1,
+		Weights: map[diffharness.OpKind]int{
+			diffharness.OpPut:   1,
+			diffharness.OpDel:   1,
+			diffharness.OpGet:   1,
+			diffharness.OpRange: 1,
+			diffharness.OpSnap:  1,
 		},
 		CrashEvery:     crashEvery,
 		TelemetryEvery: telemetryEvery,
@@ -99,8 +99,8 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 			if err != nil {
 				return err
 			}
-			eng = fuzzing.NewRinDBEngine(db)
-			r, err := fuzzing.OpenSQLiteOracle(refPath)
+			eng = diffharness.NewRinDBEngine(db)
+			r, err := diffharness.OpenSQLiteOracle(refPath)
 			if err != nil {
 				return err
 			}

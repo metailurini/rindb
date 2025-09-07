@@ -1,4 +1,4 @@
-package fuzzing
+package diffharness
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ const (
 
 const OpInvariantCheck OpKind = 255
 
-// Op models a single fuzzing operation.
+// Op models a single differential testing operation.
 type Op struct {
 	Kind    OpKind
 	K       []byte
@@ -231,12 +231,12 @@ func (h *Harness) Run(cfg Cfg, n int) error {
 	return h.run(r, cfg, n)
 }
 
-// RunForever starts the fuzz loop and never returns unless an error occurs.
+// RunForever starts the differential test loop and never returns unless an error occurs.
 func (h *Harness) RunForever(cfg Cfg) error { return h.Run(cfg, -1) }
 
 func (h *Harness) fail(i int, op Op, cause error) error {
 	_ = h.log.Sync()
-	return fmt.Errorf("fuzz fail at i=%d seq=%d kind=%d: %w", i, h.Seq, op.Kind, cause)
+	return fmt.Errorf("harness fail at i=%d seq=%d kind=%d: %w", i, h.Seq, op.Kind, cause)
 }
 
 func (h *Harness) mismatch(i int, op Op, mv []byte, mok bool, sv []byte, sok bool) error {
