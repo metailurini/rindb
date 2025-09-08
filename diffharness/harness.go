@@ -314,15 +314,27 @@ func (h *Harness) checkInvariants(r *rand.Rand, cfg Cfg) error {
 		if err != nil {
 			return err
 		}
-		full, err := h.My.Range(context.Background(), lo, hi, snap, cfg.RangeMax*2)
-		if err != nil {
-			return err
+
+		if len(left) < cfg.RangeMax && len(right) < cfg.RangeMax {
+			full, err := h.My.Range(context.Background(), lo, hi, snap, cfg.RangeMax*2)
+			if err != nil {
+				return err
+			}
+			concat := append(append([]KV{}, left...), right...)
+			if err := compareKVLists(concat, full); err != nil {
+				return fmt.Errorf("range concat: %w", err)
+			}
+			// Compare full range with reference only when not truncated
+			f2, err := h.Ref.RangeWithSeq(lo, hi, snap, cfg.RangeMax*2)
+			if err != nil {
+				return err
+			}
+			if err := compareKVLists(full, f2); err != nil {
+				return fmt.Errorf("range full mismatch: %w", err)
+			}
 		}
-		concat := append(append([]KV{}, left...), right...)
-		if err := compareKVLists(concat, full); err != nil {
-			return fmt.Errorf("range concat: %w", err)
-		}
-		// also compare with reference for coverage
+
+		// Compare sub-ranges with reference for coverage
 		l2, err := h.Ref.RangeWithSeq(lo, mid, snap, cfg.RangeMax)
 		if err != nil {
 			return err
@@ -336,13 +348,6 @@ func (h *Harness) checkInvariants(r *rand.Rand, cfg Cfg) error {
 		}
 		if err := compareKVLists(right, r2); err != nil {
 			return fmt.Errorf("range right mismatch: %w", err)
-		}
-		f2, err := h.Ref.RangeWithSeq(lo, hi, snap, cfg.RangeMax*2)
-		if err != nil {
-			return err
-		}
-		if err := compareKVLists(full, f2); err != nil {
-			return fmt.Errorf("range full mismatch: %w", err)
 		}
 	}
 	return nil
