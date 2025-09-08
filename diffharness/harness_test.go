@@ -80,6 +80,73 @@ func (e *sqliteEngine) ReleaseSnapshot(ctx context.Context, seq uint64) error {
 
 func (e *sqliteEngine) Close() error { return e.o.Close() }
 
+func TestHistoricalReads(t *testing.T) {
+	dir := t.TempDir()
+	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref.Close() })
+
+	dbDir := filepath.Join(dir, "db")
+	db, err := rindb.InitRinDB(context.Background(), rindb.WithDatabaseDir(dbDir))
+	require.NoError(t, err)
+	eng := NewRinDBEngine(db)
+
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, ref, 1, logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+
+	ctx := context.Background()
+	h.Snapshots = append(h.Snapshots, h.Seq)
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v1")}))
+	snap := h.Seq
+	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v2")}))
+
+	v, ok, err := h.My.Get(ctx, []byte("k"), snap)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v1"), v)
+
+	v, ok, err = h.My.Get(ctx, []byte("k"), h.Seq)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v2"), v)
+}
+
+func TestRangeHistoricalSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref.Close() })
+
+	myOracle, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	require.NoError(t, err)
+	eng := &sqliteEngine{o: myOracle}
+
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, ref, 1, logPath)
+	require.NoError(t, err)
+	eng.seq = &h.Seq
+	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+
+	ctx := context.Background()
+	h.Snapshots = append(h.Snapshots, h.Seq)
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("a"), V: []byte("1")}))
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("b"), V: []byte("2")}))
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("c"), V: []byte("3")}))
+	snap := h.Seq
+	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("b"), V: []byte("2'")}))
+	require.NoError(t, h.Step(ctx, Op{Kind: OpDel, K: []byte("c")}))
+
+	res, err := h.My.Range(ctx, []byte("a"), []byte("z"), snap, 10)
+	require.NoError(t, err)
+	exp := []KV{{K: []byte("a"), V: []byte("1")}, {K: []byte("b"), V: []byte("2")}, {K: []byte("c"), V: []byte("3")}}
+	require.Equal(t, exp, res)
+}
+
 func TestHarnessRunChecksInvariants(t *testing.T) {
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -119,7 +186,8 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	require.NoError(t, err)
 	defer ref.Close()
 
-	myOracle, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	myPath := filepath.Join(dir, "my.db")
+	myOracle, err := OpenSQLiteOracle(myPath)
 	require.NoError(t, err)
 	eng := &sqliteEngine{o: myOracle}
 
@@ -132,8 +200,34 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 
 	crashes := 0
 	telem := 0
-	h.SetCrashHook(func() error { crashes++; return nil })
+	h.SetCrashHook(func() error {
+		crashes++
+		if err := eng.Close(); err != nil {
+			return err
+		}
+		myOracle, err = OpenSQLiteOracle(myPath)
+		if err != nil {
+			return err
+		}
+		eng.o = myOracle
+		return nil
+	})
 	h.SetTelemetryHook(func(seq uint64, ops int) { telem++ })
+
+	ctx := context.Background()
+	h.Snapshots = append(h.Snapshots, h.Seq)
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v")}))
+	snap := h.Seq
+	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	require.NoError(t, h.crash())
+	v, ok, err := h.My.Get(ctx, []byte("k"), h.Seq)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v"), v)
+	v, ok, err = h.My.Get(ctx, []byte("k"), snap)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v"), v)
 
 	cfg := Cfg{
 		KeyLen:    4,
@@ -150,8 +244,60 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 		CrashEvery:     10,
 		TelemetryEvery: 5,
 	}
-	ctx := context.Background()
 	require.NoError(t, h.Run(ctx, cfg, 50))
-	require.Greater(t, crashes, 0)
+	require.Greater(t, crashes, 1)
 	require.Greater(t, telem, 0)
+}
+
+func TestReplayReproducesState(t *testing.T) {
+	dir := t.TempDir()
+	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref.Close() })
+
+	myOracle, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	require.NoError(t, err)
+	eng := &sqliteEngine{o: myOracle}
+
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, ref, 1, logPath)
+	require.NoError(t, err)
+	eng.seq = &h.Seq
+	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+
+	cfg := Cfg{
+		KeyLen:    2,
+		ValLenMin: 1,
+		ValLenMax: 4,
+		RangeMax:  100,
+		Weights: map[OpKind]int{
+			OpPut:   1,
+			OpDel:   1,
+			OpGet:   1,
+			OpRange: 1,
+			OpSnap:  1,
+		},
+	}
+	ctx := context.Background()
+	require.NoError(t, h.Run(ctx, cfg, 30))
+	finalSeq := h.Seq
+	lo := []byte{0x00, 0x00}
+	hi := []byte{0xff, 0xff}
+	exp, err := ref.RangeWithSeq(lo, hi, finalSeq, 1000)
+	require.NoError(t, err)
+
+	// Replay
+	ref2, err := OpenSQLiteOracle(filepath.Join(dir, "ref2.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref2.Close() })
+	dbDir2 := filepath.Join(dir, "db2")
+	db2, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir2))
+	require.NoError(t, err)
+	eng2 := NewRinDBEngine(db2)
+	t.Cleanup(func() { _ = eng2.Close() })
+	seq2, err := Replay(ctx, eng2, ref2, logPath)
+	require.NoError(t, err)
+	got, err := ref2.RangeWithSeq(lo, hi, seq2, 1000)
+	require.NoError(t, err)
+	require.Equal(t, exp, got)
 }

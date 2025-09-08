@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 )
@@ -42,6 +44,9 @@ type Harness struct {
 
 	Seq       uint64
 	Snapshots []uint64
+
+	keys   []string
+	keySet map[string]struct{}
 
 	log *os.File
 	enc *json.Encoder
@@ -86,6 +91,49 @@ func randBytes(r *rand.Rand, n int) []byte {
 
 func randKey(r *rand.Rand, n int) []byte { return randBytes(r, n) }
 
+const maxKnownKeys = 100
+
+func (h *Harness) addKey(k []byte) {
+	if h.keySet == nil {
+		h.keySet = make(map[string]struct{})
+	}
+	s := string(k)
+	if _, ok := h.keySet[s]; ok {
+		return
+	}
+	if len(h.keys) >= maxKnownKeys {
+		oldest := h.keys[0]
+		h.keys = h.keys[1:]
+		delete(h.keySet, oldest)
+	}
+	h.keys = append(h.keys, s)
+	h.keySet[s] = struct{}{}
+}
+
+func (h *Harness) delKey(k []byte) {
+	if h.keySet == nil {
+		return
+	}
+	s := string(k)
+	if _, ok := h.keySet[s]; !ok {
+		return
+	}
+	delete(h.keySet, s)
+	for i, v := range h.keys {
+		if v == s {
+			h.keys = append(h.keys[:i], h.keys[i+1:]...)
+			break
+		}
+	}
+}
+
+func (h *Harness) pickKnownKey(r *rand.Rand) []byte {
+	if len(h.keys) == 0 {
+		return nil
+	}
+	return []byte(h.keys[r.Intn(len(h.keys))])
+}
+
 func (h *Harness) genOp(r *rand.Rand, cfg Cfg) Op {
 	sum := 0
 	for _, w := range cfg.Weights {
@@ -103,12 +151,24 @@ func (h *Harness) genOp(r *rand.Rand, cfg Cfg) Op {
 	switch k {
 	case OpPut:
 		vlen := cfg.ValLenMin + r.Intn(cfg.ValLenMax-cfg.ValLenMin+1)
-		return Op{Kind: OpPut, K: randKey(r, cfg.KeyLen), V: randBytes(r, vlen)}
+		k := randKey(r, cfg.KeyLen)
+		if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
+			k = ex
+		}
+		return Op{Kind: OpPut, K: k, V: randBytes(r, vlen)}
 	case OpDel:
-		return Op{Kind: OpDel, K: randKey(r, cfg.KeyLen)}
+		k := randKey(r, cfg.KeyLen)
+		if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
+			k = ex
+		}
+		return Op{Kind: OpDel, K: k}
 	case OpGet:
+		k := randKey(r, cfg.KeyLen)
+		if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
+			k = ex
+		}
 		s := h.pickSnapshot(r)
-		return Op{Kind: OpGet, K: randKey(r, cfg.KeyLen), SnapSeq: s}
+		return Op{Kind: OpGet, K: k, SnapSeq: s}
 	case OpRange:
 		lo := randKey(r, cfg.KeyLen)
 		hi := randKey(r, cfg.KeyLen)
@@ -157,6 +217,7 @@ func (h *Harness) Step(ctx context.Context, op Op) error {
 		if err := h.My.Put(ctx, op.K, op.V); err != nil {
 			return h.fail(i, op, err)
 		}
+		h.addKey(op.K)
 		if h.Ref != nil {
 			if err := h.Ref.PutWithSeq(op.K, op.V, h.Seq); err != nil {
 				return h.fail(i, op, err)
@@ -167,6 +228,7 @@ func (h *Harness) Step(ctx context.Context, op Op) error {
 		if err := h.My.Delete(ctx, op.K); err != nil {
 			return h.fail(i, op, err)
 		}
+		h.delKey(op.K)
 		if h.Ref != nil {
 			if err := h.Ref.DelWithSeq(op.K, h.Seq); err != nil {
 				return h.fail(i, op, err)
@@ -403,4 +465,39 @@ func (h *Harness) checkInvariants(ctx context.Context, r *rand.Rand, cfg Cfg) er
 		}
 	}
 	return nil
+}
+
+// Replay replays operations from logPath against the provided engines.
+// It returns the final sequence after applying all operations.
+func Replay(ctx context.Context, my Engine, ref *SQLiteOracle, logPath string) (uint64, error) {
+	log, err := os.Open(logPath)
+	if err != nil {
+		return 0, err
+	}
+	defer log.Close()
+	dec := json.NewDecoder(log)
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer devnull.Close()
+	h := &Harness{My: my, Ref: ref, log: devnull, enc: json.NewEncoder(devnull)}
+	h.Snapshots = append(h.Snapshots, h.Seq)
+	for {
+		var entry struct {
+			Seq uint64 `json:"seq"`
+			Op  Op     `json:"op"`
+		}
+		if err := dec.Decode(&entry); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return 0, err
+		}
+		h.Seq = entry.Seq
+		if err := h.Step(ctx, entry.Op); err != nil {
+			return 0, err
+		}
+	}
+	return h.Seq, nil
 }
