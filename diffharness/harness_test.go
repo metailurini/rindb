@@ -70,6 +70,14 @@ func (e *sqliteEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64
 	return e.o.RangeWithSeq(lo, hi, snapshot, limit)
 }
 
+func (e *sqliteEngine) NewSnapshot(ctx context.Context) (uint64, error) {
+	return e.o.NewSnapshot(ctx)
+}
+
+func (e *sqliteEngine) ReleaseSnapshot(ctx context.Context, seq uint64) error {
+	return e.o.ReleaseSnapshot(ctx, seq)
+}
+
 func (e *sqliteEngine) Close() error { return e.o.Close() }
 
 func TestHarnessRunChecksInvariants(t *testing.T) {
