@@ -85,7 +85,7 @@ func runOne(ctx context.Context, seed int64, n int, logPath string, crashEvery, 
 		KeyLen:    4,
 		ValLenMin: 1,
 		ValLenMax: 8,
-		RangeMax:  32,
+		RangeMax:  64,
 		Weights: map[diffharness.OpKind]int{
 			diffharness.OpPut:   1,
 			diffharness.OpDel:   1,

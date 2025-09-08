@@ -49,3 +49,18 @@ else ifeq ($(UNAME_S),Linux)
 else ifeq ($(UNAME_S),Darwin)
 	@open coverage.html
 endif
+
+diffharness-build:
+	@echo "Building diffharness for linux/amd64..."
+	@GOOS=linux GOARCH=amd64 $(GO) build -o ./diffharness/bin/diffharness ./diffharness/cmd/main.go
+	@echo "Done."
+
+diffharness-up: diffharness-build
+	@echo "Running docker compose up for diffharness..."
+	@docker compose -f diffharness/docker-compose.yaml up -d
+	@echo "Done."
+
+diffharness-down:
+	@echo "Running docker compose down for diffharness..."
+	@docker compose -f diffharness/docker-compose.yaml down
+	@echo "Done."

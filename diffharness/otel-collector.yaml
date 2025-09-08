@@ -4,8 +4,8 @@ receivers:
       grpc:
 
 exporters:
-  jaeger:
-    endpoint: jaeger:14250
+  otlp:
+    endpoint: jaeger:4317
     tls:
       insecure: true
   prometheus:
@@ -15,7 +15,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [jaeger]
+      exporters: [otlp]
     metrics:
       receivers: [otlp]
       exporters: [prometheus]

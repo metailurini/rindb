@@ -30,9 +30,9 @@ services:
       - otel-collector
 
   harness:
-    image: alpine:3.18
+    image: arm64v8/alpine:latest
     depends_on:
       - otel-collector
     volumes:
-      - ./bin/diffharness:/diffharness
-    entrypoint: ["/diffharness", "-jaeger=otel-collector:4317"]
+      - ./bin/diffharness:/app/diffharness
+    entrypoint: ["/app/diffharness", "-jaeger=otel-collector:4317"]
