@@ -63,9 +63,6 @@ func (e *RinDBEngine) NewSnapshot(ctx context.Context) (uint64, error) {
 		return 0, err
 	}
 	seq := snap.Sequence()
-	if e.snaps == nil {
-		e.snaps = make(map[uint64]*rindb.Snapshot)
-	}
 	e.snaps[seq] = snap
 	return seq, nil
 }

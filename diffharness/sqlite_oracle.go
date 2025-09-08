@@ -12,8 +12,7 @@ import (
 // diffharness. It stores every mutation with an explicit sequence number
 // so reads can be performed at past snapshots.
 type SQLiteOracle struct {
-	db    *sql.DB
-	snaps map[uint64]struct{}
+	db *sql.DB
 }
 
 // OpenSQLiteOracle opens or creates a SQLite database at the given path and
@@ -36,7 +35,7 @@ CREATE TABLE IF NOT EXISTS kv (
 		_ = db.Close()
 		return nil, err
 	}
-	return &SQLiteOracle{db: db, snaps: make(map[uint64]struct{})}, nil
+	return &SQLiteOracle{db: db}, nil
 }
 
 // PutWithSeq inserts or replaces a value at the given sequence number.
@@ -112,17 +111,10 @@ func (o *SQLiteOracle) NewSnapshot(ctx context.Context) (uint64, error) {
 	if err := row.Scan(&seq); err != nil {
 		return 0, err
 	}
-	if o.snaps == nil {
-		o.snaps = make(map[uint64]struct{})
-	}
-	o.snaps[seq] = struct{}{}
 	return seq, nil
 }
 
 // ReleaseSnapshot forgets about a previously created snapshot.
 func (o *SQLiteOracle) ReleaseSnapshot(ctx context.Context, seq uint64) error {
-	if o.snaps != nil {
-		delete(o.snaps, seq)
-	}
 	return nil
 }
