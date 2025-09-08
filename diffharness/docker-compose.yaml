@@ -35,6 +35,8 @@ services:
       - otel-collector
     volumes:
       - ./bin/diffharness:/app/diffharness
+    ports:
+      - '6060:6060'
     entrypoint: ["/app/diffharness", "-jaeger=otel-collector:4317"]
 
   cadvisor:

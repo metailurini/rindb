@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,6 +15,14 @@ import (
 )
 
 func main() {
+	go func() {
+		err := http.ListenAndServe("0.0.0.0:6060", nil)
+		if err != nil {
+			log.Fatalf("Failed to start HTTP server: %v", err)
+		} else {
+			log.Printf("HTTP server started on :6060")
+		}
+	}()
 	ctx := context.Background()
 	seed := flag.Int64("seed", time.Now().UnixNano(), "PRNG seed")
 	n := flag.Int("n", -1, "number of operations (-1 for infinite)")
@@ -70,7 +80,10 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	}
 	dbDir := filepath.Join(dir, "db")
 	refPath := filepath.Join(dir, "ref.db")
-	baseOpts := []rindb.Option{rindb.WithDatabaseDir(dbDir)}
+	baseOpts := []rindb.Option{
+		rindb.WithDatabaseDir(dbDir),
+		rindb.WithCacheBytes(32 << 20), // 32MiB table cache budget
+	}
 	if jaeger != "" {
 		baseOpts = append(baseOpts,
 			rindb.WithEnableTelemetry(true),
