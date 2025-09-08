@@ -1,4 +1,4 @@
-# RinDB Differential Fuzz Test Harness (with Snapshots)
+# RinDB Differential Test Harness (with Snapshots)
 
 This doc gives you a ready-to-run framework to **continuously** compare your LSM engine (“RinDB”) against a **SQLite-based behavioral oracle**. It models MVCC visibility (sequence numbers + tombstones), supports **point reads, ranges, deletes, and snapshots**, and is designed for **metamorphic**, **crash/recovery**, and **fault-injection** testing. Copy/paste the snippets into your repo and extend.
 
@@ -72,7 +72,7 @@ SELECT COALESCE(MAX(seq), 0) AS max_seq FROM kv;
 
 ```go
 // engine.go — your DB + the oracle adapters share this shape
-package fuzzing
+package diffharness
 
 import "context"
 
@@ -101,7 +101,7 @@ explicit sequence numbers. Implement at least the following helpers:
 
 ```go
 // sqlite_oracle.go
-package fuzzing
+package diffharness
 
 import (
 "context"
@@ -193,7 +193,7 @@ Implement these wrappers calling into your engine. If your engine exposes snapsh
 
 ```go
 // rindb_adapter.go
-package fuzzing
+package diffharness
 
 type RinDB struct {
 // your db handle(s)
@@ -248,7 +248,7 @@ return nil, nil
 
 ```go
 // fuzzer.go
-package fuzzing
+package diffharness
 
 import (
 "bytes"
@@ -431,7 +431,7 @@ func equal(a, b []byte) bool { /* byte-wise equality */ return bytes.Equal(a, b)
 ## Main Entrypoint
 
 ```go
-// cmd/rindb-fuzz/main.go
+// diffharness/cmd/main.go
 package main
 
 import (
@@ -441,7 +441,7 @@ import (
 "log"
 "time"
 
-"github.com/yourorg/rindb/fuzzing"
+"github.com/yourorg/rindb/diffharness"
 )
 
 func main() {
@@ -458,28 +458,28 @@ seed = int64(binary.LittleEndian.Uint64(b[:]))
 }
 log.Printf("seed=%d", seed)
 
-my, err := fuzzing.OpenRinDB("rindb-data")
+my, err := diffharness.OpenRinDB("rindb-data")
 if err != nil { log.Fatal(err) }
 defer my.Close()
 
-ref, err := fuzzing.OpenSQLiteOracle("oracle.db")
+ref, err := diffharness.OpenSQLiteOracle("oracle.db")
 if err != nil { log.Fatal(err) }
 defer ref.Close()
 
-h, err := fuzzing.NewHarness(my, ref, seed, logPath)
+h, err := diffharness.NewHarness(my, ref, seed, logPath)
 if err != nil { log.Fatal(err) }
 defer h.Close()
 
-cfg := fuzzing.Cfg{
+cfg := diffharness.Cfg{
 KeyLen:    16,
 ValLenMin: 0, ValLenMax: 1024,
 RangeMax:  1000,
-Weights: map[fuzzing.OpKind]int{
-fuzzing.OpPut:   35,
-fuzzing.OpDel:   10,
-fuzzing.OpGet:   35,
-fuzzing.OpRange: 15,
-fuzzing.OpSnap:  5,
+Weights: map[diffharness.OpKind]int{
+diffharness.OpPut:   35,
+diffharness.OpDel:   10,
+diffharness.OpGet:   35,
+diffharness.OpRange: 15,
+diffharness.OpSnap:  5,
 },
 }
 
@@ -583,12 +583,12 @@ require modernc.org/sqlite v1.32.0 // or latest
 **Make targets (example):**
 
 ```make
-fuzz:
-go run ./cmd/rindb-fuzz -seed=0 -log=repro.jsonl
+diffharness:
+go run ./diffharness/cmd -seed=0 -log=repro.jsonl
 
-fuzz-seed:
+diffharness-seed:
 @SEED=${SEED}; [ -z "$$SEED" ] && SEED=1; \
-go run ./cmd/rindb-fuzz -seed=$$SEED -log=repro-$$SEED.jsonl
+go run ./diffharness/cmd -seed=$$SEED -log=repro-$$SEED.jsonl
 ```
 
 ---
@@ -602,6 +602,6 @@ go run ./cmd/rindb-fuzz -seed=$$SEED -log=repro-$$SEED.jsonl
 
 ## Testing Notes
 
-- The fuzz harness lives under `fuzzing/` and is intended solely for differential testing. All harness files reside directly in the `fuzzing` package with no subpackages.
-- Coverage and unit-test runs that generate coverage data ignore `fuzzing` to keep metrics focused on core packages.
+- The diff harness lives under `diffharness/` and is intended solely for differential testing. All harness files reside directly in the `diffharness` package with no subpackages.
+- Coverage and unit-test runs that generate coverage data ignore `diffharness` to keep metrics focused on core packages.
 

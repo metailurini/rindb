@@ -1,4 +1,4 @@
-package fuzzing
+package diffharness
 
 import (
 	"context"

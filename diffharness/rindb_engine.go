@@ -1,4 +1,4 @@
-package fuzzing
+package diffharness
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	rindb "github.com/metailurini/rindb"
 )
 
-// RinDBEngine adapts RinDB to the fuzzing Engine interface.
+// RinDBEngine adapts RinDB to the diffharness Engine interface.
 type RinDBEngine struct{ db *rindb.Rindb }
 
 // NewRinDBEngine wraps a RinDB instance as an Engine.

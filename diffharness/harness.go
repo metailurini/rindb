@@ -1,4 +1,4 @@
-package fuzzing
+package diffharness
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ const (
 
 const OpInvariantCheck OpKind = 255
 
-// Op models a single fuzzing operation.
+// Op models a single diffharness operation.
 type Op struct {
 	Kind    OpKind
 	K       []byte

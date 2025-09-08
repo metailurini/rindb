@@ -1,4 +1,4 @@
-package fuzzing
+package diffharness
 
 import (
 	"database/sql"
@@ -8,7 +8,7 @@ import (
 )
 
 // SQLiteOracle is a SQLite-backed reference implementation used by the
-// fuzzing harness. It stores every mutation with an explicit sequence number
+// diffharness. It stores every mutation with an explicit sequence number
 // so reads can be performed at past snapshots.
 type SQLiteOracle struct{ db *sql.DB }
 
