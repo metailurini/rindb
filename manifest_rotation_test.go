@@ -75,7 +75,7 @@ func TestCleanupManifests(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
 	}
 	require.NoError(t, writeCurrent(ctx, dir, manifestPath(5)))
-	require.NoError(t, cleanupManifests(dir, 1))
+	require.NoError(t, cleanupManifests(dir, manifestsToKeepAfterRotation))
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
@@ -85,7 +85,11 @@ func TestCleanupManifests(t *testing.T) {
 			names = append(names, e.Name())
 		}
 	}
-	require.ElementsMatch(t, []string{manifestPath(5), manifestPath(4)}, names)
+	expected := []string{manifestPath(5)}
+	for i := 1; i <= manifestsToKeepAfterRotation; i++ {
+		expected = append(expected, manifestPath(5-i))
+	}
+	require.ElementsMatch(t, expected, names)
 }
 
 func TestManifestRotationCleanup(t *testing.T) {
@@ -119,7 +123,7 @@ func TestManifestRotationCleanup(t *testing.T) {
 			manifests = append(manifests, e.Name())
 		}
 	}
-	require.Equal(t, 2, len(manifests))
+	require.Equal(t, manifestsToKeepAfterRotation+1, len(manifests))
 }
 
 func TestManifestRotationRecovery(t *testing.T) {

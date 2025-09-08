@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const manifestsToKeepAfterRotation = 1
+
 // snapshotEdit returns a versionEdit that captures the full state of the
 // versionSet. The edit can be written as a manifest snapshot.
 func (vs *versionSet) snapshotEdit() versionEdit {
@@ -95,7 +97,7 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 	if old != nil {
 		_ = old.Close()
 	}
-	return cleanupManifests(r.config.databaseDir, 1)
+	return cleanupManifests(r.config.databaseDir, manifestsToKeepAfterRotation)
 }
 
 // cleanupManifests removes old MANIFEST files, keeping the one referenced by
@@ -134,7 +136,9 @@ func cleanupManifests(dir string, keepRecent int) error {
 		if i < keepRecent {
 			continue
 		}
-		_ = os.Remove(filepath.Join(dir, m.name))
+		if err := os.Remove(filepath.Join(dir, m.name)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
