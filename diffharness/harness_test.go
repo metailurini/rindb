@@ -15,7 +15,8 @@ import (
 func TestHarnessLogsAndSnapshots(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, "db")
-	db, err := rindb.InitRinDB(context.Background(), rindb.WithDatabaseDir(dbDir))
+	ctx := context.Background()
+	db, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir))
 	require.NoError(t, err)
 	eng := NewRinDBEngine(db)
 	logPath := filepath.Join(dir, "log.jsonl")
@@ -24,10 +25,10 @@ func TestHarnessLogsAndSnapshots(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
 
-	require.NoError(t, h.Step(Op{Kind: OpPut, K: []byte("a"), V: []byte("b")}))
+	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("a"), V: []byte("b")}))
 	require.Equal(t, uint64(1), h.Seq)
 
-	require.NoError(t, h.Step(Op{Kind: OpSnap}))
+	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
 	require.Len(t, h.Snapshots, 2)
 	require.Equal(t, uint64(1), h.Snapshots[1])
 
@@ -100,7 +101,8 @@ func TestHarnessRunChecksInvariants(t *testing.T) {
 			OpSnap:  1,
 		},
 	}
-	require.NoError(t, h.Run(cfg, 50))
+	ctx := context.Background()
+	require.NoError(t, h.Run(ctx, cfg, 50))
 }
 
 func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
@@ -140,7 +142,8 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 		CrashEvery:     10,
 		TelemetryEvery: 5,
 	}
-	require.NoError(t, h.Run(cfg, 50))
+	ctx := context.Background()
+	require.NoError(t, h.Run(ctx, cfg, 50))
 	require.Greater(t, crashes, 0)
 	require.Greater(t, telem, 0)
 }

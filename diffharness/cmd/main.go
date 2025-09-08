@@ -13,6 +13,7 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
 	seed := flag.Int64("seed", time.Now().UnixNano(), "PRNG seed")
 	n := flag.Int("n", -1, "number of operations (-1 for infinite)")
 	logPath := flag.String("log", "repro.jsonl", "log file path")
@@ -39,13 +40,13 @@ func main() {
 	}
 
 	for _, c := range configs {
-		if err := runOne(*seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+		if err := runOne(ctx, *seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
 			log.Fatalf("%s run failed: %v", c.label, err)
 		}
 	}
 }
 
-func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
+func runOne(ctx context.Context, seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
 	dir, err := os.MkdirTemp("", "diffharness")
 	if err != nil {
 		return err
@@ -61,7 +62,7 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, j
 			rindb.WithExporterInsecure(true),
 		)
 	}
-	db, err := rindb.InitRinDB(context.Background(), append(baseOpts, opts...)...)
+	db, err := rindb.InitRinDB(ctx, append(baseOpts, opts...)...)
 	if err != nil {
 		return err
 	}
@@ -104,7 +105,7 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, j
 			if err := ref.Close(); err != nil {
 				return err
 			}
-			db, err := rindb.InitRinDB(context.Background(), append(baseOpts, opts...)...)
+			db, err := rindb.InitRinDB(ctx, append(baseOpts, opts...)...)
 			if err != nil {
 				return err
 			}
@@ -133,7 +134,7 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, j
 	}
 
 	if n < 0 {
-		return h.RunForever(cfg)
+		return h.RunForever(ctx, cfg)
 	}
-	return h.Run(cfg, n)
+	return h.Run(ctx, cfg, n)
 }
