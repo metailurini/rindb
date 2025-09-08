@@ -4,5 +4,35 @@ services:
     image: jaegertracing/all-in-one:1.54
     ports:
       - '16686:16686'
+      - '14250:14250'
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.92.0
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml
+    ports:
       - '4317:4317'
-      - '4318:4318'
+      - '9464:9464'
+    depends_on:
+      - jaeger
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - '9090:9090'
+    depends_on:
+      - otel-collector
+
+  harness:
+    image: alpine:3.18
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./bin/diffharness:/diffharness
+    entrypoint: ["/diffharness", "-jaeger=otel-collector:4317"]

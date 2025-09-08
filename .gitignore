@@ -6,6 +6,7 @@
 *.exe
 bin/
 obj/
+diffharness/bin/
 
 # Ignore OS-specific files
 .DS_Store
