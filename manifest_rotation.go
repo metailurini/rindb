@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // snapshotEdit returns a versionEdit that captures the full state of the
@@ -92,6 +94,47 @@ func (r *Rindb) maybeRotateManifest(ctx context.Context) error {
 	r.SSTableManager.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
+	}
+	return cleanupManifests(r.config.databaseDir, 1)
+}
+
+// cleanupManifests removes old MANIFEST files, keeping the one referenced by
+// CURRENT and up to keepRecent additional files.
+func cleanupManifests(dir string, keepRecent int) error {
+	data, err := os.ReadFile(filepath.Join(dir, CurrentFile))
+	if err != nil {
+		return err
+	}
+	currName := strings.TrimSpace(string(data))
+	currNum, err := manifestNum(currName)
+	if err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	type mInfo struct {
+		name string
+		num  int
+	}
+	var manifests []mInfo
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "MANIFEST-") {
+			continue
+		}
+		n, err := manifestNum(e.Name())
+		if err == nil && n != currNum {
+			manifests = append(manifests, mInfo{name: e.Name(), num: n})
+		}
+	}
+	sort.Slice(manifests, func(i, j int) bool { return manifests[i].num > manifests[j].num })
+	for i, m := range manifests {
+		if i < keepRecent {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, m.name))
 	}
 	return nil
 }
