@@ -74,12 +74,7 @@ func NewHarness(my Engine, ref *SQLiteOracle, seed int64, logPath string) (*Harn
 
 // Close closes underlying resources.
 func (h *Harness) Close() error {
-	for _, s := range h.Snapshots[1:] {
-		_ = h.My.ReleaseSnapshot(context.Background(), s)
-		if h.Ref != nil {
-			_ = h.Ref.ReleaseSnapshot(context.Background(), s)
-		}
-	}
+	_ = h.releaseSnapshots(context.Background(), true)
 	return h.log.Close()
 }
 
@@ -211,12 +206,39 @@ func (h *Harness) Step(ctx context.Context, op Op) error {
 			return h.fail(i, op, err)
 		}
 		if h.Ref != nil {
-			if _, err := h.Ref.NewSnapshot(ctx); err != nil {
+			refSeq, err := h.Ref.NewSnapshot(ctx)
+			if err != nil {
 				return h.fail(i, op, err)
+			}
+			if seq != refSeq {
+				return h.fail(i, op, fmt.Errorf("snapshot sequence mismatch: my=%d, ref=%d", seq, refSeq))
 			}
 		}
 		h.Snapshots = append(h.Snapshots, seq)
 	}
+	return nil
+}
+
+func (h *Harness) releaseSnapshots(ctx context.Context, logErrors bool) error {
+	for _, s := range h.Snapshots[1:] {
+		if err := h.My.ReleaseSnapshot(ctx, s); err != nil {
+			if logErrors {
+				_, _ = fmt.Fprintf(os.Stderr, "diffharness: failed to release 'My' snapshot %d: %v\n", s, err)
+			} else {
+				return err
+			}
+		}
+		if h.Ref != nil {
+			if err := h.Ref.ReleaseSnapshot(ctx, s); err != nil {
+				if logErrors {
+					_, _ = fmt.Fprintf(os.Stderr, "diffharness: failed to release 'Ref' snapshot %d: %v\n", s, err)
+				} else {
+					return err
+				}
+			}
+		}
+	}
+	h.Snapshots = h.Snapshots[:1]
 	return nil
 }
 
@@ -252,18 +274,7 @@ func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 			h.Snapshots = append(h.Snapshots[:idx], h.Snapshots[idx+1:]...)
 		}
 	}
-	for _, s := range h.Snapshots[1:] {
-		if err := h.My.ReleaseSnapshot(ctx, s); err != nil {
-			return err
-		}
-		if h.Ref != nil {
-			if err := h.Ref.ReleaseSnapshot(ctx, s); err != nil {
-				return err
-			}
-		}
-	}
-	h.Snapshots = h.Snapshots[:1]
-	return nil
+	return h.releaseSnapshots(ctx, false)
 }
 
 // Run executes n randomized operations. If n < 0, it runs indefinitely.
