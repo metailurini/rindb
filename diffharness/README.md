@@ -18,3 +18,9 @@ Run the harness and send traces to Jaeger:
 go run ./diffharness/cmd -jaeger=localhost:4317
 ```
 
+To persist database files and logs, specify a working directory. By default a temporary directory is used and deleted when the run completes.
+
+```bash
+go run ./diffharness/cmd -dir=/tmp/dh-run -log=run.jsonl
+```
+
