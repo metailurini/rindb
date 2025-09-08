@@ -18,6 +18,7 @@ func main() {
 	logPath := flag.String("log", "repro.jsonl", "log file path")
 	crashEvery := flag.Int("crash-every", 0, "crash/recover every N ops")
 	telemetryEvery := flag.Int("telemetry-every", 0, "emit telemetry every N ops")
+	jaeger := flag.String("jaeger", "", "Jaeger OTLP gRPC endpoint (e.g., localhost:4317)")
 	metamorphic := flag.Bool("metamorphic", false, "run metamorphic config variants")
 	flag.Parse()
 
@@ -38,13 +39,13 @@ func main() {
 	}
 
 	for _, c := range configs {
-		if err := runOne(*seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, c.opts); err != nil {
+		if err := runOne(*seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
 			log.Fatalf("%s run failed: %v", c.label, err)
 		}
 	}
 }
 
-func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, opts []rindb.Option) error {
+func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
 	dir, err := os.MkdirTemp("", "diffharness")
 	if err != nil {
 		return err
@@ -52,7 +53,15 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 	defer os.RemoveAll(dir)
 	dbDir := filepath.Join(dir, "db")
 	refPath := filepath.Join(dir, "ref.db")
-	db, err := rindb.InitRinDB(context.Background(), append([]rindb.Option{rindb.WithDatabaseDir(dbDir)}, opts...)...)
+	baseOpts := []rindb.Option{rindb.WithDatabaseDir(dbDir)}
+	if jaeger != "" {
+		baseOpts = append(baseOpts,
+			rindb.WithEnableTelemetry(true),
+			rindb.WithExporterEndpoint(jaeger),
+			rindb.WithExporterInsecure(true),
+		)
+	}
+	db, err := rindb.InitRinDB(context.Background(), append(baseOpts, opts...)...)
 	if err != nil {
 		return err
 	}
@@ -95,7 +104,7 @@ func runOne(seed int64, n int, logPath string, crashEvery, telemetryEvery int, o
 			if err := ref.Close(); err != nil {
 				return err
 			}
-			db, err := rindb.InitRinDB(context.Background(), append([]rindb.Option{rindb.WithDatabaseDir(dbDir)}, opts...)...)
+			db, err := rindb.InitRinDB(context.Background(), append(baseOpts, opts...)...)
 			if err != nil {
 				return err
 			}
