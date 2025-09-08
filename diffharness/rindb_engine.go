@@ -8,10 +8,15 @@ import (
 )
 
 // RinDBEngine adapts RinDB to the diffharness Engine interface.
-type RinDBEngine struct{ db *rindb.Rindb }
+type RinDBEngine struct {
+	db    *rindb.Rindb
+	snaps map[uint64]*rindb.Snapshot
+}
 
 // NewRinDBEngine wraps a RinDB instance as an Engine.
-func NewRinDBEngine(db *rindb.Rindb) *RinDBEngine { return &RinDBEngine{db: db} }
+func NewRinDBEngine(db *rindb.Rindb) *RinDBEngine {
+	return &RinDBEngine{db: db, snaps: make(map[uint64]*rindb.Snapshot)}
+}
 
 func (e *RinDBEngine) Put(ctx context.Context, k, v []byte) error {
 	return e.db.Put(ctx, rindb.Bytes(k), rindb.Bytes(v))
@@ -50,6 +55,28 @@ func (e *RinDBEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64,
 		res = append(res, KV{K: append([]byte(nil), []byte(rec.GetKey())...), V: append([]byte(nil), []byte(rec.GetValue())...)})
 	}
 	return res, nil
+}
+
+func (e *RinDBEngine) NewSnapshot(ctx context.Context) (uint64, error) {
+	snap, err := e.db.NewSnapshot(ctx)
+	if err != nil {
+		return 0, err
+	}
+	seq := snap.Sequence()
+	if e.snaps == nil {
+		e.snaps = make(map[uint64]*rindb.Snapshot)
+	}
+	e.snaps[seq] = snap
+	return seq, nil
+}
+
+func (e *RinDBEngine) ReleaseSnapshot(ctx context.Context, seq uint64) error {
+	snap, ok := e.snaps[seq]
+	if !ok {
+		return nil
+	}
+	delete(e.snaps, seq)
+	return snap.Release(ctx)
 }
 
 func (e *RinDBEngine) Close() error { return e.db.Close() }

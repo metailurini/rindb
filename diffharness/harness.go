@@ -73,7 +73,15 @@ func NewHarness(my Engine, ref *SQLiteOracle, seed int64, logPath string) (*Harn
 }
 
 // Close closes underlying resources.
-func (h *Harness) Close() error { return h.log.Close() }
+func (h *Harness) Close() error {
+	for _, s := range h.Snapshots[1:] {
+		_ = h.My.ReleaseSnapshot(context.Background(), s)
+		if h.Ref != nil {
+			_ = h.Ref.ReleaseSnapshot(context.Background(), s)
+		}
+	}
+	return h.log.Close()
+}
 
 func randBytes(r *rand.Rand, n int) []byte {
 	b := make([]byte, n)
@@ -198,7 +206,16 @@ func (h *Harness) Step(ctx context.Context, op Op) error {
 			}
 		}
 	case OpSnap:
-		h.Snapshots = append(h.Snapshots, h.Seq)
+		seq, err := h.My.NewSnapshot(ctx)
+		if err != nil {
+			return h.fail(i, op, err)
+		}
+		if h.Ref != nil {
+			if _, err := h.Ref.NewSnapshot(ctx); err != nil {
+				return h.fail(i, op, err)
+			}
+		}
+		h.Snapshots = append(h.Snapshots, seq)
 	}
 	return nil
 }
@@ -221,7 +238,31 @@ func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 				return err
 			}
 		}
+		if len(h.Snapshots) > 1 && r.Intn(10) == 0 {
+			idx := 1 + r.Intn(len(h.Snapshots)-1)
+			seq := h.Snapshots[idx]
+			if err := h.My.ReleaseSnapshot(ctx, seq); err != nil {
+				return err
+			}
+			if h.Ref != nil {
+				if err := h.Ref.ReleaseSnapshot(ctx, seq); err != nil {
+					return err
+				}
+			}
+			h.Snapshots = append(h.Snapshots[:idx], h.Snapshots[idx+1:]...)
+		}
 	}
+	for _, s := range h.Snapshots[1:] {
+		if err := h.My.ReleaseSnapshot(ctx, s); err != nil {
+			return err
+		}
+		if h.Ref != nil {
+			if err := h.Ref.ReleaseSnapshot(ctx, s); err != nil {
+				return err
+			}
+		}
+	}
+	h.Snapshots = h.Snapshots[:1]
 	return nil
 }
 

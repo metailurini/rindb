@@ -1,6 +1,7 @@
 package diffharness
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -10,7 +11,10 @@ import (
 // SQLiteOracle is a SQLite-backed reference implementation used by the
 // diffharness. It stores every mutation with an explicit sequence number
 // so reads can be performed at past snapshots.
-type SQLiteOracle struct{ db *sql.DB }
+type SQLiteOracle struct {
+	db    *sql.DB
+	snaps map[uint64]struct{}
+}
 
 // OpenSQLiteOracle opens or creates a SQLite database at the given path and
 // ensures the necessary schema exists.
@@ -32,7 +36,7 @@ CREATE TABLE IF NOT EXISTS kv (
 		_ = db.Close()
 		return nil, err
 	}
-	return &SQLiteOracle{db: db}, nil
+	return &SQLiteOracle{db: db, snaps: make(map[uint64]struct{})}, nil
 }
 
 // PutWithSeq inserts or replaces a value at the given sequence number.
@@ -100,3 +104,25 @@ LIMIT ?
 
 // Close closes the underlying database.
 func (o *SQLiteOracle) Close() error { return o.db.Close() }
+
+// NewSnapshot records the current maximum sequence number and tracks it as an active snapshot.
+func (o *SQLiteOracle) NewSnapshot(ctx context.Context) (uint64, error) {
+	row := o.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM kv`)
+	var seq uint64
+	if err := row.Scan(&seq); err != nil {
+		return 0, err
+	}
+	if o.snaps == nil {
+		o.snaps = make(map[uint64]struct{})
+	}
+	o.snaps[seq] = struct{}{}
+	return seq, nil
+}
+
+// ReleaseSnapshot forgets about a previously created snapshot.
+func (o *SQLiteOracle) ReleaseSnapshot(ctx context.Context, seq uint64) error {
+	if o.snaps != nil {
+		delete(o.snaps, seq)
+	}
+	return nil
+}

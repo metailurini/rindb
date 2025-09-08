@@ -11,5 +11,7 @@ type Engine interface {
 	Delete(ctx context.Context, k []byte) error // delete key (tombstone)
 	Get(ctx context.Context, k []byte, snapshot uint64) ([]byte, bool, error)
 	Range(ctx context.Context, lo, hi []byte, snapshot uint64, limit int) ([]KV, error)
+	NewSnapshot(ctx context.Context) (uint64, error)
+	ReleaseSnapshot(ctx context.Context, seq uint64) error
 	Close() error
 }
