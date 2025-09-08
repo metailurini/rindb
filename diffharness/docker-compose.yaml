@@ -36,3 +36,18 @@ services:
     volumes:
       - ./bin/diffharness:/app/diffharness
     entrypoint: ["/app/diffharness", "-jaeger=otel-collector:4317"]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: cadvisor
+    ports:
+      - '8080:8080'
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    depends_on:
+      - otel-collector
