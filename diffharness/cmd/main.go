@@ -20,6 +20,7 @@ func main() {
 	crashEvery := flag.Int("crash-every", 0, "crash/recover every N ops")
 	telemetryEvery := flag.Int("telemetry-every", 0, "emit telemetry every N ops")
 	jaeger := flag.String("jaeger", "", "Jaeger OTLP gRPC endpoint (e.g., localhost:4317)")
+	dir := flag.String("dir", "", "work directory (default temp dir)")
 	metamorphic := flag.Bool("metamorphic", false, "run metamorphic config variants")
 	flag.Parse()
 
@@ -40,18 +41,33 @@ func main() {
 	}
 
 	for _, c := range configs {
-		if err := runOne(ctx, *seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+		runDir := *dir
+		if runDir != "" {
+			runDir = filepath.Join(runDir, c.label)
+		}
+		if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
 			log.Fatalf("%s run failed: %v", c.label, err)
 		}
 	}
 }
 
-func runOne(ctx context.Context, seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
-	dir, err := os.MkdirTemp("", "diffharness")
-	if err != nil {
-		return err
+func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
+	cleanup := false
+	if dir == "" {
+		var err error
+		dir, err = os.MkdirTemp("", "diffharness")
+		if err != nil {
+			return err
+		}
+		cleanup = true
+	} else {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
 	}
-	defer os.RemoveAll(dir)
+	if cleanup {
+		defer os.RemoveAll(dir)
+	}
 	dbDir := filepath.Join(dir, "db")
 	refPath := filepath.Join(dir, "ref.db")
 	baseOpts := []rindb.Option{rindb.WithDatabaseDir(dbDir)}

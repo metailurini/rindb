@@ -21,7 +21,13 @@ The Jaeger UI is available at http://localhost:16686. Prometheus is available at
 Run the harness and send telemetry to the collector (which forwards traces to Jaeger and exposes metrics for Prometheus):
 
 ```bash
-docker compose -f diffharness/docker-compose.yaml run --rm harness -n 1000
+go run ./diffharness/cmd -jaeger=localhost:4317
+```
+
+To persist database files and logs, specify a working directory. By default a temporary directory is used and deleted when the run completes.
+
+```bash
+go run ./diffharness/cmd -dir=/tmp/dh-run -log=run.jsonl
 ```
 
 Additional command‑line flags may be appended after `harness` to control the run.
