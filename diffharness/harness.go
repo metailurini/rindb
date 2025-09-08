@@ -137,7 +137,7 @@ func (h *Harness) SetCrashHook(fn func() error) { h.crash = fn }
 func (h *Harness) SetTelemetryHook(fn func(seq uint64, ops int)) { h.telemetry = fn }
 
 // Step applies a single operation, logging it before execution.
-func (h *Harness) Step(op Op) error {
+func (h *Harness) Step(ctx context.Context, op Op) error {
 	if err := h.enc.Encode(struct {
 		I   int    `json:"i"`
 		Seq uint64 `json:"seq"`
@@ -151,7 +151,7 @@ func (h *Harness) Step(op Op) error {
 	switch op.Kind {
 	case OpPut:
 		h.Seq++
-		if err := h.My.Put(context.Background(), op.K, op.V); err != nil {
+		if err := h.My.Put(ctx, op.K, op.V); err != nil {
 			return h.fail(i, op, err)
 		}
 		if h.Ref != nil {
@@ -161,7 +161,7 @@ func (h *Harness) Step(op Op) error {
 		}
 	case OpDel:
 		h.Seq++
-		if err := h.My.Delete(context.Background(), op.K); err != nil {
+		if err := h.My.Delete(ctx, op.K); err != nil {
 			return h.fail(i, op, err)
 		}
 		if h.Ref != nil {
@@ -170,7 +170,7 @@ func (h *Harness) Step(op Op) error {
 			}
 		}
 	case OpGet:
-		mv, mok, me := h.My.Get(context.Background(), op.K, op.SnapSeq)
+		mv, mok, me := h.My.Get(ctx, op.K, op.SnapSeq)
 		if me != nil {
 			return h.fail(i, op, me)
 		}
@@ -184,7 +184,7 @@ func (h *Harness) Step(op Op) error {
 			}
 		}
 	case OpRange:
-		mres, me := h.My.Range(context.Background(), op.Lo, op.Hi, op.SnapSeq, op.Limit)
+		mres, me := h.My.Range(ctx, op.Lo, op.Hi, op.SnapSeq, op.Limit)
 		if me != nil {
 			return h.fail(i, op, me)
 		}
@@ -203,14 +203,14 @@ func (h *Harness) Step(op Op) error {
 	return nil
 }
 
-func (h *Harness) run(r *rand.Rand, cfg Cfg, n int) error {
+func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 	for i := 0; n < 0 || i < n; i++ {
 		op := h.genOp(r, cfg)
-		if err := h.Step(op); err != nil {
+		if err := h.Step(ctx, op); err != nil {
 			return err
 		}
-		if err := h.checkInvariants(r, cfg); err != nil {
+		if err := h.checkInvariants(ctx, r, cfg); err != nil {
 			return h.fail(h.ops, Op{Kind: OpInvariantCheck}, err)
 		}
 		if cfg.TelemetryEvery > 0 && h.telemetry != nil && h.ops%cfg.TelemetryEvery == 0 {
@@ -226,13 +226,13 @@ func (h *Harness) run(r *rand.Rand, cfg Cfg, n int) error {
 }
 
 // Run executes n randomized operations. If n < 0, it runs indefinitely.
-func (h *Harness) Run(cfg Cfg, n int) error {
+func (h *Harness) Run(ctx context.Context, cfg Cfg, n int) error {
 	r := rand.New(rand.NewSource(h.Seed))
-	return h.run(r, cfg, n)
+	return h.run(ctx, r, cfg, n)
 }
 
 // RunForever starts the fuzz loop and never returns unless an error occurs.
-func (h *Harness) RunForever(cfg Cfg) error { return h.Run(cfg, -1) }
+func (h *Harness) RunForever(ctx context.Context, cfg Cfg) error { return h.Run(ctx, cfg, -1) }
 
 func (h *Harness) fail(i int, op Op, cause error) error {
 	_ = h.log.Sync()
@@ -255,7 +255,7 @@ func compareKVLists(a, b []KV) error {
 	return nil
 }
 
-func (h *Harness) checkInvariants(r *rand.Rand, cfg Cfg) error {
+func (h *Harness) checkInvariants(ctx context.Context, r *rand.Rand, cfg Cfg) error {
 	if h.Ref == nil {
 		return nil
 	}
@@ -271,11 +271,11 @@ func (h *Harness) checkInvariants(r *rand.Rand, cfg Cfg) error {
 	if s1 > s2 {
 		s1, s2 = s2, s1
 	}
-	mv1, mok1, err := h.My.Get(context.Background(), k, s1)
+	mv1, mok1, err := h.My.Get(ctx, k, s1)
 	if err != nil {
 		return err
 	}
-	mv2, mok2, err := h.My.Get(context.Background(), k, s2)
+	mv2, mok2, err := h.My.Get(ctx, k, s2)
 	if err != nil {
 		return err
 	}
@@ -306,17 +306,17 @@ func (h *Harness) checkInvariants(r *rand.Rand, cfg Cfg) error {
 			mid = randKey(r, cfg.KeyLen)
 		}
 		snap := h.pickSnapshot(r)
-		left, err := h.My.Range(context.Background(), lo, mid, snap, cfg.RangeMax)
+		left, err := h.My.Range(ctx, lo, mid, snap, cfg.RangeMax)
 		if err != nil {
 			return err
 		}
-		right, err := h.My.Range(context.Background(), mid, hi, snap, cfg.RangeMax)
+		right, err := h.My.Range(ctx, mid, hi, snap, cfg.RangeMax)
 		if err != nil {
 			return err
 		}
 
 		if len(left) < cfg.RangeMax && len(right) < cfg.RangeMax {
-			full, err := h.My.Range(context.Background(), lo, hi, snap, cfg.RangeMax*2)
+			full, err := h.My.Range(ctx, lo, hi, snap, cfg.RangeMax*2)
 			if err != nil {
 				return err
 			}
