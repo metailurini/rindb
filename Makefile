@@ -18,10 +18,16 @@ check-spanname:
 clean-testdata:
 	@rm -rf testdata/*
 
+# === Unit tests ===
 test: clean-testdata
 	@echo "Running tests..."
 	@$(GO) test -v ./...
 
+test-coverage: clean-testdata
+	@echo "Running tests with coverage..."
+	@$(GO) test -v -coverprofile=coverage.txt $(PKGS)
+
+# === Integration tests ===
 test-integration-smoke: clean-testdata
 	@echo "Running smoke integration tests..."
 	@$(GO) test -v -tags "integration smoke" ./integration
@@ -31,25 +37,10 @@ test-integration-full: clean-testdata
 	@echo "Running full integration tests..."
 	@$(GO) test -v -tags integration ./integration
 
-test-integration: test-integration-full
+test-integration:
+	@$(MAKE) test-integration-full
 
-test-coverage: clean-testdata
-	@echo "Running tests with coverage..."
-	@$(GO) test -v -coverprofile=coverage.txt $(PKGS)
-
-test-pprof:
-	@./scripts/run-pprof-tests.sh
-
-view-coverage:
-	@$(GO) tool cover -html=coverage.txt -o coverage.html
-ifeq ($(OS),Windows_NT)
-	@start coverage.html
-else ifeq ($(UNAME_S),Linux)
-	@xdg-open coverage.html
-else ifeq ($(UNAME_S),Darwin)
-	@open coverage.html
-endif
-
+# === Diff harness tests ===
 diffharness-build:
 	@echo "Building diffharness for linux/amd64..."
 	@cd diffharness && go mod tidy
@@ -65,3 +56,18 @@ diffharness-down:
 	@echo "Running docker compose down for diffharness..."
 	@docker compose -f diffharness/docker-compose.yaml down
 	@echo "Done."
+
+
+# === Pprof ===
+test-pprof:
+	@./scripts/run-pprof-tests.sh
+
+view-coverage:
+	@$(GO) tool cover -html=coverage.txt -o coverage.html
+ifeq ($(OS),Windows_NT)
+	@start coverage.html
+else ifeq ($(UNAME_S),Linux)
+	@xdg-open coverage.html
+else ifeq ($(UNAME_S),Darwin)
+	@open coverage.html
+endif
