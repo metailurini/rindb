@@ -134,41 +134,40 @@ func (h *Harness) pickKnownKey(r *rand.Rand) []byte {
 	return []byte(h.keys[r.Intn(len(h.keys))])
 }
 
+func (h *Harness) genKey(r *rand.Rand, n int) []byte {
+	k := randKey(r, n)
+	if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
+		k = ex
+	}
+	return k
+}
+
 func (h *Harness) genOp(r *rand.Rand, cfg Cfg) Op {
 	sum := 0
 	for _, w := range cfg.Weights {
 		sum += w
 	}
 	x := r.Intn(sum)
-	var k OpKind
-	for kind, w := range cfg.Weights {
+	var kind OpKind
+	for op, w := range cfg.Weights {
 		if x < w {
-			k = kind
+			kind = op
 			break
 		}
 		x -= w
 	}
-	switch k {
+	switch kind {
 	case OpPut:
 		vlen := cfg.ValLenMin + r.Intn(cfg.ValLenMax-cfg.ValLenMin+1)
-		k := randKey(r, cfg.KeyLen)
-		if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
-			k = ex
-		}
-		return Op{Kind: OpPut, K: k, V: randBytes(r, vlen)}
+		key := h.genKey(r, cfg.KeyLen)
+		return Op{Kind: OpPut, K: key, V: randBytes(r, vlen)}
 	case OpDel:
-		k := randKey(r, cfg.KeyLen)
-		if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
-			k = ex
-		}
-		return Op{Kind: OpDel, K: k}
+		key := h.genKey(r, cfg.KeyLen)
+		return Op{Kind: OpDel, K: key}
 	case OpGet:
-		k := randKey(r, cfg.KeyLen)
-		if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
-			k = ex
-		}
+		key := h.genKey(r, cfg.KeyLen)
 		s := h.pickSnapshot(r)
-		return Op{Kind: OpGet, K: k, SnapSeq: s}
+		return Op{Kind: OpGet, K: key, SnapSeq: s}
 	case OpRange:
 		lo := randKey(r, cfg.KeyLen)
 		hi := randKey(r, cfg.KeyLen)
@@ -483,11 +482,11 @@ func Replay(ctx context.Context, my Engine, ref *SQLiteOracle, logPath string) (
 	defer devnull.Close()
 	h := &Harness{My: my, Ref: ref, log: devnull, enc: json.NewEncoder(devnull)}
 	h.Snapshots = append(h.Snapshots, h.Seq)
+	var entry struct {
+		Seq uint64 `json:"seq"`
+		Op  Op     `json:"op"`
+	}
 	for {
-		var entry struct {
-			Seq uint64 `json:"seq"`
-			Op  Op     `json:"op"`
-		}
 		if err := dec.Decode(&entry); err != nil {
 			if errors.Is(err, io.EOF) {
 				break
