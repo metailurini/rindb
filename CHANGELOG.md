@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/metailurini/rindb/compare/v0.8.1...v0.9.0) (2025-09-08)
+
+
+### Features
+
+* remove obsolete manifest files ([f52e7f8](https://github.com/metailurini/rindb/commit/f52e7f87226b079ddfd47f2d3ff207082e5e6bd6))
+
+
+### Bug Fixes
+
+* handle manifest cleanup errors ([666caa0](https://github.com/metailurini/rindb/commit/666caa016628853571740196647549a38cf30a27))
+
 ## [0.8.1](https://github.com/metailurini/rindb/compare/v0.8.0...v0.8.1) (2025-09-07)
 
 
