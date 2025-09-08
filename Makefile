@@ -43,8 +43,7 @@ test-integration:
 # === Diff harness tests ===
 diffharness-build:
 	@echo "Building diffharness for linux/amd64..."
-	@cd diffharness && go mod tidy
-	@GOOS=linux GOARCH=amd64 $(GO) build -o ./bin/diffharness ./cmd/main.go
+	@cd diffharness && go mod tidy && GOOS=linux GOARCH=amd64 $(GO) build -o ./bin/diffharness ./cmd/main.go
 	@echo "Done."
 
 diffharness-up: diffharness-build
