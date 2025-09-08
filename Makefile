@@ -52,7 +52,8 @@ endif
 
 diffharness-build:
 	@echo "Building diffharness for linux/amd64..."
-	@GOOS=linux GOARCH=amd64 $(GO) build -o ./diffharness/bin/diffharness ./diffharness/cmd/main.go
+	@cd diffharness && go mod tidy
+	@GOOS=linux GOARCH=amd64 $(GO) build -o ./bin/diffharness ./cmd/main.go
 	@echo "Done."
 
 diffharness-up: diffharness-build

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	rindb "github.com/metailurini/rindb"
+	"github.com/metailurini/rindb"
 	"github.com/metailurini/rindb/diffharness"
 )
 
