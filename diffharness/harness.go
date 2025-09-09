@@ -83,34 +83,28 @@ func (h *Harness) Close() error {
 	return h.log.Close()
 }
 
-func randBytes(r *rand.Rand, n int) []byte {
+const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randPrefixedBytes(r *rand.Rand, n int, prefix, suffix string) []byte {
+	minLen := len(prefix) + len(suffix)
+	if n < minLen {
+		n = minLen
+	}
 	b := make([]byte, n)
-	_, _ = r.Read(b)
+	copy(b, prefix)
+	for i := len(prefix); i < n-len(suffix); i++ {
+		b[i] = letters[r.Intn(len(letters))]
+	}
+	copy(b[n-len(suffix):], suffix)
 	return b
 }
 
-const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-func randString(r *rand.Rand, n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letters[r.Intn(len(letters))]
-	}
-	return string(b)
-}
-
 func randKey(r *rand.Rand, n int) []byte {
-	if n < 4 {
-		n = 4
-	}
-	return []byte("sk" + randString(r, n-4) + "ek")
+	return randPrefixedBytes(r, n, "sk", "ek")
 }
 
 func randValue(r *rand.Rand, n int) []byte {
-	if n < 4 {
-		n = 4
-	}
-	return []byte("sv" + randString(r, n-4) + "ev")
+	return randPrefixedBytes(r, n, "sv", "ev")
 }
 
 const maxKnownKeys = 100
