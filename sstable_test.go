@@ -610,7 +610,8 @@ func TestSStableChecksumMismatch(t *testing.T) {
 }
 
 func TestFooterRoundTrip(t *testing.T) {
-	tx, _ := newFileTx(t)
+	tx, cleanup := newFileTx(t)
+	defer cleanup()
 	want := footer{indexOffset: 10, indexSize: 20, magic: magicNumber}
 	err := writeFooter(tx, want)
 	require.NoError(t, err)
@@ -621,7 +622,8 @@ func TestFooterRoundTrip(t *testing.T) {
 
 func TestReadFooterErrors(t *testing.T) {
 	t.Run("InvalidMagic", func(t *testing.T) {
-		tx, _ := newFileTx(t)
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
 		err := writeFooter(tx, footer{indexOffset: 1, indexSize: 2, magic: 0})
 		require.NoError(t, err)
 		_, err = readFooter(tx.log, 0)
@@ -629,8 +631,34 @@ func TestReadFooterErrors(t *testing.T) {
 	})
 
 	t.Run("ShortRead", func(t *testing.T) {
-		tx, _ := newFileTx(t)
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
 		_, err := readFooter(tx.log, 0)
 		assert.ErrorIs(t, err, io.EOF)
+	})
+}
+
+func TestNewSSTableInvalidFooter(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	t.Run("OffsetTooLarge", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		err := writeFooter(tx, footer{indexOffset: 100, indexSize: 0, magic: magicNumber})
+		require.NoError(t, err)
+		_, err = NewSSTable(ctx, cfg, tx.log)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
+	t.Run("IndexOverlapsFooter", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		_, err := tx.write([]byte("data"))
+		require.NoError(t, err)
+		err = writeFooter(tx, footer{indexOffset: 1, indexSize: 10, magic: magicNumber})
+		require.NoError(t, err)
+		_, err = NewSSTable(ctx, cfg, tx.log)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
 	})
 }
