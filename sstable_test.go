@@ -630,6 +630,17 @@ func TestReadFooterErrors(t *testing.T) {
 		assert.ErrorIs(t, err, ErrMalFormedSSTable)
 	})
 
+	t.Run("InvalidPadding", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		err := writeFooter(tx, footer{indexOffset: 1, indexSize: 2, magic: magicNumber})
+		require.NoError(t, err)
+		_, err = tx.log.WriteAt([]byte{1}, 16)
+		require.NoError(t, err)
+		_, err = readFooter(tx.log, 0)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
 	t.Run("ShortRead", func(t *testing.T) {
 		tx, cleanup := newFileTx(t)
 		defer cleanup()
