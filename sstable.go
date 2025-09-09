@@ -219,6 +219,10 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	if err != nil {
 		return SStable{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
 	}
+	if f.indexSize == 0 {
+		errorf(ctx, "index size is zero in %s", fs.Path())
+		return SStable{}, ErrMalFormedSSTable
+	}
 	if f.indexOffset > uint64(tailOffset) || f.indexSize > uint64(tailOffset) {
 		errorf(ctx, "invalid footer values in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
 		return SStable{}, ErrMalFormedSSTable
