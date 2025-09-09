@@ -781,27 +781,37 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 }
 
 func TestSSTableIRangePrepareEOF(t *testing.T) {
-	fss, closer := initTempFileSystems(t, 1, nil)
-	defer closer()
-	fs := fss[0]
-	sst := SStable{FileSystem: fs}
-	sri := &sstableIRange{s: &sst, startKey: Bytes("a"), endKey: Bytes("b"), seq: 1, offset: 0, dataEnd: 1}
-
-	assert.False(t, sri.HasNext())
-	_, err := sri.Next()
-	assert.ErrorIs(t, err, EOI)
-}
-
-func TestSSTableIRangePrepareUnexpectedEOF(t *testing.T) {
 	content := []byte{1, 2, 3, 4}
-	fss, closer := initTempFileSystems(t, 1, [][]byte{content})
-	defer closer()
-	fs := fss[0]
-	sst := SStable{FileSystem: fs}
-	sri := &sstableIRange{s: &sst, startKey: Bytes("a"), endKey: Bytes("b"), seq: 1, offset: 0, dataEnd: 8}
+	tests := []struct {
+		name     string
+		contents [][]byte
+		dataEnd  int64
+		err      error
+	}{
+		{
+			name:     "EOI",
+			contents: nil,
+			dataEnd:  1,
+			err:      EOI,
+		},
+		{
+			name:     "UnexpectedEOF",
+			contents: [][]byte{content},
+			dataEnd:  8,
+			err:      io.ErrUnexpectedEOF,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, tt.contents)
+			defer closer()
+			fs := fss[0]
+			sst := SStable{FileSystem: fs}
+			sri := &sstableIRange{s: &sst, startKey: Bytes("a"), endKey: Bytes("b"), seq: 1, offset: 0, dataEnd: tt.dataEnd}
 
-	assert.False(t, sri.HasNext())
-	_, err := sri.Next()
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+			assert.False(t, sri.HasNext())
+			_, err := sri.Next()
+			assert.ErrorIs(t, err, tt.err)
+		})
+	}
 }
