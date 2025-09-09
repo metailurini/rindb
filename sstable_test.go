@@ -662,3 +662,48 @@ func TestNewSSTableInvalidFooter(t *testing.T) {
 		assert.ErrorIs(t, err, ErrMalFormedSSTable)
 	})
 }
+
+func TestNewSSTableEmptyIndex(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	tests := []struct {
+		name        string
+		data        []byte
+		indexOffset uint64
+	}{
+		{
+			name:        "OnlyFooter",
+			data:        nil,
+			indexOffset: 0,
+		},
+		{
+			name:        "DataWithoutIndex",
+			data:        []byte("data"),
+			indexOffset: uint64(len("data")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
+			fs := fss[0]
+
+			if tt.data != nil {
+				_, err := fs.Write(tt.data)
+				require.NoError(t, err)
+			}
+
+			buf := make([]byte, footerSize)
+			byteOrder.PutUint64(buf[0:8], tt.indexOffset)
+			byteOrder.PutUint64(buf[8:16], 0)
+			byteOrder.PutUint64(buf[40:48], magicNumber)
+			_, err := fs.Write(buf)
+			require.NoError(t, err)
+
+			_, err = NewSSTable(ctx, cfg, fs)
+			assert.ErrorIs(t, err, ErrMalFormedSSTable)
+		})
+	}
+}
