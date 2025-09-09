@@ -89,7 +89,29 @@ func randBytes(r *rand.Rand, n int) []byte {
 	return b
 }
 
-func randKey(r *rand.Rand, n int) []byte { return randBytes(r, n) }
+const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func randString(r *rand.Rand, n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[r.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+func randKey(r *rand.Rand, n int) []byte {
+	if n < 4 {
+		n = 4
+	}
+	return []byte("sk" + randString(r, n-4) + "ek")
+}
+
+func randValue(r *rand.Rand, n int) []byte {
+	if n < 4 {
+		n = 4
+	}
+	return []byte("sv" + randString(r, n-4) + "ev")
+}
 
 const maxKnownKeys = 100
 
@@ -160,7 +182,7 @@ func (h *Harness) genOp(r *rand.Rand, cfg Cfg) Op {
 	case OpPut:
 		vlen := cfg.ValLenMin + r.Intn(cfg.ValLenMax-cfg.ValLenMin+1)
 		key := h.genKey(r, cfg.KeyLen)
-		return Op{Kind: OpPut, K: key, V: randBytes(r, vlen)}
+		return Op{Kind: OpPut, K: key, V: randValue(r, vlen)}
 	case OpDel:
 		key := h.genKey(r, cfg.KeyLen)
 		return Op{Kind: OpDel, K: key}
