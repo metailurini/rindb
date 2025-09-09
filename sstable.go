@@ -270,9 +270,9 @@ func loadSparseIndex(fs *FileSystem, offset, size int64) (SparseIndex, error) {
 	}
 
 	limit := offset + size
+	reader := newOffsetReader(fs, offset)
 	sparseIndex := SparseIndex{}
-	for offset < limit {
-		reader := newOffsetReader(fs, offset)
+	for reader.Offset() < limit {
 		ko, err := readKeyOffset(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -281,12 +281,11 @@ func loadSparseIndex(fs *FileSystem, offset, size int64) (SparseIndex, error) {
 			return SparseIndex{}, fmt.Errorf("failed to read sparse index entry in %s: %w", fs.Path(), err)
 		}
 		sparseIndex = append(sparseIndex, ko)
-		offset = reader.Offset()
 	}
 
-	if offset != limit {
+	if reader.Offset() != limit {
 		return SparseIndex{}, fmt.Errorf("mismatched sparse index size in %s: expected end at %d, but read until %d: %w",
-			fs.Path(), limit, offset, ErrMalFormedSSTable)
+			fs.Path(), limit, reader.Offset(), ErrMalFormedSSTable)
 	}
 
 	return sparseIndex, nil
