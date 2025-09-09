@@ -298,3 +298,21 @@ func TestReplayReproducesState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, exp, got)
 }
+
+func TestHarnessCloseWithoutSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref.Close() })
+
+	my, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	require.NoError(t, err)
+	eng := &sqliteEngine{o: my}
+
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, ref, 1, logPath)
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() { _ = h.Close() })
+	require.NoError(t, eng.Close())
+}
