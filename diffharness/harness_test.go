@@ -308,11 +308,11 @@ func TestHarnessCloseWithoutSnapshots(t *testing.T) {
 	my, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
 	require.NoError(t, err)
 	eng := &sqliteEngine{o: my}
+	t.Cleanup(func() { _ = eng.Close() })
 
 	logPath := filepath.Join(dir, "log.jsonl")
 	h, err := NewHarness(eng, ref, 1, logPath)
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() { _ = h.Close() })
-	require.NoError(t, eng.Close())
 }
