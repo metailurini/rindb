@@ -164,9 +164,8 @@ func TestHarnessRunChecksInvariants(t *testing.T) {
 	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
 
 	cfg := Cfg{
-		KeyLen:    4,
-		ValLenMin: 1,
-		ValLenMax: 4,
+		KeyLen:    10,
+		ValLenMax: 100,
 		RangeMax:  100,
 		Weights: map[OpKind]int{
 			OpPut:   1,
@@ -230,9 +229,8 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	require.Equal(t, []byte("v"), v)
 
 	cfg := Cfg{
-		KeyLen:    4,
-		ValLenMin: 1,
-		ValLenMax: 4,
+		KeyLen:    10,
+		ValLenMax: 100,
 		RangeMax:  100,
 		Weights: map[OpKind]int{
 			OpPut:   1,
@@ -266,9 +264,8 @@ func TestReplayReproducesState(t *testing.T) {
 	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
 
 	cfg := Cfg{
-		KeyLen:    2,
-		ValLenMin: 1,
-		ValLenMax: 4,
+		KeyLen:    10,
+		ValLenMax: 100,
 		RangeMax:  100,
 		Weights: map[OpKind]int{
 			OpPut:   1,

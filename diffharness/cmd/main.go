@@ -111,9 +111,9 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	}()
 
 	cfg := diffharness.Cfg{
-		KeyLen:    4,
-		ValLenMin: 1,
-		ValLenMax: 8,
+		KeyLen:    10,
+		ValLenMin: 10,
+		ValLenMax: 100,
 		RangeMax:  64,
 		Weights: map[diffharness.OpKind]int{
 			diffharness.OpPut:   1,
