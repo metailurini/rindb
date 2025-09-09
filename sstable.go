@@ -351,34 +351,55 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 
 // sstableIRange iterates over a range of keys in an SSTable.
 type sstableIRange struct {
-	s       *SStable
-	current int
-	endKey  Bytes
-	seq     uint64
-	offset  int64
+	s        *SStable
+	current  int
+	endKey   Bytes
+	seq      uint64
+	offset   int64
+	next     Record
+	err      error
+	prepared bool
 }
 
-// HasNext implements Iterator.
-func (sri *sstableIRange) HasNext() bool {
-	return sri.current < len(sri.s.SparseIndex) && sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) <= 0
-}
-
-// Next implements Iterator.
-func (sri *sstableIRange) Next() (Record, error) {
-	for sri.HasNext() {
+func (sri *sstableIRange) prepare() {
+	for !sri.prepared && sri.err == nil {
+		if sri.current >= len(sri.s.SparseIndex) || sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) > 0 {
+			sri.err = EOI
+			return
+		}
 		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
 		rec, err := ReadRecord(reader)
 		if err != nil {
-			return nil, err
+			sri.err = err
+			return
 		}
 		sri.offset = reader.Offset()
 		sri.current++
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
 		}
-		return rec, nil
+		sri.next = rec
+		sri.prepared = true
 	}
-	return nil, EOI
+}
+
+// HasNext implements Iterator.
+func (sri *sstableIRange) HasNext() bool {
+	sri.prepare()
+	return sri.prepared
+}
+
+// Next implements Iterator.
+func (sri *sstableIRange) Next() (Record, error) {
+	if !sri.HasNext() {
+		var empty Record
+		if sri.err != nil {
+			return empty, sri.err
+		}
+		return empty, EOI
+	}
+	sri.prepared = false
+	return sri.next, nil
 }
 
 // IRange returns an iterator over records with keys in [start, end] and sequence

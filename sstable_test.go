@@ -615,50 +615,113 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 	type kv struct {
 		key Bytes
 		val Bytes
+		seq uint64
 	}
 
 	tests := []struct {
-		name  string
-		pairs []kv
+		name     string
+		records  []kv
+		seq      uint64
+		expected []kv
 	}{
 		{
 			name: "all values",
-			pairs: []kv{
-				{Bytes("1"), Bytes("1")},
-				{Bytes("2"), Bytes("2")},
-				{Bytes("3"), Bytes("3")},
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
 			},
 		},
 		{
 			name: "leading tombstone",
-			pairs: []kv{
-				{Bytes("1"), nil},
-				{Bytes("2"), Bytes("2")},
-				{Bytes("3"), Bytes("3")},
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+			expected: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
 			},
 		},
 		{
 			name: "middle tombstone",
-			pairs: []kv{
-				{Bytes("1"), Bytes("1")},
-				{Bytes("2"), nil},
-				{Bytes("3"), Bytes("3")},
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), Bytes("3"), 3},
 			},
 		},
 		{
 			name: "trailing tombstone",
-			pairs: []kv{
-				{Bytes("1"), Bytes("1")},
-				{Bytes("2"), Bytes("2")},
-				{Bytes("3"), nil},
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), nil, 3},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), nil, 3},
 			},
 		},
 		{
 			name: "all tombstones",
-			pairs: []kv{
-				{Bytes("1"), nil},
-				{Bytes("2"), nil},
-				{Bytes("3"), nil},
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), nil, 3},
+			},
+			expected: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), nil, 3},
+			},
+		},
+		{
+			name: "duplicate key with tombstone",
+			seq:  4,
+			records: []kv{
+				{Bytes("1"), Bytes("old"), 1},
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("new"), 3},
+				{Bytes("2"), Bytes("2"), 4},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("new"), 3},
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("old"), 1},
+				{Bytes("2"), Bytes("2"), 4},
+			},
+		},
+		{
+			name: "duplicate key with tombstone filtered",
+			seq:  2,
+			records: []kv{
+				{Bytes("1"), Bytes("old"), 1},
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("new"), 3},
+				{Bytes("2"), Bytes("2"), 4},
+			},
+			expected: []kv{
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("old"), 1},
 			},
 		},
 	}
@@ -670,23 +733,25 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 			fs := fss[0]
 
 			mem := InitMemtable(cfg)
-			for i, p := range tt.pairs {
-				mem.Put(newRecord(p.key, p.val, uint64(i+1)))
+			for _, r := range tt.records {
+				mem.Put(newRecord(r.key, r.val, r.seq))
 			}
 
 			sst, meta, err := flush(ctx, cfg, mem, fs)
 			require.NoError(t, err)
 			require.NotZero(t, meta.Number)
 
-			it, err := sst.IRange(tt.pairs[0].key, tt.pairs[len(tt.pairs)-1].key)
+			it, err := sst.IRange(tt.records[0].key, tt.records[len(tt.records)-1].key, tt.seq)
 			require.NoError(t, err)
 
 			idx := 0
+			seen := make(map[string]bool)
 			for it.HasNext() {
 				rec, err := it.Next()
 				require.NoError(t, err)
-				expected := tt.pairs[idx]
+				expected := tt.expected[idx]
 				assert.Equal(t, expected.key, rec.GetKey())
+				assert.Equal(t, expected.seq, rec.GetSequenceNumber())
 				if expected.val == nil {
 					assert.Nil(t, rec.GetValue())
 					assert.Equal(t, TypeDeletion, rec.GetType())
@@ -695,17 +760,21 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 					assert.Equal(t, TypeValue, rec.GetType())
 				}
 
-				gv, err := sst.GetValue(ctx, rec.GetKey())
-				if expected.val == nil {
-					assert.ErrorIs(t, err, ErrTombstoneFound)
-					assert.Nil(t, gv)
-				} else {
-					assert.NoError(t, err)
-					assert.Equal(t, expected.val, gv)
+				keyStr := string(rec.GetKey())
+				if !seen[keyStr] {
+					gv, err := sst.GetValue(ctx, rec.GetKey(), tt.seq)
+					if expected.val == nil {
+						assert.ErrorIs(t, err, ErrTombstoneFound)
+						assert.Nil(t, gv)
+					} else {
+						assert.NoError(t, err)
+						assert.Equal(t, expected.val, gv)
+					}
+					seen[keyStr] = true
 				}
 				idx++
 			}
-			assert.Equal(t, len(tt.pairs), idx)
+			assert.Equal(t, len(tt.expected), idx)
 		})
 	}
 }
