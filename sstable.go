@@ -404,10 +404,7 @@ func (sri *sstableIRange) HasNext() bool {
 func (sri *sstableIRange) Next() (Record, error) {
 	if !sri.HasNext() {
 		var empty Record
-		if sri.err != nil {
-			return empty, sri.err
-		}
-		return empty, EOI
+		return empty, sri.err
 	}
 	sri.prepared = false
 	return sri.next, nil
