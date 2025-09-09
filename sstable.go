@@ -73,11 +73,11 @@ type footer struct {
 }
 
 func writeFooter(tx *transaction, f footer) error {
-	buf := make([]byte, footerSize)
+	var buf [footerSize]byte
 	byteOrder.PutUint64(buf[0:8], f.indexOffset)
 	byteOrder.PutUint64(buf[8:16], f.indexSize)
 	byteOrder.PutUint64(buf[40:48], f.magic)
-	if _, err := tx.write(buf); err != nil {
+	if _, err := tx.write(buf[:]); err != nil {
 		return fmt.Errorf("failed to write footer: %w", err)
 	}
 	return nil
@@ -85,12 +85,18 @@ func writeFooter(tx *transaction, f footer) error {
 
 func readFooter(fs *FileSystem, off int64) (footer, error) {
 	var f footer
-	buf := make([]byte, footerSize)
-	if _, err := fs.ReadAt(buf, off); err != nil {
+	var buf [footerSize]byte
+	if _, err := fs.ReadAt(buf[:], off); err != nil {
 		return f, err
 	}
+
 	f.indexOffset = byteOrder.Uint64(buf[0:8])
 	f.indexSize = byteOrder.Uint64(buf[8:16])
+	for _, b := range buf[16:40] {
+		if b != 0 {
+			return f, ErrMalFormedSSTable
+		}
+	}
 	f.magic = byteOrder.Uint64(buf[40:48])
 	if f.magic != magicNumber {
 		return f, ErrMalFormedSSTable
