@@ -661,4 +661,28 @@ func TestNewSSTableInvalidFooter(t *testing.T) {
 		_, err = NewSSTable(ctx, cfg, tx.log)
 		assert.ErrorIs(t, err, ErrMalFormedSSTable)
 	})
+
+	t.Run("ExtraBytesBetweenIndexAndFooter", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+
+		// write one record at offset 0
+		err := writeRecord(tx, newRecord(Bytes("a"), Bytes("v"), 1))
+		require.NoError(t, err)
+
+		indexOffset := tx.size()
+		err = writeKeyOffset(tx, KeyOffset{key: Bytes("a"), offset: 0})
+		require.NoError(t, err)
+		indexSize := tx.size() - indexOffset
+
+		// insert extra bytes between index and footer
+		_, err = tx.write([]byte{0})
+		require.NoError(t, err)
+
+		err = writeFooter(tx, footer{indexOffset: uint64(indexOffset), indexSize: uint64(indexSize), magic: magicNumber})
+		require.NoError(t, err)
+
+		_, err = NewSSTable(ctx, cfg, tx.log)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
 }
