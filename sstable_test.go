@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -777,4 +778,30 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 			assert.Equal(t, len(tt.expected), idx)
 		})
 	}
+}
+
+func TestSSTableIRangePrepareEOF(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+	sst := SStable{FileSystem: fs}
+	sri := &sstableIRange{s: &sst, startKey: Bytes("a"), endKey: Bytes("b"), seq: 1, offset: 0, dataEnd: 1}
+
+	assert.False(t, sri.HasNext())
+	_, err := sri.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestSSTableIRangePrepareUnexpectedEOF(t *testing.T) {
+	content := []byte{1, 2, 3, 4}
+	fss, closer := initTempFileSystems(t, 1, [][]byte{content})
+	defer closer()
+	fs := fss[0]
+	sst := SStable{FileSystem: fs}
+	sri := &sstableIRange{s: &sst, startKey: Bytes("a"), endKey: Bytes("b"), seq: 1, offset: 0, dataEnd: 8}
+
+	assert.False(t, sri.HasNext())
+	_, err := sri.Next()
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
