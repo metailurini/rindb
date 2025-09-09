@@ -141,6 +141,35 @@ func TestWriteAndCommit(t *testing.T) {
 	require.Equal(t, []byte("hello"), data)
 }
 
+func TestTransactionWritePartial(t *testing.T) {
+	fs := newTempFS(t)
+	tm := newTransactionManager()
+	txn, err := tm.begin(context.Background(), fs)
+	require.NoError(t, err)
+
+	origWrite := fsWrite
+	defer func() { fsWrite = origWrite }()
+	first := true
+	fsWrite = func(fsys *FileSystem, p []byte) (int, error) {
+		if first {
+			first = false
+			half := len(p) / 2
+			return origWrite(fsys, p[:half])
+		}
+		return origWrite(fsys, p)
+	}
+
+	data := []byte("partial")
+	n, err := txn.write(data)
+	require.NoError(t, err)
+	require.Equal(t, len(data), n)
+	require.NoError(t, txn.commit(context.Background()))
+
+	read, err := os.ReadFile(fs.Path())
+	require.NoError(t, err)
+	require.Equal(t, data, read)
+}
+
 func TestRollback(t *testing.T) {
 	fs := newTempFS(t)
 	_, err := fs.Write([]byte("base"))
