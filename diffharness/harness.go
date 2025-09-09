@@ -297,6 +297,9 @@ func (h *Harness) Step(ctx context.Context, op Op) error {
 }
 
 func (h *Harness) releaseSnapshots(ctx context.Context, logErrors bool) error {
+	if len(h.Snapshots) == 0 {
+		return nil
+	}
 	for _, s := range h.Snapshots[1:] {
 		if err := h.My.ReleaseSnapshot(ctx, s); err != nil {
 			if logErrors {
