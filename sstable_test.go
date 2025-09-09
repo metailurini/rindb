@@ -605,3 +605,118 @@ func TestSStableChecksumMismatch(t *testing.T) {
 	_, err = sstable.GetValue(ctx, Bytes("a"))
 	assert.ErrorIs(t, err, ErrChecksumMismatch)
 }
+
+// TestSSTableIRangeGetValueConsistency verifies that IRange and GetValue
+// return consistent key/value pairs across different SSTable contents.
+func TestSSTableIRangeGetValueConsistency(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	type kv struct {
+		key Bytes
+		val Bytes
+	}
+
+	tests := []struct {
+		name  string
+		pairs []kv
+	}{
+		{
+			name: "all values",
+			pairs: []kv{
+				{Bytes("1"), Bytes("1")},
+				{Bytes("2"), Bytes("2")},
+				{Bytes("3"), Bytes("3")},
+			},
+		},
+		{
+			name: "leading tombstone",
+			pairs: []kv{
+				{Bytes("1"), nil},
+				{Bytes("2"), Bytes("2")},
+				{Bytes("3"), Bytes("3")},
+			},
+		},
+		{
+			name: "middle tombstone",
+			pairs: []kv{
+				{Bytes("1"), Bytes("1")},
+				{Bytes("2"), nil},
+				{Bytes("3"), Bytes("3")},
+			},
+		},
+		{
+			name: "trailing tombstone",
+			pairs: []kv{
+				{Bytes("1"), Bytes("1")},
+				{Bytes("2"), Bytes("2")},
+				{Bytes("3"), nil},
+			},
+		},
+		{
+			name: "all tombstones",
+			pairs: []kv{
+				{Bytes("1"), nil},
+				{Bytes("2"), nil},
+				{Bytes("3"), nil},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
+			fs := fss[0]
+
+			mem := InitMemtable(cfg)
+			for i, p := range tt.pairs {
+				mem.Put(newRecord(p.key, p.val, uint64(i+1)))
+			}
+
+			sst, meta, err := flush(ctx, cfg, mem, fs)
+			require.NoError(t, err)
+			require.NotZero(t, meta.Number)
+
+			for _, p := range tt.pairs {
+				got, err := sst.GetValue(ctx, p.key)
+				if p.val == nil {
+					assert.ErrorIs(t, err, ErrTombstoneFound)
+					assert.Nil(t, got)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, p.val, got)
+				}
+			}
+
+			it, err := sst.IRange(tt.pairs[0].key, tt.pairs[len(tt.pairs)-1].key)
+			require.NoError(t, err)
+
+			idx := 0
+			for it.HasNext() {
+				rec, err := it.Next()
+				require.NoError(t, err)
+				expected := tt.pairs[idx]
+				assert.Equal(t, expected.key, rec.GetKey())
+				if expected.val == nil {
+					assert.Nil(t, rec.GetValue())
+					assert.Equal(t, TypeDeletion, rec.GetType())
+				} else {
+					assert.Equal(t, expected.val, rec.GetValue())
+					assert.Equal(t, TypeValue, rec.GetType())
+				}
+
+				gv, err := sst.GetValue(ctx, rec.GetKey())
+				if expected.val == nil {
+					assert.ErrorIs(t, err, ErrTombstoneFound)
+					assert.Nil(t, gv)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, expected.val, gv)
+				}
+				idx++
+			}
+			assert.Equal(t, len(tt.pairs), idx)
+		})
+	}
+}
