@@ -352,10 +352,11 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 // sstableIRange iterates over a range of keys in an SSTable.
 type sstableIRange struct {
 	s        *SStable
-	current  int
+	startKey Bytes
 	endKey   Bytes
 	seq      uint64
 	offset   int64
+	dataEnd  int64
 	next     Record
 	err      error
 	prepared bool
@@ -363,18 +364,28 @@ type sstableIRange struct {
 
 func (sri *sstableIRange) prepare() {
 	for !sri.prepared && sri.err == nil {
-		if sri.current >= len(sri.s.SparseIndex) || sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) > 0 {
+		if sri.offset >= sri.dataEnd {
 			sri.err = EOI
 			return
 		}
 		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
 		rec, err := ReadRecord(reader)
 		if err != nil {
-			sri.err = err
+			if errors.Is(err, io.EOF) {
+				sri.err = EOI
+			} else {
+				sri.err = err
+			}
 			return
 		}
 		sri.offset = reader.Offset()
-		sri.current++
+		if rec.GetKey().Compare(sri.startKey) < 0 {
+			continue
+		}
+		if rec.GetKey().Compare(sri.endKey) > 0 {
+			sri.err = EOI
+			return
+		}
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
 		}
@@ -415,8 +426,21 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})
 	var startOffset int64
-	if startIdx < len(s.SparseIndex) {
+	switch {
+	case startIdx < len(s.SparseIndex) && s.SparseIndex[startIdx].key.Compare(start) == CmpEqual:
 		startOffset = s.SparseIndex[startIdx].offset
+	case startIdx > 0:
+		startOffset = s.SparseIndex[startIdx-1].offset
 	}
-	return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq, offset: startOffset}, nil
+	tailOffset, err := readTailSSTable(s.FileSystem)
+	if err != nil {
+		return nil, err
+	}
+	buf := make([]byte, mdByteSize)
+	if _, err := s.FileSystem.ReadAt(buf, tailOffset); err != nil {
+		return nil, err
+	}
+	dataEnd := int64(byteOrder.Uint64(buf))
+
+	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd}, nil
 }
