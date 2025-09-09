@@ -17,6 +17,11 @@ var (
 	ErrMalFormedSSTable = errors.New("malformed sstable")
 )
 
+const (
+	footerSize  = 48
+	magicNumber = uint64(201867972885)
+)
+
 type (
 	KeyOffset struct {
 		key    Bytes
@@ -56,6 +61,40 @@ func readKeyOffset(r io.Reader) (KeyOffset, error) {
 	}
 
 	return KeyOffset{key: key, offset: int64(off)}, nil
+}
+
+// footer layout: |8 index offset|8 index size|24 padding|8 magic|
+type footer struct {
+	indexOffset uint64
+	indexSize   uint64
+	_           [24]byte
+	magic       uint64
+}
+
+func writeFooter(tx *transaction, f footer) error {
+	buf := make([]byte, footerSize)
+	byteOrder.PutUint64(buf[0:8], f.indexOffset)
+	byteOrder.PutUint64(buf[8:16], f.indexSize)
+	byteOrder.PutUint64(buf[40:48], f.magic)
+	if _, err := tx.write(buf); err != nil {
+		return fmt.Errorf("failed to write footer: %w", err)
+	}
+	return nil
+}
+
+func readFooter(fs *FileSystem, off int64) (footer, error) {
+	var f footer
+	buf := make([]byte, footerSize)
+	if _, err := fs.ReadAt(buf, off); err != nil {
+		return f, err
+	}
+	f.indexOffset = byteOrder.Uint64(buf[0:8])
+	f.indexSize = byteOrder.Uint64(buf[8:16])
+	f.magic = byteOrder.Uint64(buf[40:48])
+	if f.magic != magicNumber {
+		return f, ErrMalFormedSSTable
+	}
+	return f, nil
 }
 
 func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
@@ -169,7 +208,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	if err != nil {
 		return SStable{}, fmt.Errorf("failed to get file info for %s: %w", fs.Path(), err)
 	}
-	if fileInfo.Size() < mdByteSize {
+	if fileInfo.Size() < footerSize {
 		errorf(ctx, "File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
 		return SStable{}, ErrMalFormedSSTable
 	}
@@ -193,33 +232,26 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
-func readTailSSTable(fs *FileSystem) (int64, error) {
-	info, err := os.Stat(fs.Path())
-	if err != nil {
-		return 0, err
-	}
-	return info.Size() - mdByteSize, nil
-}
-
 func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 	if !fs.IsOpened() {
 		return SparseIndex{}, ErrFileNotOpened
 	}
 
-	tailOffset, err := readTailSSTable(fs)
+	info, err := os.Stat(fs.Path())
 	if err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to get sstable tail offset from %s: %w", fs.Path(), err)
+		return SparseIndex{}, fmt.Errorf("failed to get sstable size from %s: %w", fs.Path(), err)
+	}
+	tailOffset := info.Size() - footerSize
+
+	f, err := readFooter(fs, tailOffset)
+	if err != nil {
+		return SparseIndex{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
 	}
 
-	buf := make([]byte, mdByteSize)
-	if _, err := fs.ReadAt(buf, tailOffset); err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to read sparse index offset from %s: %w", fs.Path(), err)
-	}
-	sparseIndexOffset := byteOrder.Uint64(buf)
-
-	offset := int64(sparseIndexOffset)
+	offset := int64(f.indexOffset)
+	limit := offset + int64(f.indexSize)
 	sparseIndex := SparseIndex{}
-	for offset < tailOffset {
+	for offset < limit {
 		reader := newOffsetReader(fs, offset)
 		ko, err := readKeyOffset(reader)
 		if err != nil {
@@ -232,9 +264,9 @@ func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
 		offset = reader.Offset()
 	}
 
-	if offset != tailOffset {
+	if offset != limit {
 		return SparseIndex{}, fmt.Errorf("mismatched sparse index size in %s: expected end at %d, but read until %d: %w",
-			fs.Path(), tailOffset, offset, ErrMalFormedSSTable)
+			fs.Path(), limit, offset, ErrMalFormedSSTable)
 	}
 
 	return sparseIndex, nil

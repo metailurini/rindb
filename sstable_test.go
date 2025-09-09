@@ -2,6 +2,8 @@ package rindb
 
 import (
 	"context"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,17 +49,16 @@ func TestSStable(t *testing.T) {
 		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		require.NotZero(t, meta.Number)
-		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
+		info, err := os.Stat(sstable.FileSystem.Path())
 		assert.NoError(t, err)
-		reader := newOffsetReader(sstable.FileSystem, tailSSTableOffset)
-		sparseIndexOffset, err := ReadNumber(reader)
+		tail := info.Size() - footerSize
+		f, err := readFooter(sstable.FileSystem, tail)
 		assert.NoError(t, err)
-		assert.NotZero(t, sparseIndexOffset)
-		reader = newOffsetReader(sstable.FileSystem, 0)
+		reader := newOffsetReader(sstable.FileSystem, 0)
 		expectedSparseIndex := make(SparseIndex, 0)
 		ret := int64(0)
 		idx := 0
-		for ret < int64(sparseIndexOffset) {
+		for ret < int64(f.indexOffset) {
 			record, err := ReadRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, data[idx].key, record.GetKey())
@@ -67,7 +68,8 @@ func TestSStable(t *testing.T) {
 			idx++
 		}
 		idx = 0
-		for ret < tailSSTableOffset {
+		limit := int64(f.indexOffset + f.indexSize)
+		for ret < limit {
 			ko, err := readKeyOffset(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, expectedSparseIndex[idx].key, ko.key)
@@ -75,6 +77,7 @@ func TestSStable(t *testing.T) {
 			ret = reader.Offset()
 			idx++
 		}
+		assert.Equal(t, limit, ret)
 	})
 	t.Run("SparseIndexLoad", func(t *testing.T) {
 		ctx := context.Background()
@@ -604,4 +607,30 @@ func TestSStableChecksumMismatch(t *testing.T) {
 
 	_, err = sstable.GetValue(ctx, Bytes("a"))
 	assert.ErrorIs(t, err, ErrChecksumMismatch)
+}
+
+func TestFooterRoundTrip(t *testing.T) {
+	tx, _ := newFileTx(t)
+	want := footer{indexOffset: 10, indexSize: 20, magic: magicNumber}
+	err := writeFooter(tx, want)
+	require.NoError(t, err)
+	got, err := readFooter(tx.log, 0)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestReadFooterErrors(t *testing.T) {
+	t.Run("InvalidMagic", func(t *testing.T) {
+		tx, _ := newFileTx(t)
+		err := writeFooter(tx, footer{indexOffset: 1, indexSize: 2, magic: 0})
+		require.NoError(t, err)
+		_, err = readFooter(tx.log, 0)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
+	t.Run("ShortRead", func(t *testing.T) {
+		tx, _ := newFileTx(t)
+		_, err := readFooter(tx.log, 0)
+		assert.ErrorIs(t, err, io.EOF)
+	})
 }
