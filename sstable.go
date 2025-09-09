@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -213,7 +214,24 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		return SStable{}, ErrMalFormedSSTable
 	}
 
-	sparseIndex, err := loadSparseIndex(fs)
+	tailOffset := fileInfo.Size() - footerSize
+	f, err := readFooter(fs, tailOffset)
+	if err != nil {
+		return SStable{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
+	}
+	if f.indexOffset > uint64(tailOffset) || f.indexSize > uint64(tailOffset) {
+		errorf(ctx, "invalid footer values in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	if f.indexOffset+f.indexSize > uint64(tailOffset) || f.indexOffset+f.indexSize < f.indexOffset {
+		errorf(ctx, "index block out of bounds in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	if f.indexOffset > uint64(math.MaxInt64) || f.indexSize > uint64(math.MaxInt64) {
+		errorf(ctx, "index offset or size too large in %s: offset=%d size=%d", fs.Path(), f.indexOffset, f.indexSize)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	sparseIndex, err := loadSparseIndex(fs, int64(f.indexOffset), int64(f.indexSize))
 	if err != nil {
 		return SStable{}, fmt.Errorf("failed to load sparse index from %s: %w", fs.Path(), err)
 	}
@@ -232,24 +250,12 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
 }
 
-func loadSparseIndex(fs *FileSystem) (SparseIndex, error) {
+func loadSparseIndex(fs *FileSystem, offset, size int64) (SparseIndex, error) {
 	if !fs.IsOpened() {
 		return SparseIndex{}, ErrFileNotOpened
 	}
 
-	info, err := os.Stat(fs.Path())
-	if err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to get sstable size from %s: %w", fs.Path(), err)
-	}
-	tailOffset := info.Size() - footerSize
-
-	f, err := readFooter(fs, tailOffset)
-	if err != nil {
-		return SparseIndex{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
-	}
-
-	offset := int64(f.indexOffset)
-	limit := offset + int64(f.indexSize)
+	limit := offset + size
 	sparseIndex := SparseIndex{}
 	for offset < limit {
 		reader := newOffsetReader(fs, offset)
