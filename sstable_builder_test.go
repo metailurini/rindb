@@ -56,6 +56,14 @@ func TestSSTableBuilder(t *testing.T) {
 			assert.True(t, sst.Bloom.Lookup(r.GetKey()))
 			offset += int64(CalOnDiskSize(r))
 		}
+		info, err := os.Stat(fs.Path())
+		require.NoError(t, err)
+		tail := info.Size() - footerSize
+		f, err := readFooter(fs, tail)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(offset), f.indexOffset)
+		assert.Equal(t, uint64(tail-offset), f.indexSize)
+		assert.Equal(t, magicNumber, f.magic)
 		assert.False(t, sst.Bloom.Lookup(Bytes("z")))
 	})
 
