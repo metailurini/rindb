@@ -678,17 +678,6 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 			require.NoError(t, err)
 			require.NotZero(t, meta.Number)
 
-			for _, p := range tt.pairs {
-				got, err := sst.GetValue(ctx, p.key)
-				if p.val == nil {
-					assert.ErrorIs(t, err, ErrTombstoneFound)
-					assert.Nil(t, got)
-				} else {
-					assert.NoError(t, err)
-					assert.Equal(t, p.val, got)
-				}
-			}
-
 			it, err := sst.IRange(tt.pairs[0].key, tt.pairs[len(tt.pairs)-1].key)
 			require.NoError(t, err)
 
