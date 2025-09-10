@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"encoding/binary"
 	"io"
 	"os"
 	"testing"
@@ -661,4 +662,25 @@ func TestNewSSTableInvalidFooter(t *testing.T) {
 		_, err = NewSSTable(ctx, cfg, tx.log)
 		assert.ErrorIs(t, err, ErrMalFormedSSTable)
 	})
+}
+
+func TestLoadSparseIndexSizeMismatch(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	key := Bytes("a")
+	off := int64(123)
+	buf := make([]byte, 8+len(key)+8)
+	binary.BigEndian.PutUint64(buf[0:8], uint64(len(key)))
+	copy(buf[8:], key)
+	binary.BigEndian.PutUint64(buf[8+len(key):], uint64(off))
+
+	_, err := fs.Write(buf)
+	require.NoError(t, err)
+
+	_, err = loadSparseIndex(fs, 0, int64(len(buf)-1))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	assert.Contains(t, err.Error(), "mismatched sparse index size")
 }
