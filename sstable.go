@@ -237,7 +237,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		errorf(ctx, "index block out of bounds in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
 		return SStable{}, ErrMalFormedSSTable
 	}
-	if f.indexOffset+f.indexSize != uint64(tailOffset) {
+	if f.indexOffset+f.indexSize < uint64(tailOffset) {
 		errorf(ctx, "index block does not align with footer in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
 		return SStable{}, ErrMalFormedSSTable
 	}
