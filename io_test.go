@@ -24,13 +24,16 @@ func (er *errorReader) Read(p []byte) (n int, err error) {
 	return 0, er.err
 }
 
-func newFileTx(t *testing.T) (*transaction, string) {
+func newFileTx(t *testing.T) (*transaction, func()) {
 	t.Helper()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "txn.log")
 	fs, err := OpenFS(context.Background(), p)
 	require.NoError(t, err)
-	return &transaction{log: fs, state: "active"}, p
+	tx := &transaction{log: fs, state: "active"}
+	return tx, func() {
+		require.NoError(t, fs.Close())
+	}
 }
 
 func writeNumberBuf(buf *bytes.Buffer, n uint64) {
@@ -41,8 +44,9 @@ func writeNumberBuf(buf *bytes.Buffer, n uint64) {
 
 func Test_rw(t *testing.T) {
 	t.Run("Write key with size = 0", func(t *testing.T) {
-		tx, path := newFileTx(t)
-
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		path := tx.log.Path()
 		testKey := Bytes(nil)
 		testValue := Bytes("value")
 
@@ -58,8 +62,9 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size = 0", func(t *testing.T) {
-		tx, path := newFileTx(t)
-
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		path := tx.log.Path()
 		testKey := Bytes(nil)
 		testValue := Bytes(nil)
 
@@ -75,8 +80,9 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size > 255", func(t *testing.T) {
-		tx, path := newFileTx(t)
-
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		path := tx.log.Path()
 		testKey := ""
 		testValue := ""
 		for i := 0; i < 500; i++ {
@@ -96,8 +102,9 @@ func Test_rw(t *testing.T) {
 	})
 
 	t.Run("Write key and value with size < 255", func(t *testing.T) {
-		tx, path := newFileTx(t)
-
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		path := tx.log.Path()
 		err := writeRecord(tx, newRecord(Bytes("key"), Bytes("value"), 0))
 		assert.NoError(t, err)
 

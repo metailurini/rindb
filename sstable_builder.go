@@ -141,14 +141,19 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 			b.bloom.Insert(ko.key)
 		}
 	}
-	sparseIndexOffset := b.tx.size()
+	indexOffset := b.tx.size()
 	for _, ko := range b.index {
 		if err = writeKeyOffset(b.tx, ko); err != nil {
 			return
 		}
 	}
-	if err = writeNumber(b.tx, uint64(sparseIndexOffset)); err != nil {
-		err = fmt.Errorf("failed to write sparse index offset: %w", err)
+	indexSize := b.tx.size() - indexOffset
+	if err = writeFooter(b.tx, footer{
+		indexOffset: uint64(indexOffset),
+		indexSize:   uint64(indexSize),
+		magic:       magicNumber,
+	}); err != nil {
+		err = fmt.Errorf("failed to write footer: %w", err)
 		return
 	}
 	written = b.tx.size()

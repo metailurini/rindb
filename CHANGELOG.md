@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.10.0](https://github.com/metailurini/rindb/compare/v0.9.0...v0.10.0) (2025-09-10)
+
+
+### Features
+
+* write index metadata to footer ([d027902](https://github.com/metailurini/rindb/commit/d027902d581026da4cf3b466d8ca5925baace39d))
+
+
+### Bug Fixes
+
+* clarify index alignment check ([1f6c801](https://github.com/metailurini/rindb/commit/1f6c801b868da578bc656a63adc4e58d60d0fbf8))
+* replace footer buffers and verify padding ([85b6603](https://github.com/metailurini/rindb/commit/85b66036959747d88e22f46876784710fa611ede))
+* reuse offset reader in sparse index loading ([3b56904](https://github.com/metailurini/rindb/commit/3b56904b79e63a3bf7f5930f223a9553314e3803))
+* validate empty sstable index ([0151bcc](https://github.com/metailurini/rindb/commit/0151bccb8b3236691cf26617ffddee757ccb99ce))
+* validate footer metadata ([566fdd0](https://github.com/metailurini/rindb/commit/566fdd0c5e20266be6b8e45e2c0010241c3bfff9))
+* validate index alignment in NewSSTable ([ecd3c4b](https://github.com/metailurini/rindb/commit/ecd3c4bc861d90d58d7a489c6b5a237ed2f8dff0))
+
+## [0.9.0](https://github.com/metailurini/rindb/compare/v0.8.1...v0.9.0) (2025-09-08)
+
+
+### Features
+
+* remove obsolete manifest files ([f52e7f8](https://github.com/metailurini/rindb/commit/f52e7f87226b079ddfd47f2d3ff207082e5e6bd6))
+
+
+### Bug Fixes
+
+* handle manifest cleanup errors ([666caa0](https://github.com/metailurini/rindb/commit/666caa016628853571740196647549a38cf30a27))
+
 ## [0.8.1](https://github.com/metailurini/rindb/compare/v0.8.0...v0.8.1) (2025-09-07)
 
 

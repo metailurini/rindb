@@ -67,6 +67,65 @@ func TestMaybeRotateManifest(t *testing.T) {
 	require.NotEqual(t, oldPath, rin.manifest.Path())
 }
 
+func TestCleanupManifests(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	for i := 1; i <= 5; i++ {
+		path := filepath.Join(dir, manifestPath(i))
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	}
+	require.NoError(t, writeCurrent(ctx, dir, manifestPath(5)))
+	require.NoError(t, cleanupManifests(dir, manifestsToKeepAfterRotation))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "MANIFEST-") {
+			names = append(names, e.Name())
+		}
+	}
+	expected := []string{manifestPath(5)}
+	for i := 1; i <= manifestsToKeepAfterRotation; i++ {
+		expected = append(expected, manifestPath(5-i))
+	}
+	require.ElementsMatch(t, expected, names)
+}
+
+func TestManifestRotationCleanup(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
+	cfg.newManifestWriterFunc = func(ctx context.Context, p string) (manifestWriter, error) {
+		fs, err := OpenFS(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		return newManifestWriterMock(fs), nil
+	}
+	fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
+	require.NoError(t, err)
+	mw := newManifestWriterMock(fs)
+	vs := &versionSet{}
+	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, SSTableManager: &ssTableManager{manifest: mw, versionSet: vs, config: cfg}}
+
+	for i := 0; i < 3; i++ {
+		_, err = rin.manifest.(*manifestWriterMock).Write([]byte(strings.Repeat("x", int(cfg.manifestSizeThreshold+1))))
+		require.NoError(t, err)
+		require.NoError(t, rin.maybeRotateManifest(ctx))
+	}
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var manifests []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "MANIFEST-") {
+			manifests = append(manifests, e.Name())
+		}
+	}
+	require.Equal(t, manifestsToKeepAfterRotation+1, len(manifests))
+}
+
 func TestManifestRotationRecovery(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

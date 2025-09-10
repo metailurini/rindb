@@ -2,7 +2,9 @@ package rindb
 
 import (
 	"context"
+	"encoding/binary"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,17 +50,16 @@ func TestSStable(t *testing.T) {
 		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		require.NotZero(t, meta.Number)
-		tailSSTableOffset, err := readTailSSTable(sstable.FileSystem)
+		info, err := os.Stat(sstable.FileSystem.Path())
 		assert.NoError(t, err)
-		reader := newOffsetReader(sstable.FileSystem, tailSSTableOffset)
-		sparseIndexOffset, err := ReadNumber(reader)
+		tail := info.Size() - footerSize
+		f, err := readFooter(sstable.FileSystem, tail)
 		assert.NoError(t, err)
-		assert.NotZero(t, sparseIndexOffset)
-		reader = newOffsetReader(sstable.FileSystem, 0)
+		reader := newOffsetReader(sstable.FileSystem, 0)
 		expectedSparseIndex := make(SparseIndex, 0)
 		ret := int64(0)
 		idx := 0
-		for ret < int64(sparseIndexOffset) {
+		for ret < int64(f.indexOffset) {
 			record, err := ReadRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, data[idx].key, record.GetKey())
@@ -68,7 +69,8 @@ func TestSStable(t *testing.T) {
 			idx++
 		}
 		idx = 0
-		for ret < tailSSTableOffset {
+		limit := int64(f.indexOffset + f.indexSize)
+		for ret < limit {
 			ko, err := readKeyOffset(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, expectedSparseIndex[idx].key, ko.key)
@@ -76,6 +78,7 @@ func TestSStable(t *testing.T) {
 			ret = reader.Offset()
 			idx++
 		}
+		assert.Equal(t, limit, ret)
 	})
 	t.Run("SparseIndexLoad", func(t *testing.T) {
 		ctx := context.Background()
@@ -605,6 +608,153 @@ func TestSStableChecksumMismatch(t *testing.T) {
 
 	_, err = sstable.GetValue(ctx, Bytes("a"))
 	assert.ErrorIs(t, err, ErrChecksumMismatch)
+}
+
+func TestFooterRoundTrip(t *testing.T) {
+	tx, cleanup := newFileTx(t)
+	defer cleanup()
+	want := footer{indexOffset: 10, indexSize: 20, magic: magicNumber}
+	err := writeFooter(tx, want)
+	require.NoError(t, err)
+	got, err := readFooter(tx.log, 0)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestReadFooterErrors(t *testing.T) {
+	t.Run("InvalidMagic", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		err := writeFooter(tx, footer{indexOffset: 1, indexSize: 2, magic: 0})
+		require.NoError(t, err)
+		_, err = readFooter(tx.log, 0)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
+	t.Run("InvalidPadding", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		err := writeFooter(tx, footer{indexOffset: 1, indexSize: 2, magic: magicNumber})
+		require.NoError(t, err)
+		_, err = tx.log.WriteAt([]byte{1}, 16)
+		require.NoError(t, err)
+		_, err = readFooter(tx.log, 0)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
+	t.Run("ShortRead", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		_, err := readFooter(tx.log, 0)
+		assert.ErrorIs(t, err, io.EOF)
+	})
+}
+
+func TestNewSSTableInvalidFooter(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	t.Run("OffsetTooLarge", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		err := writeFooter(tx, footer{indexOffset: 100, indexSize: 0, magic: magicNumber})
+		require.NoError(t, err)
+		_, err = NewSSTable(ctx, cfg, tx.log)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
+	t.Run("IndexOverlapsFooter", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+		_, err := tx.write([]byte("data"))
+		require.NoError(t, err)
+		err = writeFooter(tx, footer{indexOffset: 1, indexSize: 10, magic: magicNumber})
+		require.NoError(t, err)
+		_, err = NewSSTable(ctx, cfg, tx.log)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+
+	t.Run("ExtraBytesBetweenIndexAndFooter", func(t *testing.T) {
+		tx, cleanup := newFileTx(t)
+		defer cleanup()
+
+		// write one record at offset 0
+		err := writeRecord(tx, newRecord(Bytes("a"), Bytes("v"), 1))
+		require.NoError(t, err)
+
+		indexOffset := tx.size()
+		err = writeKeyOffset(tx, KeyOffset{key: Bytes("a"), offset: 0})
+		require.NoError(t, err)
+		indexSize := tx.size() - indexOffset
+
+		// insert extra bytes between index and footer
+		_, err = tx.write([]byte{0})
+		require.NoError(t, err)
+
+		err = writeFooter(tx, footer{indexOffset: uint64(indexOffset), indexSize: uint64(indexSize), magic: magicNumber})
+		require.NoError(t, err)
+
+		_, err = NewSSTable(ctx, cfg, tx.log)
+		assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	})
+}
+
+func TestNewSSTableEmptyIndex(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "OnlyFooter",
+			data: nil,
+		},
+		{
+			name: "DataWithoutIndex",
+			data: []byte("data"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx, cleanup := newFileTx(t)
+			defer cleanup()
+
+			if tt.data != nil {
+				_, err := tx.write(tt.data)
+				require.NoError(t, err)
+			}
+
+			err := writeFooter(tx, footer{indexOffset: uint64(len(tt.data)), indexSize: 0, magic: magicNumber})
+			require.NoError(t, err)
+
+			_, err = NewSSTable(ctx, cfg, tx.log)
+			assert.ErrorIs(t, err, ErrMalFormedSSTable)
+		})
+	}
+}
+
+func TestLoadSparseIndexSizeMismatch(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	key := Bytes("a")
+	off := int64(123)
+	buf := make([]byte, 8+len(key)+8)
+	binary.BigEndian.PutUint64(buf[0:8], uint64(len(key)))
+	copy(buf[8:], key)
+	binary.BigEndian.PutUint64(buf[8+len(key):], uint64(off))
+
+	_, err := fs.Write(buf)
+	require.NoError(t, err)
+
+	_, err = loadSparseIndex(fs, 0, int64(len(buf)-1))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrMalFormedSSTable)
+	assert.Contains(t, err.Error(), "mismatched sparse index size")
 }
 
 // TestSSTableIRangeGetValueConsistency verifies that IRange and GetValue
