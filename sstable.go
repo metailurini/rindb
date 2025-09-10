@@ -92,8 +92,8 @@ func readFooter(fs *FileSystem, off int64) (footer, error) {
 
 	f.indexOffset = byteOrder.Uint64(buf[0:8])
 	f.indexSize = byteOrder.Uint64(buf[8:16])
-	for _, b := range buf[16:40] {
-		if b != 0 {
+	for i := 16; i < 40; i += 8 {
+		if byteOrder.Uint64(buf[i:i+8]) != 0 {
 			return f, ErrMalFormedSSTable
 		}
 	}
