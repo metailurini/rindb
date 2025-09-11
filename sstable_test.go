@@ -986,7 +986,7 @@ func TestNewSSTable_IndexBlockOutOfBounds(t *testing.T) {
 	f, err := readFooter(fs, tail)
 	require.NoError(t, err)
 
-	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, 0)
+	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, fileSystemPermission)
 	require.NoError(t, err)
 	defer file.Close()
 
@@ -1021,12 +1021,13 @@ func TestNewSSTable_LoadSparseIndexFailure(t *testing.T) {
 	f, err := readFooter(fs, tail)
 	require.NoError(t, err)
 
-	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, 0)
+	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, fileSystemPermission)
 	require.NoError(t, err)
 	defer file.Close()
 
+	const oversizedKeyLen = 1 << 20 // 1 MiB
 	var keyLen [8]byte
-	byteOrder.PutUint64(keyLen[:], 1<<20)
+	byteOrder.PutUint64(keyLen[:], oversizedKeyLen)
 	_, err = file.WriteAt(keyLen[:], int64(f.indexOffset))
 	require.NoError(t, err)
 
