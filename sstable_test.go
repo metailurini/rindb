@@ -965,3 +965,95 @@ func TestSSTableIRangePrepareEOF(t *testing.T) {
 		})
 	}
 }
+
+func TestNewSSTable_IndexBlockOutOfBounds(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+
+	_, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	info, err := os.Stat(fs.Path())
+	require.NoError(t, err)
+	tail := info.Size() - footerSize
+	f, err := readFooter(fs, tail)
+	require.NoError(t, err)
+
+	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, 0)
+	require.NoError(t, err)
+	defer file.Close()
+
+	var buf [footerSize]byte
+	byteOrder.PutUint64(buf[0:8], f.indexOffset)
+	byteOrder.PutUint64(buf[8:16], f.indexSize+1)
+	byteOrder.PutUint64(buf[40:48], magicNumber)
+	_, err = file.WriteAt(buf[:], tail)
+	require.NoError(t, err)
+
+	_, err = NewSSTable(ctx, cfg, fs)
+	assert.ErrorIs(t, err, ErrMalFormedSSTable)
+}
+
+func TestNewSSTable_LoadSparseIndexFailure(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+
+	_, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	info, err := os.Stat(fs.Path())
+	require.NoError(t, err)
+	tail := info.Size() - footerSize
+	f, err := readFooter(fs, tail)
+	require.NoError(t, err)
+
+	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, 0)
+	require.NoError(t, err)
+	defer file.Close()
+
+	var keyLen [8]byte
+	byteOrder.PutUint64(keyLen[:], 1<<20)
+	_, err = file.WriteAt(keyLen[:], int64(f.indexOffset))
+	require.NoError(t, err)
+
+	_, err = NewSSTable(ctx, cfg, fs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load sparse index")
+}
+
+func TestSSTable_GetValue_BeyondDataEnd(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+
+	sst, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	sst.Bloom.Insert(Bytes("z"))
+
+	value, err := sst.GetValue(ctx, Bytes("z"))
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.Nil(t, value)
+}
+
+// New tests appended

@@ -175,6 +175,23 @@ func TestWAL_CleanErrors(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to commit")
 	})
+
+	t.Run("BeginFailure", func(t *testing.T) {
+		ctx := context.Background()
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+		w := NewWAL(cfg, fs)
+		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
+
+		orig := osOpen
+		osOpen = func(name string) (*os.File, error) { return nil, errors.New("open fail") }
+		defer func() { osOpen = orig }()
+
+		err := w.Clean(ctx, 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to begin transaction")
+	})
 }
 
 // TestWAL_AppendAndLoad tests appending and loading records from the WAL.
