@@ -36,6 +36,7 @@ type SStable struct {
 	*FileSystem
 	SparseIndex SparseIndex
 	Bloom       *BloomFilter
+	dataEnd     int64
 }
 
 func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
@@ -83,7 +84,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	}
 
 	info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
+	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset)}, nil
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -127,6 +128,9 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	reader := newOffsetReader(s.FileSystem, offset)
 	for {
+		if reader.Offset() >= s.dataEnd {
+			return nil, ErrKeyNotFound
+		}
 		record, err := ReadRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
