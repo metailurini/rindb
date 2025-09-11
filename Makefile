@@ -41,6 +41,11 @@ test-integration:
 	@$(MAKE) test-integration-full
 
 # === Diff harness tests ===
+diffharness-local:
+	@echo "[NOTE], if you want a fresh run, please delete /tmp/test/ manually"
+	@echo "Running diffharness tests locally..."
+	@cd diffharness && go run cmd/main.go --dir /tmp/test/
+
 diffharness-build:
 	@echo "Building diffharness for linux/amd64..."
 	@cd diffharness && go mod tidy && GOOS=linux GOARCH=amd64 $(GO) build -o ./bin/diffharness ./cmd/main.go
