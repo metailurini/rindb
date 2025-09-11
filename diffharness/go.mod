@@ -3,10 +3,12 @@ module github.com/metailurini/rindb/diffharness
 go 1.25.0
 
 require (
-	github.com/metailurini/rindb v0.9.0
+	github.com/metailurini/rindb v0.0.0
 	github.com/stretchr/testify v1.11.1
 	modernc.org/sqlite v1.38.2
 )
+
+replace github.com/metailurini/rindb => ../
 
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
