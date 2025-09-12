@@ -448,7 +448,8 @@ func (h *Harness) checkInvariants(ctx context.Context, r *rand.Rand, cfg Cfg) er
 		}
 
 		if len(left) < cfg.RangeMax && len(right) < cfg.RangeMax {
-			full, err := h.My.Range(ctx, lo, hi, snap, cfg.RangeMax*2)
+			limit := len(left) + len(right) + 1
+			full, err := h.My.Range(ctx, lo, hi, snap, limit)
 			if err != nil {
 				return err
 			}
@@ -457,7 +458,7 @@ func (h *Harness) checkInvariants(ctx context.Context, r *rand.Rand, cfg Cfg) er
 				return fmt.Errorf("range concat: %w", err)
 			}
 			// Compare full range with reference only when not truncated
-			f2, err := h.Ref.RangeWithSeq(lo, hi, snap, cfg.RangeMax*2)
+			f2, err := h.Ref.RangeWithSeq(lo, hi, snap, limit)
 			if err != nil {
 				return err
 			}
