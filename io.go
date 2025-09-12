@@ -17,7 +17,7 @@ const (
 
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
-func ReadNumber(storage io.Reader) (uint64, error) {
+func readNumber(storage io.Reader) (uint64, error) {
 	numBytes := [mdByteSize]byte{}
 	if _, err := io.ReadFull(storage, numBytes[:]); err != nil {
 		return 0, err
@@ -25,13 +25,13 @@ func ReadNumber(storage io.Reader) (uint64, error) {
 	return byteOrder.Uint64(numBytes[:]), nil
 }
 
-func ReadRecord(storage io.Reader) (Record, error) {
-	internalKeyLen, err := ReadNumber(storage)
+func readRecord(storage io.Reader) (Record, error) {
+	internalKeyLen, err := readNumber(storage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read internal key length: %w", err)
 	}
 
-	valueLen, err := ReadNumber(storage)
+	valueLen, err := readNumber(storage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value length: %w", err)
 	}

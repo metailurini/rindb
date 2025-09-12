@@ -60,7 +60,7 @@ func TestSStable(t *testing.T) {
 		ret := int64(0)
 		idx := 0
 		for ret < int64(f.indexOffset) {
-			record, err := ReadRecord(reader)
+			record, err := readRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, data[idx].key, record.GetKey())
 			assert.Equal(t, data[idx].value, record.GetValue())
@@ -114,7 +114,7 @@ func TestSStable(t *testing.T) {
 		for idx := len(sparseIndex) - 1; idx > -1; idx-- {
 			keyOffset := sparseIndex[idx]
 			reader := newOffsetReader(sstable.FileSystem, keyOffset.offset)
-			record, err := ReadRecord(reader)
+			record, err := readRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, keyOffset.key, record.GetKey())
 		}
@@ -756,3 +756,305 @@ func TestLoadSparseIndexSizeMismatch(t *testing.T) {
 	assert.ErrorIs(t, err, ErrMalFormedSSTable)
 	assert.Contains(t, err.Error(), "mismatched sparse index size")
 }
+
+// TestSSTableIRangeGetValueConsistency verifies that IRange and GetValue
+// return consistent key/value pairs across different SSTable contents.
+func TestSSTableIRangeGetValueConsistency(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+
+	type kv struct {
+		key Bytes
+		val Bytes
+		seq uint64
+	}
+
+	tests := []struct {
+		name     string
+		records  []kv
+		seq      uint64
+		expected []kv
+	}{
+		{
+			name: "all values",
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+		},
+		{
+			name: "leading tombstone",
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+			expected: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+		},
+		{
+			name: "middle tombstone",
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), Bytes("3"), 3},
+			},
+		},
+		{
+			name: "trailing tombstone",
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), nil, 3},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("1"), 1},
+				{Bytes("2"), Bytes("2"), 2},
+				{Bytes("3"), nil, 3},
+			},
+		},
+		{
+			name: "all tombstones",
+			seq:  3,
+			records: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), nil, 3},
+			},
+			expected: []kv{
+				{Bytes("1"), nil, 1},
+				{Bytes("2"), nil, 2},
+				{Bytes("3"), nil, 3},
+			},
+		},
+		{
+			name: "duplicate key with tombstone",
+			seq:  4,
+			records: []kv{
+				{Bytes("1"), Bytes("old"), 1},
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("new"), 3},
+				{Bytes("2"), Bytes("2"), 4},
+			},
+			expected: []kv{
+				{Bytes("1"), Bytes("new"), 3},
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("old"), 1},
+				{Bytes("2"), Bytes("2"), 4},
+			},
+		},
+		{
+			name: "duplicate key with tombstone filtered",
+			seq:  2,
+			records: []kv{
+				{Bytes("1"), Bytes("old"), 1},
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("new"), 3},
+				{Bytes("2"), Bytes("2"), 4},
+			},
+			expected: []kv{
+				{Bytes("1"), nil, 2},
+				{Bytes("1"), Bytes("old"), 1},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
+			fs := fss[0]
+
+			mem := InitMemtable(cfg)
+			for _, r := range tt.records {
+				mem.Put(newRecord(r.key, r.val, r.seq))
+			}
+
+			sst, meta, err := flush(ctx, cfg, mem, fs)
+			require.NoError(t, err)
+			require.NotZero(t, meta.Number)
+
+			it, err := sst.IRange(tt.records[0].key, tt.records[len(tt.records)-1].key, tt.seq)
+			require.NoError(t, err)
+
+			idx := 0
+			seen := make(map[string]bool)
+			for it.HasNext() {
+				rec, err := it.Next()
+				require.NoError(t, err)
+				expected := tt.expected[idx]
+				assert.Equal(t, expected.key, rec.GetKey())
+				assert.Equal(t, expected.seq, rec.GetSequenceNumber())
+				if expected.val == nil {
+					assert.Nil(t, rec.GetValue())
+					assert.Equal(t, TypeDeletion, rec.GetType())
+				} else {
+					assert.Equal(t, expected.val, rec.GetValue())
+					assert.Equal(t, TypeValue, rec.GetType())
+				}
+
+				keyStr := string(rec.GetKey())
+				if !seen[keyStr] {
+					gv, err := sst.GetValue(ctx, rec.GetKey(), tt.seq)
+					if expected.val == nil {
+						assert.ErrorIs(t, err, ErrTombstoneFound)
+						assert.Nil(t, gv)
+					} else {
+						assert.NoError(t, err)
+						assert.Equal(t, expected.val, gv)
+					}
+					seen[keyStr] = true
+				}
+				idx++
+			}
+			assert.Equal(t, len(tt.expected), idx)
+		})
+	}
+}
+
+func TestSSTableIRangePrepareEOF(t *testing.T) {
+	content := []byte{1, 2, 3, 4}
+	tests := []struct {
+		name     string
+		contents [][]byte
+		dataEnd  int64
+		err      error
+	}{
+		{
+			name:     "EOI",
+			contents: nil,
+			dataEnd:  1,
+			err:      EOI,
+		},
+		{
+			name:     "UnexpectedEOF",
+			contents: [][]byte{content},
+			dataEnd:  8,
+			err:      io.ErrUnexpectedEOF,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, tt.contents)
+			defer closer()
+			fs := fss[0]
+			sst := SStable{FileSystem: fs}
+			sri := &sstableIRange{s: &sst, startKey: Bytes("a"), endKey: Bytes("b"), seq: 1, offset: 0, dataEnd: tt.dataEnd}
+
+			assert.False(t, sri.HasNext())
+			_, err := sri.Next()
+			assert.ErrorIs(t, err, tt.err)
+		})
+	}
+}
+
+func TestNewSSTable_IndexBlockOutOfBounds(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+
+	_, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	info, err := os.Stat(fs.Path())
+	require.NoError(t, err)
+	tail := info.Size() - footerSize
+	f, err := readFooter(fs, tail)
+	require.NoError(t, err)
+
+	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, fileSystemPermission)
+	require.NoError(t, err)
+	defer file.Close()
+
+	var buf [footerSize]byte
+	byteOrder.PutUint64(buf[0:8], f.indexOffset)
+	byteOrder.PutUint64(buf[8:16], f.indexSize+1)
+	byteOrder.PutUint64(buf[40:48], magicNumber)
+	_, err = file.WriteAt(buf[:], tail)
+	require.NoError(t, err)
+
+	_, err = NewSSTable(ctx, cfg, fs)
+	assert.ErrorIs(t, err, ErrMalFormedSSTable)
+}
+
+func TestNewSSTable_LoadSparseIndexFailure(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+
+	_, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	info, err := os.Stat(fs.Path())
+	require.NoError(t, err)
+	tail := info.Size() - footerSize
+	f, err := readFooter(fs, tail)
+	require.NoError(t, err)
+
+	file, err := os.OpenFile(fs.Path(), os.O_WRONLY, fileSystemPermission)
+	require.NoError(t, err)
+	defer file.Close()
+
+	const oversizedKeyLen = 1 << 20 // 1 MiB
+	var keyLen [8]byte
+	byteOrder.PutUint64(keyLen[:], oversizedKeyLen)
+	_, err = file.WriteAt(keyLen[:], int64(f.indexOffset))
+	require.NoError(t, err)
+
+	_, err = NewSSTable(ctx, cfg, fs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load sparse index")
+}
+
+func TestSSTable_GetValue_BeyondDataEnd(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+
+	sst, meta, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	sst.Bloom.Insert(Bytes("z"))
+
+	value, err := sst.GetValue(ctx, Bytes("z"))
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	assert.Nil(t, value)
+}
+
+// New tests appended

@@ -210,7 +210,7 @@ func initTempFileSystems(t *testing.T, n int, initialContents [][]byte) ([]*File
 
 	fss := make([]*FileSystem, 0, n)
 	tempDir := t.TempDir()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		name := sstPath(uint64(i + 1))
 		fs, err := OpenFS(context.Background(), fmt.Sprintf("%s/%s", tempDir, name))
 		assert.NoError(t, err)

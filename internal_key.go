@@ -43,11 +43,13 @@ func DecodeInternalKey(ikey Bytes) (Bytes, uint64, RecordType, error) {
 		return nil, 0, 0, fmt.Errorf("internal key too short: %d", len(ikey))
 	}
 	userKeyEnd := len(ikey) - internalKeySuffixLen
+	// Cap to userKeyEnd so appends won’t run into the suffix by mistake.
+	userKey := ikey[:userKeyEnd:userKeyEnd]
+	if userKeyEnd == 0 {
+		userKey = nil
+	}
+
 	seq := ^byteOrder.Uint64(ikey[userKeyEnd : userKeyEnd+seqNumBytes])
 	typ := RecordType(ikey[len(ikey)-1])
-	var userKey Bytes
-	if userKeyEnd > 0 {
-		userKey = append(Bytes(nil), ikey[:userKeyEnd]...)
-	}
 	return userKey, seq, typ, nil
 }

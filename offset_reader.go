@@ -11,7 +11,9 @@ func newOffsetReader(fs *FileSystem, off int64) *offsetReader {
 
 func (r *offsetReader) Read(p []byte) (int, error) {
 	n, err := r.fs.ReadAt(p, r.offset)
-	r.offset += int64(n)
+	if n > 0 {
+		r.offset += int64(n)
+	}
 	return n, err
 }
 

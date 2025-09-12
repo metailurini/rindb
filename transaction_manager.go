@@ -20,6 +20,7 @@ var (
 	fsSync         = (*FileSystem).Sync
 	fsClose        = (*FileSystem).Close
 	fsOpenExisting = (*FileSystem).OpenExisting
+	fsWrite        = (*FileSystem).Write
 )
 
 // transactionManager manages transactions with a mutex for safe creation.
@@ -104,9 +105,20 @@ func (t *transaction) write(p []byte) (int, error) {
 	if t.state != "active" {
 		return 0, errors.New("transaction is not active")
 	}
-	n, err := t.log.Write(p)
-	t.written += int64(n)
-	return n, err
+	var total int
+	for len(p) > 0 {
+		n, err := fsWrite(t.log, p)
+		total += n
+		t.written += int64(n)
+		if err != nil {
+			return total, err
+		}
+		if n == len(p) {
+			break
+		}
+		p = p[n:]
+	}
+	return total, nil
 }
 
 func (t *transaction) size() int64 {

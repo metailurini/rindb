@@ -32,94 +32,59 @@ type (
 	SparseIndex []KeyOffset
 )
 
-func writeKeyOffset(tx *transaction, ko KeyOffset) error {
-	if err := writeNumber(tx, uint64(len(ko.key))); err != nil {
-		return fmt.Errorf("failed to write key length: %w", err)
-	}
-	if _, err := tx.write(ko.key); err != nil {
-		return fmt.Errorf("failed to write key bytes: %w", err)
-	}
-	if err := writeNumber(tx, uint64(ko.offset)); err != nil {
-		return fmt.Errorf("failed to write offset: %w", err)
-	}
-	return nil
-}
-
-func readKeyOffset(r io.Reader) (KeyOffset, error) {
-	keyLen, err := ReadNumber(r)
-	if err != nil {
-		return KeyOffset{}, fmt.Errorf("failed to read key length: %w", err)
-	}
-
-	key := make(Bytes, keyLen)
-	if _, err := io.ReadFull(r, key); err != nil {
-		return KeyOffset{}, fmt.Errorf("failed to read key bytes: %w", err)
-	}
-
-	off, err := ReadNumber(r)
-	if err != nil {
-		return KeyOffset{}, fmt.Errorf("failed to read offset: %w", err)
-	}
-
-	return KeyOffset{key: key, offset: int64(off)}, nil
-}
-
-// footer layout: |8 index offset|8 index size|24 padding|8 magic|
-type footer struct {
-	indexOffset uint64
-	indexSize   uint64
-	_           [24]byte
-	magic       uint64
-}
-
-func writeFooter(tx *transaction, f footer) error {
-	var buf [footerSize]byte
-	byteOrder.PutUint64(buf[0:8], f.indexOffset)
-	byteOrder.PutUint64(buf[8:16], f.indexSize)
-	byteOrder.PutUint64(buf[40:48], f.magic)
-	if _, err := tx.write(buf[:]); err != nil {
-		return fmt.Errorf("failed to write footer: %w", err)
-	}
-	return nil
-}
-
-func readFooter(fs *FileSystem, off int64) (footer, error) {
-	var f footer
-	var buf [footerSize]byte
-	if _, err := fs.ReadAt(buf[:], off); err != nil {
-		return f, err
-	}
-
-	f.indexOffset = byteOrder.Uint64(buf[0:8])
-	f.indexSize = byteOrder.Uint64(buf[8:16])
-	for i := 16; i < 40; i += 8 {
-		if byteOrder.Uint64(buf[i:i+8]) != 0 {
-			return f, ErrMalFormedSSTable
-		}
-	}
-	f.magic = byteOrder.Uint64(buf[40:48])
-	if f.magic != magicNumber {
-		return f, ErrMalFormedSSTable
-	}
-	return f, nil
-}
-
-func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
-	idx := sort.Search(len(s), func(i int) bool {
-		return Compare(s[i].key, key) >= 0
-	})
-
-	if idx < len(s) && Compare(s[idx].key, key) == CmpEqual {
-		return s[idx].offset, nil
-	}
-
-	return 0, ErrKeyNotFound
-}
-
 type SStable struct {
 	*FileSystem
 	SparseIndex SparseIndex
 	Bloom       *BloomFilter
+	dataEnd     int64
+}
+
+func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
+	tailOffset, err := getSSTableTailOffset(fs)
+	if err != nil {
+		return SStable{}, err
+	}
+	f, err := readFooter(fs, tailOffset)
+	if err != nil {
+		return SStable{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
+	}
+	if f.indexSize == 0 {
+		errorf(ctx, "index size is zero in %s", fs.Path())
+		return SStable{}, ErrMalFormedSSTable
+	}
+	if f.indexOffset > uint64(tailOffset) || f.indexSize > uint64(tailOffset) {
+		errorf(ctx, "invalid footer values in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	if f.indexOffset+f.indexSize > uint64(tailOffset) || f.indexOffset+f.indexSize < f.indexOffset {
+		errorf(ctx, "index block out of bounds in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	if f.indexOffset+f.indexSize < uint64(tailOffset) {
+		errorf(ctx, "index block does not align with footer in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	if f.indexOffset > uint64(math.MaxInt64) || f.indexSize > uint64(math.MaxInt64) {
+		errorf(ctx, "index offset or size too large in %s: offset=%d size=%d", fs.Path(), f.indexOffset, f.indexSize)
+		return SStable{}, ErrMalFormedSSTable
+	}
+	sparseIndex, err := loadSparseIndex(fs, int64(f.indexOffset), int64(f.indexSize))
+	if err != nil {
+		return SStable{}, fmt.Errorf("failed to load sparse index from %s: %w", fs.Path(), err)
+	}
+
+	bloom := NewBloomFilter(
+		SetN(uint64(len(sparseIndex))),
+		SetP(config.bloomFalsePositiveRate),
+		WithCalculatedM(),
+		WithCalculatedK(),
+	)
+	for _, ko := range sparseIndex {
+		bloom.Insert(ko.key)
+	}
+
+	info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
+	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset)}, nil
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -163,7 +128,10 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	reader := newOffsetReader(s.FileSystem, offset)
 	for {
-		record, err := ReadRecord(reader)
+		if reader.Offset() >= s.dataEnd {
+			return nil, ErrKeyNotFound
+		}
+		record, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				errorf(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
@@ -173,13 +141,13 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 				errorf(ctx, "Checksum mismatch at offset %d in %s", reader.Offset(), s.Path())
 				return nil, fmt.Errorf("checksum mismatch at offset %d: %w", reader.Offset(), err)
 			}
-			if errors.Is(err, ErrFileNotOpened) {
-				if err := s.Open(ctx); err != nil {
-					return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
-				}
-				reader = newOffsetReader(s.FileSystem, reader.Offset())
-				continue
-			}
+			// if errors.Is(err, ErrFileNotOpened) {
+			// 	if err := s.Open(ctx); err != nil {
+			// 		return nil, fmt.Errorf("failed to reopen sstable %s: %w", s.Path(), err)
+			// 	}
+			// 	reader = newOffsetReader(s.FileSystem, reader.Offset())
+			// 	continue
+			// }
 			errorf(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
@@ -210,58 +178,55 @@ func (s SStable) GetKeyRange() (Bytes, Bytes) {
 	return minKey, maxKey
 }
 
-func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
-	fileInfo, err := os.Stat(fs.Path())
+func (s SStable) MaxSequenceNumber() (uint64, error) {
+	iterator, err := s.Iterator()
 	if err != nil {
-		return SStable{}, fmt.Errorf("failed to get file info for %s: %w", fs.Path(), err)
-	}
-	if fileInfo.Size() < footerSize {
-		errorf(ctx, "File %s is too small (%d bytes) to be a valid SSTable", fs.Path(), fileInfo.Size())
-		return SStable{}, ErrMalFormedSSTable
+		return 0, err
 	}
 
-	tailOffset := fileInfo.Size() - footerSize
-	f, err := readFooter(fs, tailOffset)
+	var maxSeqNum uint64
+	for iterator.HasNext() {
+		record, err := iterator.Next()
+		if err != nil {
+			return 0, err
+		}
+		if record.GetSequenceNumber() > maxSeqNum {
+			maxSeqNum = record.GetSequenceNumber()
+		}
+	}
+	return maxSeqNum, nil
+}
+
+func writeKeyOffset(tx *transaction, ko KeyOffset) error {
+	if err := writeNumber(tx, uint64(len(ko.key))); err != nil {
+		return fmt.Errorf("failed to write key length: %w", err)
+	}
+	if _, err := tx.write(ko.key); err != nil {
+		return fmt.Errorf("failed to write key bytes: %w", err)
+	}
+	if err := writeNumber(tx, uint64(ko.offset)); err != nil {
+		return fmt.Errorf("failed to write offset: %w", err)
+	}
+	return nil
+}
+
+func readKeyOffset(r io.Reader) (KeyOffset, error) {
+	keyLen, err := readNumber(r)
 	if err != nil {
-		return SStable{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
-	}
-	if f.indexSize == 0 {
-		errorf(ctx, "index size is zero in %s", fs.Path())
-		return SStable{}, ErrMalFormedSSTable
-	}
-	if f.indexOffset > uint64(tailOffset) || f.indexSize > uint64(tailOffset) {
-		errorf(ctx, "invalid footer values in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
-		return SStable{}, ErrMalFormedSSTable
-	}
-	if f.indexOffset+f.indexSize > uint64(tailOffset) || f.indexOffset+f.indexSize < f.indexOffset {
-		errorf(ctx, "index block out of bounds in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
-		return SStable{}, ErrMalFormedSSTable
-	}
-	if f.indexOffset+f.indexSize < uint64(tailOffset) {
-		errorf(ctx, "index block does not align with footer in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
-		return SStable{}, ErrMalFormedSSTable
-	}
-	if f.indexOffset > uint64(math.MaxInt64) || f.indexSize > uint64(math.MaxInt64) {
-		errorf(ctx, "index offset or size too large in %s: offset=%d size=%d", fs.Path(), f.indexOffset, f.indexSize)
-		return SStable{}, ErrMalFormedSSTable
-	}
-	sparseIndex, err := loadSparseIndex(fs, int64(f.indexOffset), int64(f.indexSize))
-	if err != nil {
-		return SStable{}, fmt.Errorf("failed to load sparse index from %s: %w", fs.Path(), err)
+		return KeyOffset{}, fmt.Errorf("failed to read key length: %w", err)
 	}
 
-	bloom := NewBloomFilter(
-		SetN(uint64(len(sparseIndex))),
-		SetP(config.bloomFalsePositiveRate),
-		WithCalculatedM(),
-		WithCalculatedK(),
-	)
-	for _, ko := range sparseIndex {
-		bloom.Insert(ko.key)
+	key := make(Bytes, keyLen)
+	if _, err := io.ReadFull(r, key); err != nil {
+		return KeyOffset{}, fmt.Errorf("failed to read key bytes: %w", err)
 	}
 
-	info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom}, nil
+	off, err := readNumber(r)
+	if err != nil {
+		return KeyOffset{}, fmt.Errorf("failed to read offset: %w", err)
+	}
+
+	return KeyOffset{key: key, offset: int64(off)}, nil
 }
 
 func loadSparseIndex(fs *FileSystem, offset, size int64) (SparseIndex, error) {
@@ -291,23 +256,16 @@ func loadSparseIndex(fs *FileSystem, offset, size int64) (SparseIndex, error) {
 	return sparseIndex, nil
 }
 
-func (s SStable) MaxSequenceNumber() (uint64, error) {
-	iterator, err := s.Iterator()
-	if err != nil {
-		return 0, err
+func (s SparseIndex) GetOffset(key Bytes) (int64, error) {
+	idx := sort.Search(len(s), func(i int) bool {
+		return Compare(s[i].key, key) >= 0
+	})
+
+	if idx < len(s) && Compare(s[idx].key, key) == CmpEqual {
+		return s[idx].offset, nil
 	}
 
-	var maxSeqNum uint64
-	for iterator.HasNext() {
-		record, err := iterator.Next()
-		if err != nil {
-			return 0, err
-		}
-		if record.GetSequenceNumber() > maxSeqNum {
-			maxSeqNum = record.GetSequenceNumber()
-		}
-	}
-	return maxSeqNum, nil
+	return 0, ErrKeyNotFound
 }
 
 func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SStable, fileMeta, error) {
@@ -356,97 +314,13 @@ func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SS
 	return sst, meta, nil
 }
 
-var _ Iterator[Record] = (*sstableIterator)(nil)
-
-type sstableIterator struct {
-	*FileSystem
-	currentIdx int
-	maxIdx     int
-	offset     int64
-}
-
-// HasNext implements Iterator.
-func (s *sstableIterator) HasNext() bool {
-	return s.currentIdx < s.maxIdx
-}
-
-// Next implements Iterator.
-func (s *sstableIterator) Next() (Record, error) {
-	if s.HasNext() {
-		reader := newOffsetReader(s.FileSystem, s.offset)
-		record, err := ReadRecord(reader)
-		if err != nil {
-			return nil, err
-		}
-		s.offset = reader.Offset()
-		s.currentIdx++
-		return record, nil
+func getSSTableTailOffset(fs *FileSystem) (int64, error) {
+	fileInfo, err := os.Stat(fs.Path())
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file info for %s: %w", fs.Path(), err)
 	}
-	return nil, EOI
-}
-
-func (s SStable) Iterator() (Iterator[Record], error) {
-	if !s.IsOpened() {
-		if err := s.Open(context.Background()); err != nil {
-			return nil, err
-		}
+	if fileInfo.Size() < footerSize {
+		return 0, fmt.Errorf("file %s is too small (%d bytes) to be a valid SSTable: %w", fs.Path(), fileInfo.Size(), ErrMalFormedSSTable)
 	}
-
-	return &sstableIterator{
-		currentIdx: 0,
-		maxIdx:     len(s.SparseIndex),
-		FileSystem: s.FileSystem,
-		offset:     0,
-	}, nil
-}
-
-// sstableIRange iterates over a range of keys in an SSTable.
-type sstableIRange struct {
-	s       *SStable
-	current int
-	endKey  Bytes
-	seq     uint64
-	offset  int64
-}
-
-// HasNext implements Iterator.
-func (sri *sstableIRange) HasNext() bool {
-	return sri.current < len(sri.s.SparseIndex) && sri.s.SparseIndex[sri.current].key.Compare(sri.endKey) <= 0
-}
-
-// Next implements Iterator.
-func (sri *sstableIRange) Next() (Record, error) {
-	for sri.HasNext() {
-		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
-		rec, err := ReadRecord(reader)
-		if err != nil {
-			return nil, err
-		}
-		sri.offset = reader.Offset()
-		sri.current++
-		if rec.GetSequenceNumber() > sri.seq {
-			continue
-		}
-		return rec, nil
-	}
-	return nil, EOI
-}
-
-// IRange returns an iterator over records with keys in [start, end] and sequence
-// numbers less than or equal to seq.
-func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
-	maxSeq := getMaxSeq(seq...)
-	if !s.IsOpened() {
-		if err := s.Open(context.Background()); err != nil {
-			return nil, err
-		}
-	}
-	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
-		return s.SparseIndex[i].key.Compare(start) >= 0
-	})
-	var startOffset int64
-	if startIdx < len(s.SparseIndex) {
-		startOffset = s.SparseIndex[startIdx].offset
-	}
-	return &sstableIRange{s: &s, current: startIdx, endKey: end, seq: maxSeq, offset: startOffset}, nil
+	return fileInfo.Size() - footerSize, nil
 }
