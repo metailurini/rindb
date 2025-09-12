@@ -21,7 +21,7 @@ func TestOffsetReader_Read(t *testing.T) {
 		assert.Equal(t, int64(5), r.Offset())
 	})
 
-	t.Run("partial read leaves offset unchanged", func(t *testing.T) {
+	t.Run("partial read advances offset", func(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("hello")})
 		defer closer()
 
@@ -30,7 +30,7 @@ func TestOffsetReader_Read(t *testing.T) {
 		n, err := r.Read(buf)
 		assert.ErrorIs(t, err, io.EOF)
 		assert.Equal(t, 5, n)
-		assert.Equal(t, int64(0), r.Offset())
+		assert.Equal(t, int64(5), r.Offset())
 	})
 
 	t.Run("read error leaves offset unchanged", func(t *testing.T) {
