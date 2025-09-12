@@ -72,7 +72,7 @@ func (s *sstableIterator) HasNext() bool {
 func (s *sstableIterator) Next() (Record, error) {
 	if s.HasNext() {
 		reader := newOffsetReader(s.FileSystem, s.offset)
-		record, err := ReadRecord(reader)
+		record, err := readRecord(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +103,7 @@ func (sri *sstableIRange) prepare() {
 			return
 		}
 		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
-		rec, err := ReadRecord(reader)
+		rec, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				sri.err = EOI

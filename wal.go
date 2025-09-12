@@ -83,7 +83,7 @@ func (w *wal) Load(ctx context.Context) (memtable, error) {
 	reader := newOffsetReader(w.FileSystem, 0)
 	mem := InitMemtable(w.config)
 	for {
-		record, err := ReadRecord(reader)
+		record, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break // Normal end of file
@@ -196,7 +196,7 @@ func (w *wal) Clean(ctx context.Context, minSeq uint64) error {
 	var keptBytes int64
 
 	for {
-		rec, err := ReadRecord(reader)
+		rec, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break

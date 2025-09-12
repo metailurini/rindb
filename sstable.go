@@ -131,7 +131,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		if reader.Offset() >= s.dataEnd {
 			return nil, ErrKeyNotFound
 		}
-		record, err := ReadRecord(reader)
+		record, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				errorf(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
@@ -211,7 +211,7 @@ func writeKeyOffset(tx *transaction, ko KeyOffset) error {
 }
 
 func readKeyOffset(r io.Reader) (KeyOffset, error) {
-	keyLen, err := ReadNumber(r)
+	keyLen, err := readNumber(r)
 	if err != nil {
 		return KeyOffset{}, fmt.Errorf("failed to read key length: %w", err)
 	}
@@ -221,7 +221,7 @@ func readKeyOffset(r io.Reader) (KeyOffset, error) {
 		return KeyOffset{}, fmt.Errorf("failed to read key bytes: %w", err)
 	}
 
-	off, err := ReadNumber(r)
+	off, err := readNumber(r)
 	if err != nil {
 		return KeyOffset{}, fmt.Errorf("failed to read offset: %w", err)
 	}

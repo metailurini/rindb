@@ -55,7 +55,7 @@ func Test_rw(t *testing.T) {
 
 		data, err := os.ReadFile(path)
 		assert.NoError(t, err)
-		record, err := ReadRecord(bytes.NewReader(data))
+		record, err := readRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes(nil), record.GetKey())
 		assert.Equal(t, testValue, record.GetValue())
@@ -73,7 +73,7 @@ func Test_rw(t *testing.T) {
 
 		data, err := os.ReadFile(path)
 		assert.NoError(t, err)
-		record, err := ReadRecord(bytes.NewReader(data))
+		record, err := readRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, testKey, record.GetKey())
 		assert.Equal(t, testValue, record.GetValue())
@@ -95,7 +95,7 @@ func Test_rw(t *testing.T) {
 
 		data, err := os.ReadFile(path)
 		assert.NoError(t, err)
-		record, err := ReadRecord(bytes.NewReader(data))
+		record, err := readRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, testKey, string(record.GetKey()))
 		assert.Equal(t, testValue, string(record.GetValue()))
@@ -110,7 +110,7 @@ func Test_rw(t *testing.T) {
 
 		data, err := os.ReadFile(path)
 		assert.NoError(t, err)
-		record, err := ReadRecord(bytes.NewReader(data))
+		record, err := readRecord(bytes.NewReader(data))
 		assert.NoError(t, err)
 		assert.Equal(t, "key", string(record.GetKey()))
 		assert.Equal(t, "value", string(record.GetValue()))
@@ -120,7 +120,7 @@ func Test_rw(t *testing.T) {
 func TestReadRecord_Errors(t *testing.T) {
 	t.Run("Error reading internal key length", func(t *testing.T) {
 		reader := &errorReader{err: errors.New("read internal key length failed")}
-		_, err := ReadRecord(reader)
+		_, err := readRecord(reader)
 		assert.ErrorContains(t, err, "failed to read internal key length")
 		assert.ErrorContains(t, err, "read internal key length failed")
 	})
@@ -129,7 +129,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		var buf bytes.Buffer
 		writeNumberBuf(&buf, 5)
 		reader := io.MultiReader(&buf, &errorReader{err: errors.New("read value length failed")})
-		_, err := ReadRecord(reader)
+		_, err := readRecord(reader)
 		assert.ErrorContains(t, err, "failed to read value length")
 		assert.ErrorContains(t, err, "read value length failed")
 	})
@@ -139,7 +139,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		writeNumberBuf(&buf, 5)
 		writeNumberBuf(&buf, 5)
 		buf.Write([]byte("key"))
-		_, err := ReadRecord(&buf)
+		_, err := readRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read internal key bytes")
 		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
@@ -150,7 +150,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		writeNumberBuf(&buf, 5)
 		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		buf.Write([]byte("val"))
-		_, err := ReadRecord(&buf)
+		_, err := readRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read value bytes")
 		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	})
@@ -161,7 +161,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		writeNumberBuf(&buf, 5)
 		buf.Write(EncodeInternalKey(Bytes("key"), 0, TypeValue))
 		reader := io.MultiReader(&buf, iotest.ErrReader(errors.New("read value bytes failed")))
-		_, err := ReadRecord(reader)
+		_, err := readRecord(reader)
 		assert.ErrorContains(t, err, "failed to read value bytes")
 		assert.ErrorContains(t, err, "read value bytes failed")
 	})
@@ -173,7 +173,7 @@ func TestReadRecord_Errors(t *testing.T) {
 		writeNumberBuf(&buf, 5)
 		buf.Write(ikey)
 		buf.Write([]byte("value"))
-		_, err := ReadRecord(&buf)
+		_, err := readRecord(&buf)
 		assert.ErrorContains(t, err, "failed to read checksum")
 		assert.ErrorIs(t, err, io.EOF)
 	})
@@ -186,7 +186,42 @@ func TestReadRecord_Errors(t *testing.T) {
 		buf.Write(ikey)
 		buf.Write([]byte("value"))
 		buf.Write([]byte{0, 0, 0, 0})
-		_, err := ReadRecord(&buf)
+		_, err := readRecord(&buf)
 		assert.ErrorIs(t, err, ErrChecksumMismatch)
 	})
+}
+
+func BenchmarkReadRecord(b *testing.B) {
+	key := Bytes("my-key")
+	value := Bytes("my-value")
+	var buf bytes.Buffer
+
+	// Manually construct the record to write to the buffer.
+	ikey := EncodeInternalKey(key, 1, TypeValue)
+	val := value
+
+	// Write lengths
+	writeNumberBuf(&buf, uint64(len(ikey)))
+	writeNumberBuf(&buf, uint64(len(val)))
+
+	// Write data
+	buf.Write(ikey)
+	buf.Write(val)
+
+	// Write checksum
+	var checksumBytes [checksumSize]byte
+	chk := checksum(ikey, val)
+	byteOrder.PutUint32(checksumBytes[:], chk)
+	buf.Write(checksumBytes[:])
+
+	recordBytes := buf.Bytes()
+
+	b.SetBytes(int64(len(recordBytes)))
+
+	for b.Loop() {
+		_, err := readRecord(bytes.NewReader(recordBytes))
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
