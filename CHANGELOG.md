@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.0](https://github.com/metailurini/rindb/compare/v0.10.0...v0.11.0) (2025-09-12)
+
+
+### Features
+
+* add sqlite oracle for fuzzing harness ([d450906](https://github.com/metailurini/rindb/commit/d4509065e214e07a32bc6291a9aa8111c1bdf9c1))
+
+
+### Bug Fixes
+
+* avoid truncated range checks and advance offset reader ([57832ea](https://github.com/metailurini/rindb/commit/57832ea7ff322ee662c64dd9ff5e9968e18958c4))
+* Correct offset reader behavior on read errors ([86eb2bc](https://github.com/metailurini/rindb/commit/86eb2bc85ff2cdd2863aab7bcb4afed405962a73))
+* Improve internal key decoding ([da48f61](https://github.com/metailurini/rindb/commit/da48f6183db076a2020e84b7e4835a55f822c551))
+* prevent sstable reads past data section ([0c5e630](https://github.com/metailurini/rindb/commit/0c5e6305d84227e37d7a202a96f361badb39c984))
+
 ## [0.10.0](https://github.com/metailurini/rindb/compare/v0.9.0...v0.10.0) (2025-09-10)
 
 
