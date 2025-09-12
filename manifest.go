@@ -3,6 +3,7 @@ package rindb
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -65,9 +66,9 @@ func (w *fileManifestWriter) Append(edit versionEdit) error {
 	}
 	data := w.buf.Bytes()
 	var header [manifestRecordHeaderSize]byte
-	byteOrder.PutUint64(header[0:manifestRecordLengthSize], uint64(len(data)))
+	binary.BigEndian.PutUint64(header[0:manifestRecordLengthSize], uint64(len(data)))
 	crc := checksum(data)
-	byteOrder.PutUint32(header[manifestRecordLengthSize:], crc)
+	binary.BigEndian.PutUint32(header[manifestRecordLengthSize:], crc)
 	if _, err := w.fs.Write(header[:]); err != nil {
 		return err
 	}
@@ -95,11 +96,11 @@ func (r *fileManifestReader) Next() (versionEdit, error) {
 	if _, err := io.ReadFull(r.fs, header[:]); err != nil {
 		return versionEdit{}, err
 	}
-	n := byteOrder.Uint64(header[0:manifestRecordLengthSize])
+	n := binary.BigEndian.Uint64(header[0:manifestRecordLengthSize])
 	if n > uint64(math.MaxInt) {
 		return versionEdit{}, fmt.Errorf("manifest record size %d exceeds max slice size on this architecture", n)
 	}
-	crc := byteOrder.Uint32(header[manifestRecordLengthSize:])
+	crc := binary.BigEndian.Uint32(header[manifestRecordLengthSize:])
 	data := make([]byte, int(n))
 	if _, err := io.ReadFull(r.fs, data); err != nil {
 		return versionEdit{}, err

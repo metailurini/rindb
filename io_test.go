@@ -3,6 +3,7 @@ package rindb
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -38,7 +39,7 @@ func newFileTx(t *testing.T) (*transaction, func()) {
 
 func writeNumberBuf(buf *bytes.Buffer, n uint64) {
 	var b [mdByteSize]byte
-	byteOrder.PutUint64(b[:], n)
+	binary.BigEndian.PutUint64(b[:], n)
 	buf.Write(b[:])
 }
 
@@ -211,7 +212,7 @@ func BenchmarkReadRecord(b *testing.B) {
 	// Write checksum
 	var checksumBytes [checksumSize]byte
 	chk := checksum(ikey, val)
-	byteOrder.PutUint32(checksumBytes[:], chk)
+	binary.BigEndian.PutUint32(checksumBytes[:], chk)
 	buf.Write(checksumBytes[:])
 
 	recordBytes := buf.Bytes()

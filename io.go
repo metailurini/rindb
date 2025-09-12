@@ -5,10 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
-// Use BigEndian for consistent cross-platform encoding/decoding
-var byteOrder = binary.BigEndian
+var bufPool = sync.Pool{New: func() any {
+	b := make([]byte, 1<<16)
+	return &b
+}}
+
+func getBuf(n int) []byte {
+	p := bufPool.Get().(*[]byte)
+	if cap(*p) < n {
+		b := make([]byte, n)
+		*p = b
+	}
+	return (*p)[:n]
+}
+
+func putBuf(b []byte) { bufPool.Put(&b) }
 
 const (
 	mdByteSize   = 8
@@ -22,7 +36,7 @@ func readNumber(storage io.Reader) (uint64, error) {
 	if _, err := io.ReadFull(storage, numBytes[:]); err != nil {
 		return 0, err
 	}
-	return byteOrder.Uint64(numBytes[:]), nil
+	return binary.BigEndian.Uint64(numBytes[:]), nil
 }
 
 func readRecord(storage io.Reader) (Record, error) {
@@ -38,10 +52,13 @@ func readRecord(storage io.Reader) (Record, error) {
 
 	var internalKeyBytes Bytes
 	if internalKeyLen > 0 {
-		internalKeyBytes = make(Bytes, internalKeyLen)
-		if _, err := io.ReadFull(storage, internalKeyBytes); err != nil {
+		ikey := getBuf(int(internalKeyLen))
+		defer putBuf(ikey)
+		if _, err := io.ReadFull(storage, ikey[:internalKeyLen]); err != nil {
 			return nil, fmt.Errorf("failed to read internal key bytes: %w", err)
 		}
+		internalKeyBytes = make(Bytes, internalKeyLen)
+		copy(internalKeyBytes, ikey[:internalKeyLen])
 	}
 
 	userKey, seq, typ, err := DecodeInternalKey(internalKeyBytes)
@@ -51,17 +68,20 @@ func readRecord(storage io.Reader) (Record, error) {
 
 	var valueBytes Bytes
 	if valueLen > 0 {
-		valueBytes = make(Bytes, valueLen)
-		if _, err := io.ReadFull(storage, valueBytes); err != nil {
+		val := getBuf(int(valueLen))
+		defer putBuf(val)
+		if _, err := io.ReadFull(storage, val[:valueLen]); err != nil {
 			return nil, fmt.Errorf("failed to read value bytes: %w", err)
 		}
+		valueBytes = make(Bytes, valueLen)
+		copy(valueBytes, val[:valueLen])
 	}
 
 	var checksumBytes [checksumSize]byte
 	if _, err := io.ReadFull(storage, checksumBytes[:]); err != nil {
 		return nil, fmt.Errorf("failed to read checksum: %w", err)
 	}
-	expected := byteOrder.Uint32(checksumBytes[:])
+	expected := binary.BigEndian.Uint32(checksumBytes[:])
 	if actual := checksum(internalKeyBytes, valueBytes); actual != expected {
 		return nil, ErrChecksumMismatch
 	}
@@ -76,7 +96,7 @@ func readRecord(storage io.Reader) (Record, error) {
 
 func writeNumber(tx *transaction, number uint64) error {
 	numBytes := [mdByteSize]byte{}
-	byteOrder.PutUint64(numBytes[:], number)
+	binary.BigEndian.PutUint64(numBytes[:], number)
 	if _, err := tx.write(numBytes[:]); err != nil {
 		return fmt.Errorf("failed to write number bytes: %w", err)
 	}
@@ -106,7 +126,7 @@ func writeRecord(tx *transaction, record Record) error {
 	}
 
 	var checksumBytes [checksumSize]byte
-	byteOrder.PutUint32(checksumBytes[:], checksum)
+	binary.BigEndian.PutUint32(checksumBytes[:], checksum)
 	if _, err := tx.write(checksumBytes[:]); err != nil {
 		return fmt.Errorf("failed to write checksum: %w", err)
 	}

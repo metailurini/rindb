@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"encoding/binary"
 	"io"
 	"math"
 	"os"
@@ -92,8 +93,8 @@ func TestManifest(t *testing.T) {
 		f, err := os.Create(mf)
 		require.NoError(t, err)
 		var header [manifestRecordHeaderSize]byte
-		byteOrder.PutUint64(header[0:manifestRecordLengthSize], uint64(math.MaxInt)+1)
-		byteOrder.PutUint32(header[manifestRecordLengthSize:], 0)
+		binary.BigEndian.PutUint64(header[0:manifestRecordLengthSize], uint64(math.MaxInt)+1)
+		binary.BigEndian.PutUint32(header[manifestRecordLengthSize:], 0)
 		_, err = f.Write(header[:])
 		require.NoError(t, err)
 		require.NoError(t, f.Close())

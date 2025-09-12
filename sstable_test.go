@@ -991,9 +991,9 @@ func TestNewSSTable_IndexBlockOutOfBounds(t *testing.T) {
 	defer file.Close()
 
 	var buf [footerSize]byte
-	byteOrder.PutUint64(buf[0:8], f.indexOffset)
-	byteOrder.PutUint64(buf[8:16], f.indexSize+1)
-	byteOrder.PutUint64(buf[40:48], magicNumber)
+	binary.BigEndian.PutUint64(buf[0:8], f.indexOffset)
+	binary.BigEndian.PutUint64(buf[8:16], f.indexSize+1)
+	binary.BigEndian.PutUint64(buf[40:48], magicNumber)
 	_, err = file.WriteAt(buf[:], tail)
 	require.NoError(t, err)
 
@@ -1027,7 +1027,7 @@ func TestNewSSTable_LoadSparseIndexFailure(t *testing.T) {
 
 	const oversizedKeyLen = 1 << 20 // 1 MiB
 	var keyLen [8]byte
-	byteOrder.PutUint64(keyLen[:], oversizedKeyLen)
+	binary.BigEndian.PutUint64(keyLen[:], oversizedKeyLen)
 	_, err = file.WriteAt(keyLen[:], int64(f.indexOffset))
 	require.NoError(t, err)
 

@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"sort"
@@ -51,7 +52,7 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	if _, err := s.FileSystem.ReadAt(buf, tailOffset); err != nil {
 		return nil, err
 	}
-	dataEnd := int64(byteOrder.Uint64(buf))
+	dataEnd := int64(binary.BigEndian.Uint64(buf))
 
 	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd}, nil
 }

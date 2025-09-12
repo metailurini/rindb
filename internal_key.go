@@ -3,6 +3,7 @@ package rindb
 import (
 	"bytes"
 	"cmp"
+	"encoding/binary"
 	"fmt"
 )
 
@@ -32,7 +33,7 @@ func EncodeInternalKey(key Bytes, seq uint64, typ RecordType) []byte {
 	internalKey := make([]byte, len(key)+internalKeySuffixLen)
 	copy(internalKey, key)
 	var seqBuf [seqNumBytes]byte
-	byteOrder.PutUint64(seqBuf[:], ^seq)
+	binary.BigEndian.PutUint64(seqBuf[:], ^seq)
 	copy(internalKey[len(key):], seqBuf[:])
 	internalKey[len(key)+seqNumBytes] = byte(typ)
 	return internalKey
@@ -49,7 +50,7 @@ func DecodeInternalKey(ikey Bytes) (Bytes, uint64, RecordType, error) {
 		userKey = nil
 	}
 
-	seq := ^byteOrder.Uint64(ikey[userKeyEnd : userKeyEnd+seqNumBytes])
+	seq := ^binary.BigEndian.Uint64(ikey[userKeyEnd : userKeyEnd+seqNumBytes])
 	typ := RecordType(ikey[len(ikey)-1])
 	return userKey, seq, typ, nil
 }

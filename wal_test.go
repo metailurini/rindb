@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -37,8 +38,8 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		_, err = io.ReadFull(file, valueLenBytes[:])
 		assert.NoError(t, err)
 
-		keyLen := byteOrder.Uint64(keyLenBytes[:])
-		valueLen := byteOrder.Uint64(valueLenBytes[:])
+		keyLen := binary.BigEndian.Uint64(keyLenBytes[:])
+		valueLen := binary.BigEndian.Uint64(valueLenBytes[:])
 
 		// The internal key must at least contain the sequence number
 		// and type information.
@@ -71,7 +72,7 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		checksumBytes := [checksumSize]byte{}
 		_, err = io.ReadFull(file, checksumBytes[:])
 		assert.NoError(t, err)
-		expected := byteOrder.Uint32(checksumBytes[:])
+		expected := binary.BigEndian.Uint32(checksumBytes[:])
 		actual := checksum(keyBytes, valueBytes)
 		assert.Equal(t, expected, actual)
 
