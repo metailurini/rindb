@@ -50,7 +50,9 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 				}
 				continue
 			}
-			fwd.PushItem(pqItem{rec: rec, iter: it})
+			item := pqItem{rec: rec, iter: it}
+			fwd.PushItem(item)
+			rev.PushItem(item)
 		}
 	}
 	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup}, nil
@@ -103,13 +105,26 @@ func (m *MergingIterator) Prev() (Record, error) {
 	}
 	cur := m.rev.PopItem()
 	if cur.iter.HasPrev() {
-		rec, err := cur.iter.Prev()
-		if err != nil {
-			if !errors.Is(err, EOI) {
-				m.err = err
+		for cur.iter.HasPrev() {
+			rec, err := cur.iter.Prev()
+			if err != nil {
+				if !errors.Is(err, EOI) {
+					m.err = err
+				}
+				break
 			}
-		} else if rec.GetKey().Compare(cur.rec.GetKey()) != CmpEqual || rec.GetSequenceNumber() != cur.rec.GetSequenceNumber() {
-			m.fwd.PushItem(pqItem{rec: rec, iter: cur.iter})
+			if rec.GetKey().Compare(cur.rec.GetKey()) == CmpEqual {
+				// Sequence-number suppression.
+				continue
+			}
+			if rec.GetType() == TypeDeletion {
+				// Skip tombstones.
+				continue
+			}
+			item := pqItem{rec: rec, iter: cur.iter}
+			m.fwd.PushItem(item)
+			m.rev.PushItem(item)
+			break
 		}
 	}
 	m.fwd.PushItem(cur)

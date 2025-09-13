@@ -240,10 +240,6 @@ func TestRindb_IRangeDirections(t *testing.T) {
 	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("c"))
 	require.NoError(t, err)
 
-	assert.False(t, iter.HasPrev())
-	_, err = iter.Prev()
-	assert.ErrorIs(t, err, EOI)
-
 	rec, err := iter.Next()
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("a"), rec.GetKey())
