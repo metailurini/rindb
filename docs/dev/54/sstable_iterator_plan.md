@@ -2,9 +2,11 @@
 
 This document expands step 3 of the reverse range scanning plan and outlines how to walk an SSTable in both directions without materializing all records.
 
-1. Push the file offset of each returned record onto a stack. `Prev` pops the stack and seeks to that offset.
-2. When the iterator reaches a new block, preload its footer and remember the previous block's starting offset to allow rewinding.
-3. Extend `sstableIterator` and `sstableIRange` to share the stack and expose `HasPrev`/`Prev` while staying compatible with the table cache.
+1. Seed the offset stack with the file's starting offset so `HasPrev` is false before the first `Next`.
+2. Push the offset of each returned record onto the stack. `Prev` pops the stack and seeks to that offset.
+3. Bound the stack by a configurable `maxOffs`. When the length exceeds `maxOffs`, drop the oldest entry; attempting to `Prev` past this point will return `EOI`.
+4. When the iterator reaches a new block, preload its footer and remember the previous block's starting offset to allow rewinding.
+5. Extend `sstableIterator` and `sstableIRange` to share the stack and expose `HasPrev`/`Prev` while staying compatible with the table cache.
 
 ```go
 type sstableIterator struct {
@@ -37,5 +39,5 @@ func (it *sstableIterator) Prev() (*Record, error) {
 ```
 
 Considerations:
-- Keep the stack bounded by dropping offsets when the iterator moves far ahead.
+- Make `maxOffs` large enough to cover typical scan ranges (e.g., 64K entries) while keeping memory usage predictable.
 - Ensure block-prefetch and cache eviction strategies remain valid when seeking backwards.
