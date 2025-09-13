@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemtable_Basic(t *testing.T) {
@@ -349,10 +350,9 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 		mi, ok := it.(*memtableIRange)
 		assert.True(t, ok)
 
-		mi.prepare()
-		assert.True(t, mi.prepared)
+		assert.True(t, mi.HasNext())
 		assert.Equal(t, uint64(5), mi.next.GetSequenceNumber())
-		assert.NoError(t, mi.err)
+		assert.NoError(t, mi.nextErr)
 	})
 
 	t.Run("no matching seq", func(t *testing.T) {
@@ -360,9 +360,8 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 		mi, ok := it.(*memtableIRange)
 		assert.True(t, ok)
 
-		mi.prepare()
-		assert.False(t, mi.prepared)
-		assert.ErrorIs(t, mi.err, EOI)
+		assert.False(t, mi.HasNext())
+		assert.ErrorIs(t, mi.nextErr, EOI)
 	})
 }
 
@@ -399,4 +398,23 @@ func TestMemtableIRange_HasNextNext(t *testing.T) {
 	_, err := mi.Next()
 	assert.ErrorIs(t, err, EOI)
 	assert.False(t, mi.HasNext())
+}
+
+func TestMemtableIRangeReverse(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("3"), 3))
+
+	it := mem.IRangeReverse(Bytes("a"), Bytes("c"), 3)
+	var keys []string
+	for it.HasPrev() {
+		rec, err := it.Prev()
+		require.NoError(t, err)
+		keys = append(keys, string(rec.GetKey()))
+	}
+	assert.Equal(t, []string{"c", "b", "a"}, keys)
+	_, err := it.Prev()
+	assert.ErrorIs(t, err, EOI)
 }

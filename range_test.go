@@ -53,13 +53,13 @@ func TestRangeIterator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var iterators []Iterator[Record]
+			var iterators []BiIterator[Record]
 			for _, spec := range tt.iters {
 				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 			}
-			mi, err := NewMergingIterator(iterators, nil)
+			mi, err := NewMergingIterator(iterators, false, nil)
 			assert.NoError(t, err)
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, false)
 
 			var got []exp
 			for iter.HasNext() {
@@ -130,10 +130,10 @@ func TestRangeIteratorPrepare(t *testing.T) {
 			},
 			failIdx: -1,
 		}
-		mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+		mi, err := NewMergingIterator([]BiIterator[Record]{it}, false, nil)
 		assert.NoError(t, err)
 
-		iter := NewRangeIterator(mi)
+		iter := NewRangeIterator(mi, false)
 		iter.prepare()
 		_, err = iter.Next()
 		assert.NoError(t, err)
@@ -152,10 +152,10 @@ func TestRangeIteratorPrepare(t *testing.T) {
 			},
 			failIdx: 1,
 		}
-		mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+		mi, err := NewMergingIterator([]BiIterator[Record]{it}, false, nil)
 		assert.NoError(t, err)
 
-		iter := NewRangeIterator(mi)
+		iter := NewRangeIterator(mi, false)
 		iter.prepare()
 		_, err = iter.Next()
 		assert.NoError(t, err)

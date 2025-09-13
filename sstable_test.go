@@ -344,6 +344,41 @@ func TestSStable(t *testing.T) {
 	})
 }
 
+func TestSSTableIRangeReverse(t *testing.T) {
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	data := []struct {
+		key   Bytes
+		value Bytes
+	}{
+		{Bytes("a"), Bytes("1")},
+		{Bytes("b"), Bytes("2")},
+		{Bytes("c"), Bytes("3")},
+	}
+	mem := InitMemtable(cfg)
+	for i, v := range data {
+		mem.Put(newRecord(v.key, v.value, uint64(i)))
+	}
+	sst, meta, err := flush(context.Background(), cfg, mem, fs)
+	require.NoError(t, err)
+	require.NotZero(t, meta.Number)
+
+	it, err := sst.IRangeReverse(Bytes("a"), Bytes("c"))
+	require.NoError(t, err)
+	var keys []Bytes
+	for it.HasPrev() {
+		rec, err := it.Prev()
+		require.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, keys)
+	_, err = it.Prev()
+	assert.ErrorIs(t, err, EOI)
+}
+
 // TestSStable_GetValueSparseIndexFallback ensures GetValue can retrieve keys
 // when they are absent from the sparse index by scanning from the nearest
 // preceding entry.

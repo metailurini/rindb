@@ -56,6 +56,27 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd}, nil
 }
 
+// IRangeReverse returns an iterator over records in [start, end] in descending
+// key order.
+func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (BiIterator[Record], error) {
+	it, err := s.IRange(start, end, seq...)
+	if err != nil {
+		return nil, err
+	}
+	var records []Record
+	for it.HasNext() {
+		rec, err := it.Next()
+		if err != nil {
+			if errors.Is(err, EOI) {
+				break
+			}
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	return newSliceBiIterator(records), nil
+}
+
 type sstableIterator struct {
 	*FileSystem
 	currentIdx int

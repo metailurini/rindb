@@ -227,6 +227,48 @@ func TestRindb_IRange(t *testing.T) {
 	}
 }
 
+func TestRindb_IRangeReverse(t *testing.T) {
+	ctx := context.Background()
+	cfg := testConfig()
+	ts := newTestRindbSetup(t, ctx, &cfg)
+	defer ts.Cleanup()
+
+	// Create SSTable with older records
+	mem1 := InitMemtable(cfg)
+	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
+	mem1.Put(newRecord(Bytes("b"), Bytes("sstB"), 2))
+	sst1, meta1, err := flush(ctx, cfg, mem1, ts.newSSTableFS())
+	assert.NoError(t, err)
+	require.NotZero(t, meta1.Number)
+	ts.AddSSTable(0, &sst1)
+
+	// Memtable with latest update
+	mem := ts.RinDB.Memtable
+	mem.Put(newRecord(Bytes("c"), Bytes("memC"), 3))
+
+	iter, err := ts.RinDB.IRangeReverse(ctx, Bytes("a"), Bytes("c"))
+	assert.NoError(t, err)
+	defer iter.Close()
+
+	expected := []struct{ k, v string }{
+		{"c", "memC"},
+		{"b", "sstB"},
+		{"a", "sstA"},
+	}
+
+	for _, exp := range expected {
+		assert.True(t, iter.HasNext())
+		rec, err := iter.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, exp.k, string(rec.GetKey()))
+		assert.Equal(t, exp.v, string(rec.GetValue()))
+	}
+
+	assert.False(t, iter.HasNext())
+	_, err = iter.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
 	ctx := context.Background()

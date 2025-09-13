@@ -689,16 +689,16 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		return nil, fileMeta{}, nil
 	}
 
-	iterators := make([]Iterator[Record], 0, len(sources))
+	iterators := make([]BiIterator[Record], 0, len(sources))
 	for _, entry := range sources {
 		iter, err := entry.Table.Iterator()
 		if err != nil {
 			return nil, fileMeta{}, err
 		}
-		iterators = append(iterators, iter)
+		iterators = append(iterators, asBiIterator(iter))
 	}
 
-	mergeIter, err := NewMergingIterator(iterators, nil)
+	mergeIter, err := NewMergingIterator(iterators, false, nil)
 	if err != nil {
 		return nil, fileMeta{}, err
 	}

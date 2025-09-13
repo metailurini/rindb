@@ -4,9 +4,10 @@ import "errors"
 
 // RangeIterator is a user-facing iterator that hides tombstones and
 // duplicates. It wraps a MergingIterator which provides all records in key and
-// sequence order.
+// sequence order, in either forward or reverse key order.
 type RangeIterator struct {
 	mi         *MergingIterator
+	reverse    bool
 	lastKey    Bytes
 	lastKeySet bool
 	next       Record
@@ -15,8 +16,9 @@ type RangeIterator struct {
 }
 
 // NewRangeIterator creates a new RangeIterator from a MergingIterator.
-func NewRangeIterator(mi *MergingIterator) *RangeIterator {
-	return &RangeIterator{mi: mi}
+// If reverse is true, records are expected in descending key order.
+func NewRangeIterator(mi *MergingIterator, reverse bool) *RangeIterator {
+	return &RangeIterator{mi: mi, reverse: reverse}
 }
 
 func (r *RangeIterator) prepare() {

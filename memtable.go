@@ -96,52 +96,100 @@ func (m *memtable) Iterator() Iterator[Record] {
 func (m *memtable) IRange(start, end Bytes, seq uint64) Iterator[Record] {
 	startKey := InternalKey{UserKey: start, Seq: math.MaxUint64, Type: TypeValue}
 	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeMerge}
-	it := m.data.IRange(startKey, endKey)
+	it := asBiIterator(m.data.IRange(startKey, endKey))
+	return &memtableIRange{it: it, seq: seq}
+}
+
+// IRangeReverse returns an iterator over records within [start, end] walking
+// backwards by key.
+func (m *memtable) IRangeReverse(start, end Bytes, seq uint64) BiIterator[Record] {
+	startKey := InternalKey{UserKey: start, Seq: math.MaxUint64, Type: TypeValue}
+	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeMerge}
+	it := asBiIterator(m.data.IRange(startKey, endKey))
 	return &memtableIRange{it: it, seq: seq}
 }
 
 type memtableIRange struct {
-	it       Iterator[Record]
-	seq      uint64
-	next     Record
-	prepared bool
-	err      error
+	it           BiIterator[Record]
+	seq          uint64
+	next         Record
+	nextPrepared bool
+	nextErr      error
+	prev         Record
+	prevPrepared bool
+	prevErr      error
 }
 
-func (mi *memtableIRange) prepare() {
-	for !mi.prepared && mi.err == nil {
+func (mi *memtableIRange) prepareNext() {
+	for !mi.nextPrepared && mi.nextErr == nil {
 		if !mi.it.HasNext() {
-			mi.err = EOI
+			mi.nextErr = EOI
 			return
 		}
 		rec, err := mi.it.Next()
 		if err != nil {
-			mi.err = err
+			mi.nextErr = err
 			return
 		}
 		if rec.GetSequenceNumber() > mi.seq {
 			continue
 		}
 		mi.next = rec
-		mi.prepared = true
+		mi.nextPrepared = true
 	}
 }
 
 func (mi *memtableIRange) HasNext() bool {
-	mi.prepare()
-	return mi.prepared
+	mi.prepareNext()
+	return mi.nextPrepared
 }
 
 func (mi *memtableIRange) Next() (Record, error) {
 	if !mi.HasNext() {
 		var empty Record
-		if mi.err != nil {
-			return empty, mi.err
+		if mi.nextErr != nil {
+			return empty, mi.nextErr
 		}
 		return empty, EOI
 	}
-	mi.prepared = false
+	mi.nextPrepared = false
 	return mi.next, nil
+}
+
+func (mi *memtableIRange) preparePrev() {
+	for !mi.prevPrepared && mi.prevErr == nil {
+		if !mi.it.HasPrev() {
+			mi.prevErr = EOI
+			return
+		}
+		rec, err := mi.it.Prev()
+		if err != nil {
+			mi.prevErr = err
+			return
+		}
+		if rec.GetSequenceNumber() > mi.seq {
+			continue
+		}
+		mi.prev = rec
+		mi.prevPrepared = true
+	}
+}
+
+func (mi *memtableIRange) HasPrev() bool {
+	mi.preparePrev()
+	return mi.prevPrepared
+}
+
+func (mi *memtableIRange) Prev() (Record, error) {
+	if !mi.HasPrev() {
+		var empty Record
+		if mi.prevErr != nil {
+			return empty, mi.prevErr
+		}
+		return empty, EOI
+	}
+	mi.prevPrepared = false
+	return mi.prev, nil
 }
 
 // Cleanup removes records with sequence numbers less than minSeq.

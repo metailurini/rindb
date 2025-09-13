@@ -4,48 +4,69 @@ import "errors"
 
 type pqItem struct {
 	rec  Record
-	iter Iterator[Record]
+	iter BiIterator[Record]
 }
 
 // MergingIterator merges multiple iterators without deduplication. It yields
-// records ordered by key and sequence number (descending).
+// records ordered by key and sequence number (descending), optionally in
+// reverse key order when configured.
 type MergingIterator struct {
 	pq       *PriorityQueue[pqItem]
 	next     Record
 	prepared bool
 	cleanup  func()
 	err      error
+	reverse  bool
 }
 
 // NewMergingIterator constructs a MergingIterator over provided iterators.
-// The optional cleanup function is called when Close is invoked.
-func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingIterator, error) {
+// If reverse is true, records are yielded in descending key order. The optional
+// cleanup function is called when Close is invoked.
+func NewMergingIterator(iterators []BiIterator[Record], reverse bool, cleanup func()) (*MergingIterator, error) {
 	less := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
+			if reverse {
+				return a.rec.GetSequenceNumber() < b.rec.GetSequenceNumber()
+			}
 			return a.rec.GetSequenceNumber() > b.rec.GetSequenceNumber()
+		}
+		if reverse {
+			return cmp == CmpGreater
 		}
 		return cmp == CmpLess
 	}
 
 	pq := NewPriorityQueue(less)
 	for _, it := range iterators {
-		if it.HasNext() {
-			rec, err := it.Next()
-			if err != nil {
-				if !errors.Is(err, EOI) {
-					if cleanup != nil {
-						cleanup()
-					}
-					return nil, err
-				}
+		var (
+			rec Record
+			err error
+		)
+		if reverse {
+			if !it.HasPrev() {
 				continue
 			}
-			pq.PushItem(pqItem{rec: rec, iter: it})
+			rec, err = it.Prev()
+		} else {
+			if !it.HasNext() {
+				continue
+			}
+			rec, err = it.Next()
 		}
+		if err != nil {
+			if !errors.Is(err, EOI) {
+				if cleanup != nil {
+					cleanup()
+				}
+				return nil, err
+			}
+			continue
+		}
+		pq.PushItem(pqItem{rec: rec, iter: it})
 	}
 
-	return &MergingIterator{pq: pq, cleanup: cleanup}, nil
+	return &MergingIterator{pq: pq, cleanup: cleanup, reverse: reverse}, nil
 }
 
 func (m *MergingIterator) prepare() {
@@ -57,15 +78,29 @@ func (m *MergingIterator) prepare() {
 	m.next = item.rec
 	m.prepared = true
 
-	if item.iter.HasNext() {
-		rec, err := item.iter.Next()
-		if err != nil {
-			if !errors.Is(err, EOI) {
-				m.err = err
-			}
+	var (
+		rec Record
+		err error
+	)
+	if m.reverse {
+		if item.iter.HasPrev() {
+			rec, err = item.iter.Prev()
 		} else {
-			m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
+			return
 		}
+	} else {
+		if item.iter.HasNext() {
+			rec, err = item.iter.Next()
+		} else {
+			return
+		}
+	}
+	if err != nil {
+		if !errors.Is(err, EOI) {
+			m.err = err
+		}
+	} else {
+		m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
 	}
 }
 

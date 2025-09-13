@@ -262,7 +262,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 
 	maxSeq := getMaxSeq(seq...)
 
-	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq)}
+	iterators := []BiIterator[Record]{asBiIterator(r.Memtable.IRange(start, end, maxSeq))}
 
 	entries, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
@@ -282,16 +282,74 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 			cleanupOpened()
 			return nil, err
 		}
-		iterators = append(iterators, rangeIter)
+		iterators = append(iterators, asBiIterator(rangeIter))
 	}
 
-	mergeIter, err := NewMergingIterator(iterators, cleanupOpened)
+	mergeIter, err := NewMergingIterator(iterators, false, cleanupOpened)
 	if err != nil {
 		cleanupOpened()
 		return nil, err
 	}
 
-	return NewRangeIterator(mergeIter), nil
+	return NewRangeIterator(mergeIter, false), nil
+}
+
+// IRangeReverse returns an iterator over records with keys in [start, end]
+// in descending key order, merged across the memtable and relevant SSTables.
+//
+// The returned iterator must be closed when no longer needed to release
+// any associated resources.
+func (r *Rindb) IRangeReverse(ctx context.Context, start, end Bytes, seq ...uint64) (*RangeIterator, error) {
+	ctx, span := tracer.Start(ctx, "Rindb.IRangeReverse")
+	defer span.End()
+	iRangeCalls.Add(ctx, 1)
+	r.iRangeCalls.Add(1)
+	if span.IsRecording() {
+		span.SetAttributes(
+			attribute.Int("start_key_size", len(start)),
+			attribute.Int("end_key_size", len(end)),
+		)
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.closed {
+		return nil, ErrDatabaseClosed
+	}
+
+	maxSeq := getMaxSeq(seq...)
+
+	iterators := []BiIterator[Record]{r.Memtable.IRangeReverse(start, end, maxSeq)}
+
+	entries, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
+	if err != nil {
+		return nil, err
+	}
+	opened := entries
+
+	cleanupOpened := func() {
+		for _, o := range opened {
+			o.unref()
+		}
+	}
+
+	for _, entry := range entries {
+		rangeIter, err := entry.Table.IRangeReverse(start, end, maxSeq)
+		if err != nil {
+			cleanupOpened()
+			return nil, err
+		}
+		iterators = append(iterators, rangeIter)
+	}
+
+	mergeIter, err := NewMergingIterator(iterators, true, cleanupOpened)
+	if err != nil {
+		cleanupOpened()
+		return nil, err
+	}
+
+	return NewRangeIterator(mergeIter, true), nil
 }
 
 // Put inserts or updates a key-value pair in the database.

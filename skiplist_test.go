@@ -495,6 +495,23 @@ func TestSkipList_IRange(t *testing.T) {
 	})
 }
 
+func TestSkipList_IRangeReverse(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+	it := asBiIterator(list.IRange(1, 5))
+	var vals []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		vals = append(vals, v)
+	}
+	assert.Equal(t, []int{5, 4, 3, 2, 1}, vals)
+}
+
 func TestSkipList_FindGreaterOrEqual(t *testing.T) {
 	cfg := testConfig()
 

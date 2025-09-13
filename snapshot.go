@@ -41,6 +41,14 @@ func (s *Snapshot) IRange(ctx context.Context, start, end Bytes) (*RangeIterator
 	return s.db.IRange(ctx, start, end, s.sequence)
 }
 
+// IRangeReverse returns an iterator over records with keys in [start, end]
+// in descending key order as of the snapshot's sequence.
+func (s *Snapshot) IRangeReverse(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
+	ctx, span := tracer.Start(ctx, "Snapshot.IRangeReverse")
+	defer span.End()
+	return s.db.IRangeReverse(ctx, start, end, s.sequence)
+}
+
 // Release removes the snapshot from the list of active snapshots.
 func (s *Snapshot) Release(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Snapshot.Release")
