@@ -275,6 +275,43 @@ func TestSkipList_IteratorReverse(t *testing.T) {
 	})
 }
 
+func TestSkipList_IteratorMixed(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 3; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.Iterator().(*slIterator[int, int])
+	assert.True(t, ok)
+
+	// Move forward one step then backward again. Prev returns the same
+	// element that Next produced.
+	assert.True(t, it.HasNext())
+	v, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	assert.True(t, it.HasPrev())
+	v, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	// Next after Prev yields the same element again.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	// Advance once more to move past the first element.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+}
+
 func TestSkipList_IRangeReverse(t *testing.T) {
 	cfg := testConfig()
 	list, err := InitSkipList[int, int](cfg)
@@ -300,6 +337,42 @@ func TestSkipList_IRangeReverse(t *testing.T) {
 	}
 
 	assert.Equal(t, []int{4, 3, 2}, rev)
+}
+
+func TestSkipList_IRangeMixed(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	assert.True(t, it.HasNext())
+	v, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+
+	assert.True(t, it.HasPrev())
+	v, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+
+	// Resume forward iteration
+	// Next after Prev returns the same element again.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+
+	// Further Next calls resume forward iteration.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 3, v)
 }
 
 func TestSkipList_Clear(t *testing.T) {
