@@ -22,16 +22,28 @@ func (e *errIterator) Next() (Record, error) {
 		var empty Record
 		return empty, errors.New("boom")
 	}
+	if e.idx >= len(e.records) {
+		var empty Record
+		return empty, EOI
+	}
 	rec := e.records[e.idx]
 	e.idx++
 	return rec, nil
 }
 
-func (e *errIterator) HasPrev() bool { return false }
+func (e *errIterator) HasPrev() bool { return e.idx > 0 }
 
 func (e *errIterator) Prev() (Record, error) {
-	var empty Record
-	return empty, EOI
+	if !e.HasPrev() {
+		var empty Record
+		return empty, EOI
+	}
+	e.idx--
+	if e.idx == e.failIdx {
+		var empty Record
+		return empty, errors.New("boom")
+	}
+	return e.records[e.idx], nil
 }
 
 func TestMergingIterator(t *testing.T) {
@@ -82,6 +94,38 @@ func TestMergingIterator(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestMergingIteratorPrev(t *testing.T) {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
+	iterators := []Iterator[Record]{
+		&errIterator{records: []Record{rec("a", "va", 1, TypeValue), rec("c", "vc", 1, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
+	}
+	mi, err := NewMergingIterator(iterators, nil)
+	assert.NoError(t, err)
+
+	r1, err := mi.Next()
+	assert.NoError(t, err)
+	assert.False(t, mi.HasPrev())
+
+	r2, err := mi.Next()
+	assert.NoError(t, err)
+	assert.True(t, mi.HasPrev())
+
+	back, err := mi.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, r1, back)
+
+	fwd, err := mi.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, r2, fwd)
 }
 
 func TestMergingIteratorInitialError(t *testing.T) {
