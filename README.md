@@ -8,6 +8,9 @@
     <img src='https://img.shields.io/codecov/c/github/metailurini/rindb.svg?maxAge=2592000'>
     <img src='https://qlty.sh/gh/metailurini/projects/rindb/maintainability.svg'>
     <img src='https://img.shields.io/github/license/metailurini/rindb'>
+    <a href="https://deepwiki.com/metailurini/rindb">
+        <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
+    </a>
 </p>
 
 
