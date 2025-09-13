@@ -9,6 +9,42 @@ import (
 
 const maxSSTableIteratorOffsets = 1 << 16
 
+type offsetStack struct {
+	buf   []int64
+	start int
+	count int
+}
+
+func newOffsetStack(n int) *offsetStack {
+	return &offsetStack{buf: make([]int64, n)}
+}
+
+func (o *offsetStack) push(v int64) {
+	if len(o.buf) == 0 {
+		return
+	}
+	if o.count < len(o.buf) {
+		idx := (o.start + o.count) % len(o.buf)
+		o.buf[idx] = v
+		o.count++
+		return
+	}
+	o.buf[o.start] = v
+	o.start = (o.start + 1) % len(o.buf)
+}
+
+func (o *offsetStack) pop() (int64, bool) {
+	if o.count == 0 {
+		return 0, false
+	}
+	idx := (o.start + o.count - 1) % len(o.buf)
+	v := o.buf[idx]
+	o.count--
+	return v, true
+}
+
+func (o *offsetStack) len() int { return o.count }
+
 var _ Iterator[Record] = (*sstableIterator)(nil)
 
 func (s SStable) Iterator() (Iterator[Record], error) {
@@ -19,11 +55,10 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 	}
 
 	return &sstableIterator{
-		currentIdx: 0,
-		maxIdx:     len(s.SparseIndex),
 		FileSystem: s.FileSystem,
+		dataEnd:    s.dataEnd,
 		offset:     0,
-		offsets:    []int64{0},
+		offs:       newOffsetStack(maxSSTableIteratorOffsets),
 	}, nil
 }
 
@@ -56,44 +91,39 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	}
 	dataEnd := int64(byteOrder.Uint64(buf))
 
-	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd, offs: []int64{startOffset}}, nil
+	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd, offs: newOffsetStack(maxSSTableIteratorOffsets)}, nil
 }
 
 type sstableIterator struct {
 	*FileSystem
-	currentIdx int
-	maxIdx     int
-	offset     int64
-	offsets    []int64
+	offset  int64
+	dataEnd int64
+	offs    *offsetStack
 }
 
 // HasNext implements Iterator.
 func (s *sstableIterator) HasNext() bool {
-	return s.currentIdx < s.maxIdx
+	return s.offset < s.dataEnd
 }
 
 // Next implements Iterator.
 func (s *sstableIterator) Next() (Record, error) {
-	if s.HasNext() {
-		s.offsets = append(s.offsets, s.offset)
-		if len(s.offsets) > maxSSTableIteratorOffsets {
-			s.offsets = s.offsets[1:]
-		}
-		reader := newOffsetReader(s.FileSystem, s.offset)
-		record, err := readRecord(reader)
-		if err != nil {
-			return nil, err
-		}
-		s.offset = reader.Offset()
-		s.currentIdx++
-		return record, nil
+	if !s.HasNext() {
+		return nil, EOI
 	}
-	return nil, EOI
+	s.offs.push(s.offset)
+	reader := newOffsetReader(s.FileSystem, s.offset)
+	record, err := readRecord(reader)
+	if err != nil {
+		return nil, err
+	}
+	s.offset = reader.Offset()
+	return record, nil
 }
 
 // HasPrev implements Iterator.
 func (s *sstableIterator) HasPrev() bool {
-	return len(s.offsets) > 1
+	return s.offs.len() > 0
 }
 
 // Prev implements Iterator.
@@ -101,15 +131,14 @@ func (s *sstableIterator) Prev() (Record, error) {
 	if !s.HasPrev() {
 		return nil, EOI
 	}
-	prev := s.offsets[len(s.offsets)-1]
-	s.offsets = s.offsets[:len(s.offsets)-1]
+	prev, ok := s.offs.pop()
+	if !ok {
+		return nil, EOI
+	}
 	reader := newOffsetReader(s.FileSystem, prev)
 	record, err := readRecord(reader)
 	if err != nil {
 		return nil, err
-	}
-	if s.currentIdx > 0 {
-		s.currentIdx--
 	}
 	s.offset = prev
 	return record, nil
@@ -126,7 +155,7 @@ type sstableIRange struct {
 	next     Record
 	err      error
 	prepared bool
-	offs     []int64
+	offs     *offsetStack
 }
 
 func (sri *sstableIRange) prepare() {
@@ -157,10 +186,7 @@ func (sri *sstableIRange) prepare() {
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
 		}
-		sri.offs = append(sri.offs, cur)
-		if len(sri.offs) > maxSSTableIteratorOffsets {
-			sri.offs = sri.offs[1:]
-		}
+		sri.offs.push(cur)
 		sri.next = rec
 		sri.prepared = true
 	}
@@ -184,7 +210,7 @@ func (sri *sstableIRange) Next() (Record, error) {
 
 // HasPrev implements Iterator.
 func (sri *sstableIRange) HasPrev() bool {
-	return len(sri.offs) > 1
+	return sri.offs.len() > 0
 }
 
 // Prev implements Iterator.
@@ -193,8 +219,11 @@ func (sri *sstableIRange) Prev() (Record, error) {
 		var empty Record
 		return empty, EOI
 	}
-	prev := sri.offs[len(sri.offs)-1]
-	sri.offs = sri.offs[:len(sri.offs)-1]
+	prev, ok := sri.offs.pop()
+	if !ok {
+		var empty Record
+		return empty, EOI
+	}
 	reader := newOffsetReader(sri.s.FileSystem, prev)
 	rec, err := readRecord(reader)
 	if err != nil {
