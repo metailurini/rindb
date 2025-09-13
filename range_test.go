@@ -9,14 +9,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRangeIterator(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+func rec(k, v string, seq uint64, typ RecordType) Record {
+	var nv Bytes
+	if v != "" {
+		nv = Bytes(v)
 	}
+	return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+}
+
+func TestRangeIterator(t *testing.T) {
 
 	type iterSpec struct {
 		records []Record
@@ -81,13 +82,6 @@ func TestRangeIterator(t *testing.T) {
 }
 
 func TestRangeIteratorReverse(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-	}
 	type iterSpec struct {
 		records []Record
 		failIdx int
@@ -129,14 +123,6 @@ func TestRangeIteratorReverse(t *testing.T) {
 }
 
 func TestRangeIteratorPrevBeforeNext(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-	}
-
 	it := &errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1}
 	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
 	assert.NoError(t, err)
@@ -147,14 +133,6 @@ func TestRangeIteratorPrevBeforeNext(t *testing.T) {
 }
 
 func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-	}
-
 	iters := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
