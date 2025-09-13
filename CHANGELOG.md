@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/metailurini/rindb/compare/v0.11.0...v0.12.0) (2025-09-13)
+
+
+### Features
+
+* replay diffharness operations on restart ([2b7750b](https://github.com/metailurini/rindb/commit/2b7750bc757e5f33c455075737f6a34b10cc37fd))
+
+
+### Bug Fixes
+
+* harden diffharness replay ([2524b9d](https://github.com/metailurini/rindb/commit/2524b9da034b1553758b2e36a83a619991073b5d))
+
 ## [0.11.0](https://github.com/metailurini/rindb/compare/v0.10.0...v0.11.0) (2025-09-12)
 
 
