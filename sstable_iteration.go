@@ -201,10 +201,14 @@ func (srr *sstableIRangeRev) fillBuf() {
 		nextOffset = srr.dataEnd
 	}
 	reader := newOffsetReader(srr.s.FileSystem, srr.offset)
-	srr.offsets = srr.offsets[:0]
+	var (
+		keys []Bytes
+		seqs []uint64
+		offs []int64
+	)
 	for reader.Offset() < nextOffset {
 		start := reader.Offset()
-		rec, err := readRecord(reader)
+		key, seq, err := readRecordMeta(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -212,16 +216,20 @@ func (srr *sstableIRangeRev) fillBuf() {
 			srr.err = err
 			return
 		}
-		if rec.GetKey().Compare(srr.startKey) < 0 {
-			continue
+		if key.Compare(srr.endKey) > 0 {
+			break
 		}
-		if rec.GetKey().Compare(srr.endKey) > 0 {
-			continue
+		keys = append(keys, key)
+		seqs = append(seqs, seq)
+		offs = append(offs, start)
+	}
+	left := sort.Search(len(keys), func(i int) bool { return keys[i].Compare(srr.startKey) >= 0 })
+	right := sort.Search(len(keys), func(i int) bool { return keys[i].Compare(srr.endKey) > 0 })
+	srr.offsets = srr.offsets[:0]
+	for i := left; i < right; i++ {
+		if seqs[i] <= srr.seq {
+			srr.offsets = append(srr.offsets, offs[i])
 		}
-		if rec.GetSequenceNumber() > srr.seq {
-			continue
-		}
-		srr.offsets = append(srr.offsets, start)
 	}
 	srr.pos = len(srr.offsets) - 1
 	srr.blockIdx--

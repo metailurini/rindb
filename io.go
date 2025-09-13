@@ -74,6 +74,39 @@ func readRecord(storage io.Reader) (Record, error) {
 	}, nil
 }
 
+// readRecordMeta reads only the internal key and skips the value and checksum.
+// The reader must be an *offsetReader so its offset can be advanced without
+// reading the skipped bytes.
+func readRecordMeta(r *offsetReader) (Bytes, uint64, error) {
+	internalKeyLen, err := readNumber(r)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read internal key length: %w", err)
+	}
+
+	valueLen, err := readNumber(r)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read value length: %w", err)
+	}
+
+	var internalKeyBytes Bytes
+	if internalKeyLen > 0 {
+		internalKeyBytes = make(Bytes, internalKeyLen)
+		if _, err := io.ReadFull(r, internalKeyBytes); err != nil {
+			return nil, 0, fmt.Errorf("failed to read internal key bytes: %w", err)
+		}
+	}
+
+	userKey, seq, _, err := DecodeInternalKey(internalKeyBytes)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Skip value and checksum bytes since they're not needed for range checks.
+	r.offset += int64(valueLen) + checksumSize
+
+	return userKey, seq, nil
+}
+
 func writeNumber(tx *transaction, number uint64) error {
 	numBytes := [mdByteSize]byte{}
 	byteOrder.PutUint64(numBytes[:], number)
