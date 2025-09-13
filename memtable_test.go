@@ -349,8 +349,8 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 		mi, ok := it.(*memtableIRange)
 		assert.True(t, ok)
 
-		mi.prepare()
-		assert.True(t, mi.prepared)
+		mi.prepareNext()
+		assert.True(t, mi.preparedNext)
 		assert.Equal(t, uint64(5), mi.next.GetSequenceNumber())
 		assert.NoError(t, mi.err)
 	})
@@ -360,9 +360,9 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 		mi, ok := it.(*memtableIRange)
 		assert.True(t, ok)
 
-		mi.prepare()
-		assert.False(t, mi.prepared)
-		assert.ErrorIs(t, mi.err, EOI)
+		mi.prepareNext()
+		assert.False(t, mi.preparedNext)
+		assert.NoError(t, mi.err)
 	})
 }
 
@@ -399,4 +399,27 @@ func TestMemtableIRange_HasNextNext(t *testing.T) {
 	_, err := mi.Next()
 	assert.ErrorIs(t, err, EOI)
 	assert.False(t, mi.HasNext())
+}
+
+func TestMemtableIRange_Reverse(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 2)
+	for it.HasNext() {
+		_, err := it.Next()
+		assert.NoError(t, err)
+	}
+
+	var keys []Bytes
+	for it.HasPrev() {
+		rec, err := it.Prev()
+		assert.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+
+	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
 }

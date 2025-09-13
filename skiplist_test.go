@@ -221,6 +221,87 @@ func TestSkipList_Remove(t *testing.T) {
 	}
 }
 
+func TestSkipList_IteratorReverse(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("basic", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for i := 1; i <= 3; i++ {
+			list.Put(i, i)
+		}
+
+		it, ok := list.Iterator().(*slIterator[int, int])
+		assert.True(t, ok)
+
+		for it.HasNext() {
+			_, err := it.Next()
+			assert.NoError(t, err)
+		}
+
+		var rev []int
+		for it.HasPrev() {
+			v, err := it.Prev()
+			assert.NoError(t, err)
+			rev = append(rev, v)
+		}
+
+		assert.Equal(t, []int{3, 2, 1}, rev)
+	})
+
+	t.Run("after remove", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for i := 1; i <= 3; i++ {
+			list.Put(i, i)
+		}
+		assert.NoError(t, list.Remove(2))
+
+		it, ok := list.Iterator().(*slIterator[int, int])
+		assert.True(t, ok)
+		for it.HasNext() {
+			_, err := it.Next()
+			assert.NoError(t, err)
+		}
+		var rev []int
+		for it.HasPrev() {
+			v, err := it.Prev()
+			assert.NoError(t, err)
+			rev = append(rev, v)
+		}
+		assert.Equal(t, []int{3, 1}, rev)
+	})
+}
+
+func TestSkipList_IRangeReverse(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	for it.HasNext() {
+		_, err := it.Next()
+		assert.NoError(t, err)
+	}
+
+	var rev []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		rev = append(rev, v)
+	}
+
+	assert.Equal(t, []int{4, 3, 2}, rev)
+}
+
 func TestSkipList_Clear(t *testing.T) {
 	cfg := testConfig()
 	t.Run("Clear list properly", func(t *testing.T) {

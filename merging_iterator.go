@@ -88,6 +88,17 @@ func (m *MergingIterator) Next() (Record, error) {
 	return m.next, nil
 }
 
+// HasPrev implements Iterator[Record].
+func (m *MergingIterator) HasPrev() bool {
+	return false
+}
+
+// Prev implements Iterator[Record].
+func (m *MergingIterator) Prev() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
 // Close releases any resources held by the iterator. It is safe to call
 // multiple times.
 func (m *MergingIterator) Close() error {
