@@ -89,7 +89,7 @@ func (m *MergingIterator) Next() (Record, error) {
 
 // HasPrev implements Iterator[Record].
 func (m *MergingIterator) HasPrev() bool {
-	return m.err == nil && m.rev.Len() > 1
+	return m.err == nil && m.rev.Len() > 0
 }
 
 // Prev implements Iterator[Record].
@@ -113,10 +113,14 @@ func (m *MergingIterator) Prev() (Record, error) {
 		}
 	}
 	m.fwd.PushItem(cur)
-	prev := m.rev.PeekItem()
-	m.cur = prev
-	m.curSet = true
-	return prev.rec, nil
+	if m.rev.Len() > 0 {
+		prev := m.rev.PeekItem()
+		m.cur = prev
+		m.curSet = true
+	} else {
+		m.curSet = false
+	}
+	return cur.rec, nil
 }
 
 // Close releases any resources held by the iterator. It is safe to call
