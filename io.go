@@ -103,7 +103,9 @@ func readRecordMeta(r *offsetReader) (key Bytes, seq uint64, typ RecordType, val
 	}
 
 	valueOff = r.Offset()
-	r.offset += int64(valueLen) + checksumSize
+	if _, err := io.CopyN(io.Discard, r, int64(valueLen)+checksumSize); err != nil {
+		return nil, 0, 0, 0, 0, fmt.Errorf("failed to skip value and checksum: %w", err)
+	}
 	return key, seq, typ, valueOff, valueLen, nil
 }
 

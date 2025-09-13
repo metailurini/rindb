@@ -413,7 +413,7 @@ func TestSSTableIRangeReverseFiltered(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b")}, keys)
 }
 
-func TestSSTableIRangeReverseNextAlwaysEOI(t *testing.T) {
+func TestSSTableIRangeReverseForward(t *testing.T) {
 	cfg := testConfig()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -426,7 +426,10 @@ func TestSSTableIRangeReverseNextAlwaysEOI(t *testing.T) {
 
 	it, err := sst.IRangeReverse(Bytes("a"), Bytes("a"))
 	require.NoError(t, err)
-	assert.False(t, it.HasNext())
+	assert.True(t, it.HasNext())
+	rec, err := it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
 	_, err = it.Next()
 	assert.ErrorIs(t, err, EOI)
 }

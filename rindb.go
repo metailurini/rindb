@@ -236,6 +236,14 @@ func (r *Rindb) Get(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error
 	return r.SSTableManager.SearchKey(ctx, key, maxSeq)
 }
 
+func cleanupTableEntries(entries []*tableCacheEntry) func() {
+	return func() {
+		for _, e := range entries {
+			e.unref()
+		}
+	}
+}
+
 // IRange returns an iterator over records with keys in [start, end],
 // merged across the memtable and relevant SSTables.
 //
@@ -268,13 +276,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 	if err != nil {
 		return nil, err
 	}
-	opened := entries
-
-	cleanupOpened := func() {
-		for _, o := range opened {
-			o.unref()
-		}
-	}
+	cleanupOpened := cleanupTableEntries(entries)
 
 	for _, entry := range entries {
 		rangeIter, err := entry.Table.IRange(start, end, maxSeq)
@@ -326,13 +328,7 @@ func (r *Rindb) IRangeReverse(ctx context.Context, start, end Bytes, seq ...uint
 	if err != nil {
 		return nil, err
 	}
-	opened := entries
-
-	cleanupOpened := func() {
-		for _, o := range opened {
-			o.unref()
-		}
-	}
+	cleanupOpened := cleanupTableEntries(entries)
 
 	for _, entry := range entries {
 		rangeIter, err := entry.Table.IRangeReverse(start, end, maxSeq)
