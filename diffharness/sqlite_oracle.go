@@ -13,6 +13,7 @@ import (
 // so reads can be performed at past snapshots.
 type SQLiteOracle struct {
 	db *sql.DB
+	tx *sql.Tx
 }
 
 // OpenSQLiteOracle opens or creates a SQLite database at the given path and
@@ -38,16 +39,50 @@ CREATE TABLE IF NOT EXISTS kv (
 	return &SQLiteOracle{db: db}, nil
 }
 
+func (o *SQLiteOracle) Begin(ctx context.Context) error {
+	tx, err := o.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	o.tx = tx
+	return nil
+}
+
+func (o *SQLiteOracle) Commit(ctx context.Context) error {
+	if o.tx == nil {
+		return nil
+	}
+	err := o.tx.Commit()
+	o.tx = nil
+	return err
+}
+
+func (o *SQLiteOracle) Rollback(ctx context.Context) error {
+	if o.tx == nil {
+		return nil
+	}
+	err := o.tx.Rollback()
+	o.tx = nil
+	return err
+}
+
+func (o *SQLiteOracle) exec(query string, args ...any) error {
+	if o.tx != nil {
+		_, err := o.tx.Exec(query, args...)
+		return err
+	}
+	_, err := o.db.Exec(query, args...)
+	return err
+}
+
 // PutWithSeq inserts or replaces a value at the given sequence number.
 func (o *SQLiteOracle) PutWithSeq(k, v []byte, seq uint64) error {
-	_, err := o.db.Exec(`INSERT INTO kv (k, seq, v, del) VALUES (?, ?, ?, 0)`, k, seq, v)
-	return err
+	return o.exec(`INSERT INTO kv (k, seq, v, del) VALUES (?, ?, ?, 0)`, k, seq, v)
 }
 
 // DelWithSeq records a tombstone for the key at the provided sequence number.
 func (o *SQLiteOracle) DelWithSeq(k []byte, seq uint64) error {
-	_, err := o.db.Exec(`INSERT INTO kv (k, seq, v, del) VALUES (?, ?, NULL, 1)`, k, seq)
-	return err
+	return o.exec(`INSERT INTO kv (k, seq, v, del) VALUES (?, ?, NULL, 1)`, k, seq)
 }
 
 // GetWithSeq retrieves the latest value for k at or before the snapshot

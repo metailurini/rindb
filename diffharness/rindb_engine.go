@@ -18,6 +18,10 @@ func NewRinDBEngine(db *rindb.Rindb) *RinDBEngine {
 	return &RinDBEngine{db: db, snaps: make(map[uint64]*rindb.Snapshot)}
 }
 
+func (e *RinDBEngine) Begin(ctx context.Context) error    { return nil }
+func (e *RinDBEngine) Commit(ctx context.Context) error   { return nil }
+func (e *RinDBEngine) Rollback(ctx context.Context) error { return nil }
+
 func (e *RinDBEngine) Put(ctx context.Context, k, v []byte) error {
 	return e.db.Put(ctx, rindb.Bytes(k), rindb.Bytes(v))
 }

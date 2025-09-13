@@ -63,6 +63,7 @@ func main() {
 
 func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
 	cleanup := false
+	existed := false
 	if dir == "" {
 		var err error
 		dir, err = os.MkdirTemp("", "diffharness")
@@ -71,12 +72,20 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 		}
 		cleanup = true
 	} else {
+		if _, err := os.Stat(dir); err == nil {
+			existed = true
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
 	if cleanup {
 		defer os.RemoveAll(dir)
+	}
+	if dir != "" {
+		logPath = filepath.Join(dir, logPath)
 	}
 	dbDir := filepath.Join(dir, "db")
 	refPath := filepath.Join(dir, "ref.db")
@@ -100,10 +109,19 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	if err != nil {
 		return err
 	}
+	var startSeq uint64
+	if existed {
+		if _, err := os.Stat(logPath); err == nil {
+			if startSeq, err = diffharness.Replay(ctx, eng, ref, logPath); err != nil {
+				return err
+			}
+		}
+	}
 	h, err := diffharness.NewHarness(eng, ref, seed, logPath)
 	if err != nil {
 		return err
 	}
+	h.Seq = startSeq
 	defer func() {
 		_ = h.Close()
 		_ = eng.Close()
