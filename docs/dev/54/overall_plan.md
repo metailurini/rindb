@@ -47,14 +47,14 @@ Complexity is rated from **1** (trivial) to **10** (major cross-cutting change).
        s.cur = r.Offset()
        return rec, err
    }
-   func (s *sstableIterator) HasPrev() bool { return len(s.offsets) > 0 }
+   func (s *sstableIterator) HasPrev() bool { return len(s.offsets) > 1 }
    func (s *sstableIterator) Prev() (Record, error) {
        if !s.HasPrev() { return nil, EOI }
-       prev := s.offsets[len(s.offsets)-1]
+       prev := s.offsets[len(s.offsets)-2]
        s.offsets = s.offsets[:len(s.offsets)-1]
        r := newOffsetReader(s.fs, prev)
        rec, err := readRecord(r)
-       s.cur = prev
+       s.cur = r.Offset()
        return rec, err
    }
    ```
@@ -75,9 +75,13 @@ Complexity is rated from **1** (trivial) to **10** (major cross-cutting change).
        return m.cur.rec, m.err
    }
    func (m *MergingIterator) Prev() (Record, error) {
-       m.cur = m.rev.PopItem()
-       m.fwd.PushItem(m.cur)
-       advanceBackward(m.cur)
+       cur := m.rev.PopItem()
+       m.fwd.PushItem(cur)
+       if prev := rewind(cur.src); prev != nil {
+           m.fwd.PushItem(prev)
+           m.rev.PushItem(prev)
+       }
+       m.cur = m.rev.PeekItem()
        return m.cur.rec, m.err
    }
    ```
