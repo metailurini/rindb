@@ -2,61 +2,52 @@
 
 This document expands step 4 of the reverse range scanning plan, detailing how multiple iterators can be merged while supporting backward traversal.
 
-1. Seed `fwd` with the first record from every source iterator; `rev` starts empty so calling `Prev` before any `Next` returns `EOI`.
-2. `Next` pops from `fwd`, pushes the item onto `rev`, and advances the underlying iterator; `Prev` removes the current item from `rev`, rewinds its source, and returns the new top of `rev`, or `EOI` if the heap becomes empty.
-3. Tombstone filtering and sequence-number suppression is handled by the `RangeIterator` before records reach the `MergingIterator`.
-4. Remove exhausted sources from the heaps to keep `HasPrev`/`HasNext` accurate.
+1. The `fwd` (min-heap) is seeded with the first record from each source iterator. The `rev` (max-heap) starts empty.
+2. On `Next()`, the iterator pops the lowest-ordered item from `fwd`. This item is pushed into `rev` to build a history for backward traversal. The source iterator that provided the item is advanced, and its next item is pushed back into `fwd`.
+3. On `Prev()`, the iterator pops the highest-ordered item from `rev` (the most recently visited item). This item is pushed back into `fwd` so it can be visited again in a subsequent `Next()` call.
+4. Tombstone filtering and sequence-number suppression are handled by a higher-level iterator (`RangeIterator`) before records reach the `MergingIterator`.
 
 ```go
 type MergingIterator struct {
-    fwd pqMin
-    rev pqMax
-    cur pqItem
+    fwd     *PriorityQueue[pqItem] // min-heap
+    rev     *PriorityQueue[pqItem] // max-heap
+    cur     pqItem
+    curSet  bool
 }
 
 func (m *MergingIterator) Next() (Record, error) {
-    m.cur = heap.Pop(&m.fwd).(pqItem)
-    heap.Push(&m.rev, m.cur)
-    advance(m.cur.src) // may push new item into fwd
-    return m.cur.rec, nil
+    item := m.fwd.PopItem()
+    m.rev.PushItem(item)
+    m.cur = item
+    m.curSet = true
+
+    if item.iter.HasNext() {
+        rec, err := item.iter.Next()
+        if err == nil {
+            m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
+        }
+    }
+    return item.rec, nil
 }
 
-func (m *MergingIterator) HasPrev() bool { return m.rev.Len() > 0 }
+func (m *MergingIterator) HasPrev() bool {
+    return m.rev.Len() > 0
+}
 
 func (m *MergingIterator) Prev() (Record, error) {
-    cur := heap.Pop(&m.rev).(pqItem)
-    heap.Push(&m.fwd, cur)
-    if prev := rewind(cur.src); prev != nil {
-        heap.Push(&m.fwd, prev)
-        heap.Push(&m.rev, prev)
+    cur := m.rev.PopItem()
+    m.fwd.PushItem(cur)
+    // After moving back, the 'current' item is the new top of the rev heap.
+    if m.rev.Len() > 0 {
+        m.cur = m.rev.PeekItem()
+    } else {
+        m.curSet = false
     }
-    if m.rev.Len() == 0 {
-        return Record{}, io.EOF
-    }
-    m.cur = m.rev.Peek().(pqItem)
-    return m.cur.rec, nil
-}
-```
-
-```go
-func advance(src Iterator) {
-    if rec, err := src.Next(); err == nil {
-        item := pqItem{rec: rec, src: src}
-        heap.Push(&m.fwd, item)
-    } else if err == io.EOF {
-        dropSource(src) // remove from heaps
-    }
-}
-
-func rewind(src Iterator) *pqItem {
-    if rec, err := src.Prev(); err == nil {
-        return &pqItem{rec: rec, src: src}
-    }
-    return nil
+    return cur.rec, nil
 }
 ```
 
 Concerns:
-- `RangeIterator` must perform tombstone filtering and sequence-number suppression so deleted or stale keys stay hidden before records reach the merger.
-- Dual heaps require rebalancing when sources are exhausted, otherwise `HasPrev` may leak duplicates.
-- Edge tests should exhaust a source, alternate `Next`/`Prev`, and traverse across memtables and SSTables to verify correctness.
+- `RangeIterator` is responsible for all filtering (tombstones, sequence numbers) before records are passed to the `MergingIterator`.
+- The `rev` heap only contains items already yielded by `Next()`. A call to `Prev()` is only possible after at least one `Next()` call has succeeded.
+- Exhausted iterators are naturally handled as they stop providing new items to the `fwd` heap.
