@@ -27,6 +27,13 @@ func (e *errIterator) Next() (Record, error) {
 	return rec, nil
 }
 
+func (e *errIterator) HasPrev() bool { return false }
+
+func (e *errIterator) Prev() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
 func TestMergingIterator(t *testing.T) {
 	rec := func(k, v string, seq uint64, typ RecordType) Record {
 		var nv Bytes = nil

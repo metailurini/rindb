@@ -83,6 +83,16 @@ func (s *sstableIterator) Next() (Record, error) {
 	return nil, EOI
 }
 
+// HasPrev implements Iterator.
+func (s *sstableIterator) HasPrev() bool {
+	return false
+}
+
+// Prev implements Iterator.
+func (s *sstableIterator) Prev() (Record, error) {
+	return nil, EOI
+}
+
 // sstableIRange iterates over a range of keys in an SSTable.
 type sstableIRange struct {
 	s        *SStable
@@ -142,4 +152,15 @@ func (sri *sstableIRange) Next() (Record, error) {
 	}
 	sri.prepared = false
 	return sri.next, nil
+}
+
+// HasPrev implements Iterator.
+func (sri *sstableIRange) HasPrev() bool {
+	return false
+}
+
+// Prev implements Iterator.
+func (sri *sstableIRange) Prev() (Record, error) {
+	var empty Record
+	return empty, EOI
 }

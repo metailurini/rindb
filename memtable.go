@@ -101,17 +101,18 @@ func (m *memtable) IRange(start, end Bytes, seq uint64) Iterator[Record] {
 }
 
 type memtableIRange struct {
-	it       Iterator[Record]
-	seq      uint64
-	next     Record
-	prepared bool
-	err      error
+	it           Iterator[Record]
+	seq          uint64
+	next         Record
+	preparedNext bool
+	prev         Record
+	preparedPrev bool
+	err          error
 }
 
-func (mi *memtableIRange) prepare() {
-	for !mi.prepared && mi.err == nil {
+func (mi *memtableIRange) prepareNext() {
+	for !mi.preparedNext && mi.err == nil {
 		if !mi.it.HasNext() {
-			mi.err = EOI
 			return
 		}
 		rec, err := mi.it.Next()
@@ -123,13 +124,13 @@ func (mi *memtableIRange) prepare() {
 			continue
 		}
 		mi.next = rec
-		mi.prepared = true
+		mi.preparedNext = true
 	}
 }
 
 func (mi *memtableIRange) HasNext() bool {
-	mi.prepare()
-	return mi.prepared
+	mi.prepareNext()
+	return mi.preparedNext
 }
 
 func (mi *memtableIRange) Next() (Record, error) {
@@ -140,8 +141,47 @@ func (mi *memtableIRange) Next() (Record, error) {
 		}
 		return empty, EOI
 	}
-	mi.prepared = false
+	mi.preparedNext = false
+	mi.preparedPrev = false
 	return mi.next, nil
+}
+
+func (mi *memtableIRange) preparePrev() {
+	for !mi.preparedPrev && mi.err == nil {
+		if !mi.it.HasPrev() {
+			return
+		}
+		rec, err := mi.it.Prev()
+		if err != nil {
+			mi.err = err
+			return
+		}
+		if rec.GetSequenceNumber() > mi.seq {
+			continue
+		}
+		mi.prev = rec
+		mi.preparedPrev = true
+	}
+}
+
+// HasPrev implements Iterator[Record].
+func (mi *memtableIRange) HasPrev() bool {
+	mi.preparePrev()
+	return mi.preparedPrev
+}
+
+// Prev implements Iterator[Record].
+func (mi *memtableIRange) Prev() (Record, error) {
+	if !mi.HasPrev() {
+		var empty Record
+		if mi.err != nil {
+			return empty, mi.err
+		}
+		return empty, EOI
+	}
+	mi.preparedPrev = false
+	mi.preparedNext = false
+	return mi.prev, nil
 }
 
 // Cleanup removes records with sequence numbers less than minSeq.

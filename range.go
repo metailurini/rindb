@@ -61,6 +61,17 @@ func (r *RangeIterator) Next() (Record, error) {
 	return r.next, nil
 }
 
+// HasPrev implements Iterator[Record].
+func (r *RangeIterator) HasPrev() bool {
+	return false
+}
+
+// Prev implements Iterator[Record].
+func (r *RangeIterator) Prev() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
 // Close releases any resources held by the iterator.
 func (r *RangeIterator) Close() error {
 	return r.mi.Close()
