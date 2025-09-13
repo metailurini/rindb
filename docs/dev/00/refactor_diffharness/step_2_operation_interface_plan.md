@@ -26,7 +26,9 @@ type Operation interface {
 
 type PutOp struct{ K, V []byte }
 func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
-    log.Log(Op{Kind: OpPut, K: p.K, V: p.V}, h.Seq, Phase("Begin"))
+    if err := log.Log(Op{Kind: OpPut, K: p.K, V: p.V}, h.Seq, Phase("Begin")); err != nil {
+        return false, err
+    }
     if err := h.My.Put(ctx, p.K, p.V); err != nil {
         return false, err
     }
