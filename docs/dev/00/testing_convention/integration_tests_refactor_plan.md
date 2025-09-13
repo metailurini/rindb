@@ -48,7 +48,7 @@
 4. **Add naming enforcement test**
    - Plan: Implement a test that fails when functions don't match regex `^Test[A-Za-z0-9]+_[A-Za-z0-9]+$`.
    ```go
-   var testNameRe = regexp.MustCompile(`^Test[A-Za-z0-9]+_[A-Za-z0-9]+$`)
+   var testNameRe = regexp.MustCompile(`^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+$`)
 
    func TestNamingConventions(t *testing.T) {
        for _, name := range testNamesFromPackage(t) {
