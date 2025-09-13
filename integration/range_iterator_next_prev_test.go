@@ -34,60 +34,39 @@ func TestRangeIteratorAlternatingNextPrevAcrossLevels(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, iter.Close()) })
 
-	rec, err := iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
+	assertNext := func(expectedKey string) {
+		t.Helper()
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		require.Equal(t, expectedKey, string(rec.GetKey()))
+	}
+	assertPrev := func(expectedKey string) {
+		t.Helper()
+		rec, err := iter.Prev()
+		require.NoError(t, err)
+		require.Equal(t, expectedKey, string(rec.GetKey()))
+	}
 
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "c", string(rec.GetKey()))
+	assertNext("a")
+	assertNext("c")
 
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "c", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
+	assertPrev("c")
+	assertPrev("a")
 
 	// History exceeded: cannot go back further.
 	_, err = iter.Prev()
 	require.ErrorIs(t, err, rindb.EOI)
 
 	// Rewind forward again.
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
+	assertNext("a")
+	assertNext("c")
+	assertNext("d")
 
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "c", string(rec.GetKey()))
+	assertPrev("d")
+	assertNext("d")
+	assertNext("e")
 
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "d", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "d", string(rec.GetKey()))
-
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "d", string(rec.GetKey()))
-
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "e", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "e", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "d", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "c", string(rec.GetKey()))
+	assertPrev("e")
+	assertPrev("d")
+	assertPrev("c")
 }
