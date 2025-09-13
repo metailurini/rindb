@@ -44,7 +44,7 @@ func (h *Harness) Step(ctx context.Context, op Operation) error {
     if committed {
         h.Seq++
         if h.hooks.Telemetry != nil {
-            h.hooks.Telemetry(h.Seq, 1)
+            h.hooks.Telemetry(h.Seq, h.ops)
         }
     }
     if h.hooks.Crash != nil {
