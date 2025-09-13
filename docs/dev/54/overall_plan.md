@@ -12,7 +12,7 @@ Complexity is rated from **1** (trivial) to **10** (major cross-cutting change).
    }
    ```
 
-2. **Make SkipList/Memtable iterators bidirectional** *(Complexity: 5/10)*
+2. **Make SkipList/Memtable iterators bidirectional** *(Complexity: 5/10 — requires dedicated plan file)*
    ```go
    type SLNode[K Comparable,V any] struct {
        Key   K
@@ -58,7 +58,7 @@ Complexity is rated from **1** (trivial) to **10** (major cross-cutting change).
        return rec, err
    }
    ```
-   Apply the same technique to `sstableIRange`, storing only offsets already visited—no boolean flags or full-table buffering.
+   Seed the offset stack with the file start and bound its length (e.g., 64K entries) to limit memory growth. Apply the same technique to `sstableIRange`, storing only offsets already visited—no boolean flags or full-table buffering.
 
 4. **Redesign MergingIterator & RangeIterator for two-way traversal** *(Complexity: 9/10 — requires dedicated plan file)*
    ```go
@@ -85,7 +85,7 @@ Complexity is rated from **1** (trivial) to **10** (major cross-cutting change).
        return m.cur.rec, m.err
    }
    ```
-   `RangeIterator` simply forwards `HasPrev`/`Prev` to the merging iterator while continuing to filter tombstones and duplicates.
+   `RangeIterator` simply forwards `HasPrev`/`Prev` to the merging iterator while continuing to filter tombstones and duplicates. Both heaps drop exhausted sources and reapply tombstone filtering and sequence-number suppression when rewinding.
 
 5. **Update public APIs & tests** *(Complexity: 4/10)*
    ```go
@@ -100,9 +100,10 @@ Complexity is rated from **1** (trivial) to **10** (major cross-cutting change).
        }
    }
    ```
-   Revise `Rindb.IRange`, `Memtable.Iterator`, and related tests to exercise forward and backward scans.
+   Revise `Rindb.IRange`, `Memtable.Iterator`, and related tests to exercise forward and backward scans, including calls to `Prev` before `Next`, alternating directions, and empty iterators.
 
 Dedicated plan files:
 
+- Step 2: [skiplist_backward_links_plan.md](./skiplist_backward_links_plan.md)
 - Step 3: [sstable_iterator_plan.md](./sstable_iterator_plan.md)
 - Step 4: [merging_range_iterators_plan.md](./merging_range_iterators_plan.md)
