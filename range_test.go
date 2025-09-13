@@ -79,6 +79,51 @@ func TestRangeIterator(t *testing.T) {
 	}
 }
 
+func TestRangeIteratorReverse(t *testing.T) {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
+	type iterSpec struct {
+		records []Record
+		failIdx int
+	}
+	type exp struct {
+		k, v string
+	}
+	iters := []iterSpec{
+		{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
+		{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
+		{records: []Record{rec("c", "vc", 1, TypeValue)}, failIdx: -1},
+	}
+	var iterators []Iterator[Record]
+	for _, spec := range iters {
+		iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
+	}
+	mi, err := NewMergingIterator(iterators, nil)
+	assert.NoError(t, err)
+	iter := NewRangeIterator(mi)
+
+	var forward []exp
+	for iter.HasNext() {
+		r, err := iter.Next()
+		assert.NoError(t, err)
+		forward = append(forward, exp{string(r.GetKey()), string(r.GetValue())})
+	}
+	assert.Equal(t, []exp{{"a", "va"}, {"b", "vb"}, {"c", "vc"}}, forward)
+
+	var backward []exp
+	for iter.HasPrev() {
+		r, err := iter.Prev()
+		assert.NoError(t, err)
+		backward = append(backward, exp{string(r.GetKey()), string(r.GetValue())})
+	}
+	assert.Equal(t, []exp{{"b", "vb"}, {"a", "va"}}, backward)
+}
+
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	cfg := testConfig()
 	ctx := context.Background()
@@ -134,12 +179,12 @@ func TestRangeIteratorPrepare(t *testing.T) {
 		assert.NoError(t, err)
 
 		iter := NewRangeIterator(mi)
-		iter.prepare()
+		iter.prepareNext()
 		_, err = iter.Next()
 		assert.NoError(t, err)
 
-		iter.prepare()
-		assert.True(t, iter.prepared)
+		iter.prepareNext()
+		assert.True(t, iter.nextPrepared)
 		assert.Equal(t, "b", string(iter.next.GetKey()))
 		assert.Equal(t, "vb", string(iter.next.GetValue()))
 	})
@@ -156,15 +201,15 @@ func TestRangeIteratorPrepare(t *testing.T) {
 		assert.NoError(t, err)
 
 		iter := NewRangeIterator(mi)
-		iter.prepare()
+		iter.prepareNext()
 		_, err = iter.Next()
 		assert.NoError(t, err)
 
-		iter.prepare()
+		iter.prepareNext()
 		assert.EqualError(t, iter.err, "boom")
 
-		iter.prepared = false
-		iter.prepare()
-		assert.False(t, iter.prepared)
+		iter.nextPrepared = false
+		iter.prepareNext()
+		assert.False(t, iter.nextPrepared)
 	})
 }
