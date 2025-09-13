@@ -65,13 +65,11 @@ func TestIRangeAlternatingAcrossMemtableAndSSTable(t *testing.T) {
 	_, err = iter.Next()
 	require.ErrorIs(t, err, rindb.EOI)
 
-	rec, err := iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "f", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "e", string(rec.GetKey()))
+	for _, want := range []string{"f", "e"} {
+		rec, err := iter.Prev()
+		require.NoError(t, err)
+		require.Equal(t, want, string(rec.GetKey()))
+	}
 }
 
 func TestIRangeExhaustsSources(t *testing.T) {
@@ -92,50 +90,21 @@ func TestIRangeExhaustsSources(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, iter.Close()) })
 
-	// Exhaust the memtable first.
-	rec, err := iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
-
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "b", string(rec.GetKey()))
-
-	// Now iterate over SSTable records after the memtable is exhausted.
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "c", string(rec.GetKey()))
-
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "d", string(rec.GetKey()))
-
-	rec, err = iter.Next()
-	require.NoError(t, err)
-	require.Equal(t, "e", string(rec.GetKey()))
+	// Exhaust the memtable first, then iterate over SSTable records.
+	for _, want := range []string{"a", "b", "c", "d", "e"} {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		require.Equal(t, want, string(rec.GetKey()))
+	}
 
 	_, err = iter.Next()
 	require.ErrorIs(t, err, rindb.EOI)
 
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "e", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "d", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "c", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "b", string(rec.GetKey()))
-
-	rec, err = iter.Prev()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
+	for _, want := range []string{"e", "d", "c", "b", "a"} {
+		rec, err := iter.Prev()
+		require.NoError(t, err)
+		require.Equal(t, want, string(rec.GetKey()))
+	}
 
 	_, err = iter.Prev()
 	require.ErrorIs(t, err, rindb.EOI)
