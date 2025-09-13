@@ -3,7 +3,7 @@
 This document expands step 3 of the reverse range scanning plan and outlines how to walk an SSTable in both directions without materializing all records.
 
 1. Seed the offset stack with the file's starting offset so `HasPrev` is false before the first `Next`.
-2. Push the offset of each returned record onto the stack. `Prev` pops the stack and seeks to that offset.
+2. Push the offset of each returned record onto the stack. `Prev` pops the current record's offset and seeks to the new top-of-stack to reread the previous record.
 3. Bound the stack by a configurable `maxOffs`. When the length exceeds `maxOffs`, drop the oldest entry; attempting to `Prev` past this point will return `EOI`.
 4. When the iterator reaches a new block, preload its footer and remember the previous block's starting offset to allow rewinding.
 5. Extend `sstableIterator` and `sstableIRange` to share the stack and expose `HasPrev`/`Prev` while staying compatible with the table cache.

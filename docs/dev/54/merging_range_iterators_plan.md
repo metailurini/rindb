@@ -3,7 +3,7 @@
 This document expands step 4 of the reverse range scanning plan, detailing how multiple iterators can be merged while supporting backward traversal.
 
 1. Seed both heaps with the first record from every source iterator. `fwd` is a min-heap by key/seq; `rev` is a max-heap containing the same `pqItem` pointers.
-2. `Next` pops from `fwd`, pushes the item onto `rev`, and advances the underlying iterator; `Prev` removes the current item from `rev`, rewinds its source, and returns the new top of `rev`.
+2. `Next` pops from `fwd`, pushes the item onto `rev`, and advances the underlying iterator; `Prev` removes the current item from `rev`, rewinds its source, and returns the new top of `rev`, or `EOI` if the heap becomes empty.
 3. Tombstones and sequence-number de-duplication occur in both directions before items are pushed onto either heap.
 4. Remove exhausted sources from both heaps to keep `HasPrev`/`HasNext` accurate.
 
@@ -29,6 +29,9 @@ func (m *MergingIterator) Prev() (Record, error) {
     if prev := rewind(cur.src); prev != nil {
         heap.Push(&m.fwd, prev)
         heap.Push(&m.rev, prev)
+    }
+    if m.rev.Len() == 0 {
+        return Record{}, io.EOF
     }
     m.cur = m.rev.Peek().(pqItem)
     return m.cur.rec, nil
