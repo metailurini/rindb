@@ -14,10 +14,13 @@ type sstableIterator struct {
 }
 
 func (it *sstableIterator) Next() (*Record, error) {
-    off, _ := it.r.Seek(0, io.SeekCurrent)
+    off, err := it.r.Seek(0, io.SeekCurrent)
+    if err != nil { return nil, err }
     it.offs = append(it.offs, off)
-    it.rec = readRecord(it.r)
-    return it.rec, nil
+    rec, err := readRecord(it.r)
+    if err != nil { return nil, err }
+    it.rec = rec
+    return rec, nil
 }
 
 func (it *sstableIterator) HasPrev() bool { return len(it.offs) > 1 }
@@ -25,9 +28,11 @@ func (it *sstableIterator) HasPrev() bool { return len(it.offs) > 1 }
 func (it *sstableIterator) Prev() (*Record, error) {
     last := it.offs[len(it.offs)-2]
     it.offs = it.offs[:len(it.offs)-1]
-    it.r.Seek(last, io.SeekStart)
-    it.rec = readRecord(it.r)
-    return it.rec, nil
+    if _, err := it.r.Seek(last, io.SeekStart); err != nil { return nil, err }
+    rec, err := readRecord(it.r)
+    if err != nil { return nil, err }
+    it.rec = rec
+    return rec, nil
 }
 ```
 
