@@ -131,10 +131,7 @@ func (s *sstableIterator) Prev() (Record, error) {
 	if !s.HasPrev() {
 		return nil, EOI
 	}
-	prev, ok := s.offs.pop()
-	if !ok {
-		return nil, EOI
-	}
+	prev, _ := s.offs.pop()
 	reader := newOffsetReader(s.FileSystem, prev)
 	record, err := readRecord(reader)
 	if err != nil {
@@ -219,11 +216,7 @@ func (sri *sstableIRange) Prev() (Record, error) {
 		var empty Record
 		return empty, EOI
 	}
-	prev, ok := sri.offs.pop()
-	if !ok {
-		var empty Record
-		return empty, EOI
-	}
+	prev, _ := sri.offs.pop()
 	reader := newOffsetReader(sri.s.FileSystem, prev)
 	rec, err := readRecord(reader)
 	if err != nil {
