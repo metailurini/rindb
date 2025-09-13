@@ -59,7 +59,8 @@ func opFrom(o Op) Operation {
     case OpDel:
         return DelOp{K: o.K}
     // case OpGet, OpRange, OpSnap ...
+    default:
+        panic(fmt.Sprintf("unhandled op kind: %v", o.Kind))
     }
-    return nil
 }
 ```
