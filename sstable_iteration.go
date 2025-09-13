@@ -7,6 +7,8 @@ import (
 	"sort"
 )
 
+const maxSSTableIteratorOffsets = 1 << 16
+
 var _ Iterator[Record] = (*sstableIterator)(nil)
 
 func (s SStable) Iterator() (Iterator[Record], error) {
@@ -21,6 +23,7 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 		maxIdx:     len(s.SparseIndex),
 		FileSystem: s.FileSystem,
 		offset:     0,
+		offsets:    []int64{0},
 	}, nil
 }
 
@@ -53,7 +56,7 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	}
 	dataEnd := int64(byteOrder.Uint64(buf))
 
-	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd}, nil
+	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd, offs: []int64{startOffset}}, nil
 }
 
 type sstableIterator struct {
@@ -61,6 +64,7 @@ type sstableIterator struct {
 	currentIdx int
 	maxIdx     int
 	offset     int64
+	offsets    []int64
 }
 
 // HasNext implements Iterator.
@@ -71,6 +75,10 @@ func (s *sstableIterator) HasNext() bool {
 // Next implements Iterator.
 func (s *sstableIterator) Next() (Record, error) {
 	if s.HasNext() {
+		s.offsets = append(s.offsets, s.offset)
+		if len(s.offsets) > maxSSTableIteratorOffsets {
+			s.offsets = s.offsets[1:]
+		}
 		reader := newOffsetReader(s.FileSystem, s.offset)
 		record, err := readRecord(reader)
 		if err != nil {
@@ -85,12 +93,26 @@ func (s *sstableIterator) Next() (Record, error) {
 
 // HasPrev implements Iterator.
 func (s *sstableIterator) HasPrev() bool {
-	return false
+	return len(s.offsets) > 1
 }
 
 // Prev implements Iterator.
 func (s *sstableIterator) Prev() (Record, error) {
-	return nil, EOI
+	if !s.HasPrev() {
+		return nil, EOI
+	}
+	prev := s.offsets[len(s.offsets)-1]
+	s.offsets = s.offsets[:len(s.offsets)-1]
+	reader := newOffsetReader(s.FileSystem, prev)
+	record, err := readRecord(reader)
+	if err != nil {
+		return nil, err
+	}
+	if s.currentIdx > 0 {
+		s.currentIdx--
+	}
+	s.offset = prev
+	return record, nil
 }
 
 // sstableIRange iterates over a range of keys in an SSTable.
@@ -104,6 +126,7 @@ type sstableIRange struct {
 	next     Record
 	err      error
 	prepared bool
+	offs     []int64
 }
 
 func (sri *sstableIRange) prepare() {
@@ -112,7 +135,8 @@ func (sri *sstableIRange) prepare() {
 			sri.err = EOI
 			return
 		}
-		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
+		cur := sri.offset
+		reader := newOffsetReader(sri.s.FileSystem, cur)
 		rec, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -132,6 +156,10 @@ func (sri *sstableIRange) prepare() {
 		}
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
+		}
+		sri.offs = append(sri.offs, cur)
+		if len(sri.offs) > maxSSTableIteratorOffsets {
+			sri.offs = sri.offs[1:]
 		}
 		sri.next = rec
 		sri.prepared = true
@@ -156,11 +184,24 @@ func (sri *sstableIRange) Next() (Record, error) {
 
 // HasPrev implements Iterator.
 func (sri *sstableIRange) HasPrev() bool {
-	return false
+	return len(sri.offs) > 1
 }
 
 // Prev implements Iterator.
 func (sri *sstableIRange) Prev() (Record, error) {
-	var empty Record
-	return empty, EOI
+	if !sri.HasPrev() {
+		var empty Record
+		return empty, EOI
+	}
+	prev := sri.offs[len(sri.offs)-1]
+	sri.offs = sri.offs[:len(sri.offs)-1]
+	reader := newOffsetReader(sri.s.FileSystem, prev)
+	rec, err := readRecord(reader)
+	if err != nil {
+		return nil, err
+	}
+	sri.offset = prev
+	sri.prepared = false
+	sri.err = nil
+	return rec, nil
 }
