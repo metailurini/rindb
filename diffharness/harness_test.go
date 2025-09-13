@@ -3,6 +3,7 @@ package diffharness
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,17 +36,19 @@ func TestHarnessLogsAndSnapshots(t *testing.T) {
 	data, err := os.ReadFile(logPath)
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	require.Len(t, lines, 2)
+	require.Len(t, lines, 8)
 
 	var first struct {
-		I   int    `json:"i"`
-		Seq uint64 `json:"seq"`
-		Op  Op     `json:"op"`
+		I     int    `json:"i"`
+		Seq   uint64 `json:"seq"`
+		Op    Op     `json:"op"`
+		Phase Phase  `json:"phase"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &first))
 	require.Equal(t, 0, first.I)
 	require.Equal(t, uint64(0), first.Seq)
 	require.Equal(t, OpPut, first.Op.Kind)
+	require.Equal(t, PhasePrepared, first.Phase)
 }
 
 // sqliteEngine adapts SQLiteOracle to the Engine interface for testing.
@@ -79,6 +82,10 @@ func (e *sqliteEngine) ReleaseSnapshot(ctx context.Context, seq uint64) error {
 }
 
 func (e *sqliteEngine) Close() error { return e.o.Close() }
+
+func (e *sqliteEngine) Begin(ctx context.Context) error    { return e.o.Begin(ctx) }
+func (e *sqliteEngine) Commit(ctx context.Context) error   { return e.o.Commit(ctx) }
+func (e *sqliteEngine) Rollback(ctx context.Context) error { return e.o.Rollback(ctx) }
 
 func TestHistoricalReads(t *testing.T) {
 	dir := t.TempDir()
@@ -247,56 +254,54 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	require.Greater(t, telem, 0)
 }
 
-func TestReplayReproducesState(t *testing.T) {
+func TestReplayRecoversAfterCrash(t *testing.T) {
 	dir := t.TempDir()
-	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	ctx := context.Background()
+	refPath := filepath.Join(dir, "ref.db")
+	ref, err := OpenSQLiteOracle(refPath)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = ref.Close() })
-
-	myOracle, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	dbDir := filepath.Join(dir, "db")
+	db, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir))
 	require.NoError(t, err)
-	eng := &sqliteEngine{o: myOracle}
-
+	eng := NewRinDBEngine(db)
 	logPath := filepath.Join(dir, "log.jsonl")
 	h, err := NewHarness(eng, ref, 1, logPath)
 	require.NoError(t, err)
-	eng.seq = &h.Seq
-	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+	h.Snapshots = append(h.Snapshots, h.Seq)
 
-	cfg := Cfg{
-		KeyLen:    10,
-		ValLenMax: 100,
-		RangeMax:  100,
-		Weights: map[OpKind]int{
-			OpPut:   1,
-			OpDel:   1,
-			OpGet:   1,
-			OpRange: 1,
-			OpSnap:  1,
-		},
-	}
-	ctx := context.Background()
-	require.NoError(t, h.Run(ctx, cfg, 30))
-	finalSeq := h.Seq
-	lo := []byte{0x00, 0x00}
-	hi := []byte{0xff, 0xff}
-	exp, err := ref.RangeWithSeq(lo, hi, finalSeq, 1000)
-	require.NoError(t, err)
+	calls := 0
+	h.SetCrashHook(func() error {
+		calls++
+		if calls == 2 {
+			_ = eng.Close()
+			_ = ref.Close()
+			return fmt.Errorf("crash")
+		}
+		return nil
+	})
 
-	// Replay
-	ref2, err := OpenSQLiteOracle(filepath.Join(dir, "ref2.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ref2.Close() })
-	dbDir2 := filepath.Join(dir, "db2")
-	db2, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir2))
+	err = h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v")})
+	require.Error(t, err)
+	require.Equal(t, 2, calls)
+	_ = h.Close()
+
+	db2, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir))
 	require.NoError(t, err)
 	eng2 := NewRinDBEngine(db2)
-	t.Cleanup(func() { _ = eng2.Close() })
-	seq2, err := Replay(ctx, eng2, ref2, logPath)
+	ref2, err := OpenSQLiteOracle(refPath)
 	require.NoError(t, err)
-	got, err := ref2.RangeWithSeq(lo, hi, seq2, 1000)
+
+	seq, err := Replay(ctx, eng2, ref2, logPath)
 	require.NoError(t, err)
-	require.Equal(t, exp, got)
+
+	mv, mok, err := eng2.Get(ctx, []byte("k"), seq)
+	require.NoError(t, err)
+	rv, rok, err := ref2.GetWithSeq([]byte("k"), seq)
+	require.NoError(t, err)
+	require.Equal(t, mok, rok)
+	if mok {
+		require.Equal(t, mv, rv)
+	}
 }
 
 func TestHarnessCloseWithoutSnapshots(t *testing.T) {
