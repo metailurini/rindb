@@ -128,6 +128,82 @@ func TestRangeIteratorReverse(t *testing.T) {
 	assert.Equal(t, []exp{{"c", "vc"}, {"b", "vb"}, {"a", "va"}}, backward)
 }
 
+func TestRangeIteratorPrevBeforeNext(t *testing.T) {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
+
+	it := &errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1}
+	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+	assert.NoError(t, err)
+
+	iter := NewRangeIterator(mi)
+	_, err = iter.Prev()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
+
+	iters := []Iterator[Record]{
+		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{rec("c", "vc", 1, TypeValue)}, failIdx: -1},
+	}
+	mi, err := NewMergingIterator(iters, nil)
+	assert.NoError(t, err)
+	iter := NewRangeIterator(mi)
+
+	type exp struct{ k, v string }
+	ops := []struct {
+		next bool
+		want exp
+	}{
+		{true, exp{"a", "va"}},
+		{true, exp{"b", "vb"}},
+		{false, exp{"b", "vb"}},
+		{true, exp{"b", "vb"}},
+		{true, exp{"c", "vc"}},
+		{false, exp{"c", "vc"}},
+		{false, exp{"b", "vb"}},
+	}
+
+	for i, op := range ops {
+		var r Record
+		if op.next {
+			r, err = iter.Next()
+		} else {
+			r, err = iter.Prev()
+		}
+		assert.NoError(t, err, "step %d", i)
+		assert.Equal(t, op.want.k, string(r.GetKey()), "step %d", i)
+		assert.Equal(t, op.want.v, string(r.GetValue()), "step %d", i)
+	}
+}
+
+func TestRangeIteratorEmpty(t *testing.T) {
+	mi, err := NewMergingIterator([]Iterator[Record]{}, nil)
+	assert.NoError(t, err)
+
+	iter := NewRangeIterator(mi)
+	assert.False(t, iter.HasNext())
+	assert.False(t, iter.HasPrev())
+	_, err = iter.Next()
+	assert.ErrorIs(t, err, EOI)
+	_, err = iter.Prev()
+	assert.ErrorIs(t, err, EOI)
+}
+
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	cfg := testConfig()
 	ctx := context.Background()
