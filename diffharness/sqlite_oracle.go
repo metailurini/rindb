@@ -77,12 +77,12 @@ func (o *SQLiteOracle) exec(query string, args ...any) error {
 
 // PutWithSeq inserts or replaces a value at the given sequence number.
 func (o *SQLiteOracle) PutWithSeq(k, v []byte, seq uint64) error {
-	return o.exec(`INSERT INTO kv (k, seq, v, del) VALUES (?, ?, ?, 0)`, k, seq, v)
+	return o.exec(`INSERT OR IGNORE INTO kv (k, seq, v, del) VALUES (?, ?, ?, 0)`, k, seq, v)
 }
 
 // DelWithSeq records a tombstone for the key at the provided sequence number.
 func (o *SQLiteOracle) DelWithSeq(k []byte, seq uint64) error {
-	return o.exec(`INSERT INTO kv (k, seq, v, del) VALUES (?, ?, NULL, 1)`, k, seq)
+	return o.exec(`INSERT OR IGNORE INTO kv (k, seq, v, del) VALUES (?, ?, NULL, 1)`, k, seq)
 }
 
 // GetWithSeq retrieves the latest value for k at or before the snapshot
