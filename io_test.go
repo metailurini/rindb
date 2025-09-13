@@ -225,3 +225,18 @@ func BenchmarkReadRecord(b *testing.B) {
 		}
 	}
 }
+
+func TestReadRecordMetaSkipError(t *testing.T) {
+	ikey := EncodeInternalKey(Bytes("k"), 1, TypeValue)
+	var buf bytes.Buffer
+	writeNumberBuf(&buf, uint64(len(ikey)))
+	writeNumberBuf(&buf, 1)
+	buf.Write(ikey)
+
+	fss, closer := initTempFileSystems(t, 1, [][]byte{buf.Bytes()})
+	defer closer()
+	reader := newOffsetReader(fss[0], 0)
+	_, _, _, _, _, err := readRecordMeta(reader)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "failed to skip value and checksum")
+}

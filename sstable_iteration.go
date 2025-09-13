@@ -267,15 +267,13 @@ func (srr *sstableIRangeRev) prepare() {
 			continue
 		}
 		srr.blockIdx--
-		if srr.blockIdx < 0 {
-			srr.err = EOI
-			return
-		}
-		srr.blockStart = srr.s.SparseIndex[srr.blockIdx].offset
-		if srr.blockIdx+1 < len(srr.s.SparseIndex) {
-			srr.scanEnd = srr.s.SparseIndex[srr.blockIdx+1].offset
-		} else {
-			srr.scanEnd = srr.dataEnd
+		if srr.blockIdx >= 0 {
+			srr.blockStart = srr.s.SparseIndex[srr.blockIdx].offset
+			if srr.blockIdx+1 < len(srr.s.SparseIndex) {
+				srr.scanEnd = srr.s.SparseIndex[srr.blockIdx+1].offset
+			} else {
+				srr.scanEnd = srr.dataEnd
+			}
 		}
 	}
 }

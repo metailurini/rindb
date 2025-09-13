@@ -434,6 +434,16 @@ func TestSSTableIRangeReverseForward(t *testing.T) {
 	assert.ErrorIs(t, err, EOI)
 }
 
+func TestSSTableIRangeReverseRangeError(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	sst := SStable{FileSystem: fs}
+	_, err := sst.IRangeReverse(Bytes("a"), Bytes("b"))
+	require.Error(t, err)
+}
+
 // TestSStable_GetValueSparseIndexFallback ensures GetValue can retrieve keys
 // when they are absent from the sparse index by scanning from the nearest
 // preceding entry.
