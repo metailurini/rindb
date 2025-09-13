@@ -59,7 +59,7 @@ func TestRangeIterator(t *testing.T) {
 			}
 			mi, err := NewMergingIterator(iterators, false, nil)
 			assert.NoError(t, err)
-			iter := NewRangeIterator(mi, false)
+			iter := NewRangeIterator(mi)
 
 			var got []exp
 			for iter.HasNext() {
@@ -133,7 +133,7 @@ func TestRangeIteratorPrepare(t *testing.T) {
 		mi, err := NewMergingIterator([]BiIterator[Record]{it}, false, nil)
 		assert.NoError(t, err)
 
-		iter := NewRangeIterator(mi, false)
+		iter := NewRangeIterator(mi)
 		iter.prepare()
 		_, err = iter.Next()
 		assert.NoError(t, err)
@@ -155,7 +155,7 @@ func TestRangeIteratorPrepare(t *testing.T) {
 		mi, err := NewMergingIterator([]BiIterator[Record]{it}, false, nil)
 		assert.NoError(t, err)
 
-		iter := NewRangeIterator(mi, false)
+		iter := NewRangeIterator(mi)
 		iter.prepare()
 		_, err = iter.Next()
 		assert.NoError(t, err)

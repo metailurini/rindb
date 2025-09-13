@@ -42,7 +42,7 @@ func NewMergingIterator(iterators []BiIterator[Record], reverse bool, cleanup fu
    - Provide `IRangeReverse` which positions iterators at the end key and walks backwards.
 ```go
 // Memtable
-func (m *memtable) IRangeReverse(start, end Bytes, seq uint64) Iterator[Record] {
+func (m *memtable) IRangeReverse(start, end Bytes, seq uint64) BiIterator[Record] {
     startKey := InternalKey{UserKey: start, Seq: 0, Type: TypeMerge}
     endKey   := InternalKey{UserKey: end,   Seq: math.MaxUint64, Type: TypeValue}
     it := m.data.IRangeReverse(endKey, startKey)
@@ -50,7 +50,7 @@ func (m *memtable) IRangeReverse(start, end Bytes, seq uint64) Iterator[Record] 
 }
 
 // SSTable
-func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
+func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (BiIterator[Record], error) {
     // locate initial block using sparse index then seek backwards
     idx := sort.Search(len(s.SparseIndex), func(i int) bool { return s.SparseIndex[i].key.Compare(end) > 0 })
     offset := s.SparseIndex[idx-1].offset
@@ -58,14 +58,14 @@ func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (Iterator[Record
 }
 ```
 4. **Expose descending scans in public APIs**
-   - Add `IRangeReverse` to `Rindb` and `Snapshot`; `RangeIterator` becomes direction-aware.
+   - Add `IRangeReverse` to `Rindb` and `Snapshot`; reuse `RangeIterator` for both directions.
 ```go
 func (r *Rindb) IRangeReverse(ctx context.Context, start, end Bytes, seq ...uint64) (*RangeIterator, error) {
     iterators := []BiIterator[Record]{r.Memtable.IRangeReverse(start, end, maxSeq)}
     // gather SSTables...
     mi, err := NewMergingIterator(iterators, true, cleanup)
     if err != nil { return nil, err }
-    return NewRangeIterator(mi, true), nil
+    return NewRangeIterator(mi), nil
 }
 ```
 5. **Add comprehensive tests**

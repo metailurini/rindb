@@ -291,7 +291,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 		return nil, err
 	}
 
-	return NewRangeIterator(mergeIter, false), nil
+	return NewRangeIterator(mergeIter), nil
 }
 
 // IRangeReverse returns an iterator over records with keys in [start, end]
@@ -349,7 +349,7 @@ func (r *Rindb) IRangeReverse(ctx context.Context, start, end Bytes, seq ...uint
 		return nil, err
 	}
 
-	return NewRangeIterator(mergeIter, true), nil
+	return NewRangeIterator(mergeIter), nil
 }
 
 // Put inserts or updates a key-value pair in the database.

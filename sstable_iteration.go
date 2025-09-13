@@ -59,22 +59,32 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 // IRangeReverse returns an iterator over records in [start, end] in descending
 // key order.
 func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (BiIterator[Record], error) {
-	it, err := s.IRange(start, end, seq...)
+	maxSeq := getMaxSeq(seq...)
+	if !s.IsOpened() {
+		if err := s.Open(context.Background()); err != nil {
+			return nil, err
+		}
+	}
+	idx := sort.Search(len(s.SparseIndex), func(i int) bool {
+		return s.SparseIndex[i].key.Compare(end) > 0
+	})
+	var offset int64
+	if idx > 0 {
+		idx--
+		offset = s.SparseIndex[idx].offset
+	}
+
+	tailOffset, err := getSSTableTailOffset(s.FileSystem)
 	if err != nil {
 		return nil, err
 	}
-	var records []Record
-	for it.HasNext() {
-		rec, err := it.Next()
-		if err != nil {
-			if errors.Is(err, EOI) {
-				break
-			}
-			return nil, err
-		}
-		records = append(records, rec)
+	buf := make([]byte, mdByteSize)
+	if _, err := s.FileSystem.ReadAt(buf, tailOffset); err != nil {
+		return nil, err
 	}
-	return newSliceBiIterator(records), nil
+	dataEnd := int64(byteOrder.Uint64(buf))
+
+	return &sstableIRangeRev{s: &s, startKey: start, endKey: end, seq: maxSeq, blockIdx: idx, offset: offset, dataEnd: dataEnd, pos: -1}, nil
 }
 
 type sstableIterator struct {
@@ -163,4 +173,90 @@ func (sri *sstableIRange) Next() (Record, error) {
 	}
 	sri.prepared = false
 	return sri.next, nil
+}
+
+// sstableIRangeRev iterates over a range of keys in reverse order.
+type sstableIRangeRev struct {
+	s        *SStable
+	startKey Bytes
+	endKey   Bytes
+	seq      uint64
+	blockIdx int
+	offset   int64
+	dataEnd  int64
+	buf      []Record
+	pos      int
+	err      error
+}
+
+func (srr *sstableIRangeRev) fillBuf() {
+	if srr.blockIdx < 0 {
+		srr.err = EOI
+		return
+	}
+	var nextOffset int64
+	if srr.blockIdx+1 < len(srr.s.SparseIndex) {
+		nextOffset = srr.s.SparseIndex[srr.blockIdx+1].offset
+	} else {
+		nextOffset = srr.dataEnd
+	}
+	reader := newOffsetReader(srr.s.FileSystem, srr.offset)
+	srr.buf = srr.buf[:0]
+	for reader.Offset() < nextOffset {
+		rec, err := readRecord(reader)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			srr.err = err
+			return
+		}
+		if rec.GetKey().Compare(srr.startKey) < 0 {
+			continue
+		}
+		if rec.GetKey().Compare(srr.endKey) > 0 {
+			continue
+		}
+		if rec.GetSequenceNumber() > srr.seq {
+			continue
+		}
+		srr.buf = append(srr.buf, rec)
+	}
+	srr.pos = len(srr.buf) - 1
+	srr.blockIdx--
+	if srr.blockIdx >= 0 {
+		srr.offset = srr.s.SparseIndex[srr.blockIdx].offset
+	}
+}
+
+func (srr *sstableIRangeRev) prepare() {
+	for srr.pos < 0 && srr.err == nil {
+		srr.fillBuf()
+	}
+}
+
+// HasNext implements Iterator but always returns false for reverse iterator.
+func (srr *sstableIRangeRev) HasNext() bool { return false }
+
+// Next implements Iterator and always returns EOI.
+func (srr *sstableIRangeRev) Next() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
+// HasPrev implements BiIterator.
+func (srr *sstableIRangeRev) HasPrev() bool {
+	srr.prepare()
+	return srr.pos >= 0
+}
+
+// Prev implements BiIterator.
+func (srr *sstableIRangeRev) Prev() (Record, error) {
+	if !srr.HasPrev() {
+		var empty Record
+		return empty, srr.err
+	}
+	rec := srr.buf[srr.pos]
+	srr.pos--
+	return rec, nil
 }

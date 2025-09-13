@@ -26,9 +26,6 @@ func NewMergingIterator(iterators []BiIterator[Record], reverse bool, cleanup fu
 	less := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
-			if reverse {
-				return a.rec.GetSequenceNumber() < b.rec.GetSequenceNumber()
-			}
 			return a.rec.GetSequenceNumber() > b.rec.GetSequenceNumber()
 		}
 		if reverse {
