@@ -1,7 +1,5 @@
 package rindb
 
-import "errors"
-
 type pqItem struct {
 	rec  Record
 	iter BiIterator[Record]
@@ -52,13 +50,10 @@ func NewMergingIterator(iterators []BiIterator[Record], reverse bool, cleanup fu
 			rec, err = it.Next()
 		}
 		if err != nil {
-			if !errors.Is(err, EOI) {
-				if cleanup != nil {
-					cleanup()
-				}
-				return nil, err
+			if cleanup != nil {
+				cleanup()
 			}
-			continue
+			return nil, err
 		}
 		pq.PushItem(pqItem{rec: rec, iter: it})
 	}
@@ -93,9 +88,7 @@ func (m *MergingIterator) prepare() {
 		}
 	}
 	if err != nil {
-		if !errors.Is(err, EOI) {
-			m.err = err
-		}
+		m.err = err
 	} else {
 		m.pq.PushItem(pqItem{rec: rec, iter: item.iter})
 	}

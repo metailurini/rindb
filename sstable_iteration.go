@@ -68,10 +68,10 @@ func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (BiIterator[Reco
 	idx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(end) > 0
 	})
-	var offset int64
-	if idx > 0 {
-		idx--
-		offset = s.SparseIndex[idx].offset
+	blockIdx := idx - 1
+	var blockStart int64
+	if blockIdx >= 0 {
+		blockStart = s.SparseIndex[blockIdx].offset
 	}
 
 	tailOffset, err := getSSTableTailOffset(s.FileSystem)
@@ -84,7 +84,29 @@ func (s SStable) IRangeReverse(start, end Bytes, seq ...uint64) (BiIterator[Reco
 	}
 	dataEnd := int64(byteOrder.Uint64(buf))
 
-	return &sstableIRangeRev{s: &s, startKey: start, endKey: end, seq: maxSeq, blockIdx: idx, offset: offset, dataEnd: dataEnd, pos: -1}, nil
+	var scanEnd int64
+	if idx < len(s.SparseIndex) {
+		scanEnd = s.SparseIndex[idx].offset
+	} else {
+		scanEnd = dataEnd
+	}
+
+	fwd, err := s.IRange(start, end, maxSeq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &sstableIRangeRev{
+		s:          &s,
+		startKey:   start,
+		endKey:     end,
+		seq:        maxSeq,
+		blockIdx:   blockIdx,
+		blockStart: blockStart,
+		scanEnd:    scanEnd,
+		dataEnd:    dataEnd,
+		fwd:        fwd,
+	}, nil
 }
 
 type sstableIterator struct {
@@ -175,18 +197,21 @@ func (sri *sstableIRange) Next() (Record, error) {
 	return sri.next, nil
 }
 
-// sstableIRangeRev iterates over a range of keys in reverse order.
+// sstableIRangeRev iterates over a range of keys in reverse order while also
+// supporting forward iteration via a separate iterator.
 type sstableIRangeRev struct {
-	s        *SStable
-	startKey Bytes
-	endKey   Bytes
-	seq      uint64
-	blockIdx int
-	offset   int64
-	dataEnd  int64
-	records  []recMeta
-	pos      int
-	err      error
+	s          *SStable
+	startKey   Bytes
+	endKey     Bytes
+	seq        uint64
+	blockIdx   int
+	blockStart int64
+	scanEnd    int64
+	dataEnd    int64
+	cur        recMeta
+	curValid   bool
+	err        error
+	fwd        Iterator[Record]
 }
 
 type recMeta struct {
@@ -197,67 +222,74 @@ type recMeta struct {
 	valueLen uint64
 }
 
-func (srr *sstableIRangeRev) fillBuf() {
-	if srr.blockIdx < 0 {
-		srr.err = EOI
-		return
-	}
-	var nextOffset int64
-	if srr.blockIdx+1 < len(srr.s.SparseIndex) {
-		nextOffset = srr.s.SparseIndex[srr.blockIdx+1].offset
-	} else {
-		nextOffset = srr.dataEnd
-	}
-	reader := newOffsetReader(srr.s.FileSystem, srr.offset)
-	var metas []recMeta
-	for reader.Offset() < nextOffset {
+func (srr *sstableIRangeRev) scanBlockForPrev(start, end int64) (recMeta, int64, bool, error) {
+	reader := newOffsetReader(srr.s.FileSystem, start)
+	var last recMeta
+	lastStart := int64(-1)
+	for reader.Offset() < end {
+		recStart := reader.Offset()
 		key, seq, typ, valueOff, valueLen, err := readRecordMeta(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			srr.err = err
-			return
+			return recMeta{}, 0, false, err
 		}
 		if key.Compare(srr.endKey) > 0 {
 			break
 		}
-		metas = append(metas, recMeta{key: key, seq: seq, typ: typ, valueOff: valueOff, valueLen: valueLen})
-	}
-	left := sort.Search(len(metas), func(i int) bool { return metas[i].key.Compare(srr.startKey) >= 0 })
-	right := sort.Search(len(metas), func(i int) bool { return metas[i].key.Compare(srr.endKey) > 0 })
-	srr.records = srr.records[:0]
-	for i := left; i < right; i++ {
-		if metas[i].seq <= srr.seq {
-			srr.records = append(srr.records, metas[i])
+		if key.Compare(srr.startKey) >= 0 && seq <= srr.seq {
+			last = recMeta{key: key, seq: seq, typ: typ, valueOff: valueOff, valueLen: valueLen}
+			lastStart = recStart
 		}
 	}
-	srr.pos = len(srr.records) - 1
-	srr.blockIdx--
-	if srr.blockIdx >= 0 {
-		srr.offset = srr.s.SparseIndex[srr.blockIdx].offset
+	if lastStart == -1 {
+		return recMeta{}, 0, false, nil
 	}
+	return last, lastStart, true, nil
 }
 
 func (srr *sstableIRangeRev) prepare() {
-	for srr.pos < 0 && srr.err == nil {
-		srr.fillBuf()
+	for !srr.curValid && srr.err == nil {
+		if srr.blockIdx < 0 {
+			srr.err = EOI
+			return
+		}
+		meta, off, ok, err := srr.scanBlockForPrev(srr.blockStart, srr.scanEnd)
+		if err != nil {
+			srr.err = err
+			return
+		}
+		if ok {
+			srr.cur = meta
+			srr.curValid = true
+			srr.scanEnd = off
+			continue
+		}
+		srr.blockIdx--
+		if srr.blockIdx < 0 {
+			srr.err = EOI
+			return
+		}
+		srr.blockStart = srr.s.SparseIndex[srr.blockIdx].offset
+		if srr.blockIdx+1 < len(srr.s.SparseIndex) {
+			srr.scanEnd = srr.s.SparseIndex[srr.blockIdx+1].offset
+		} else {
+			srr.scanEnd = srr.dataEnd
+		}
 	}
 }
 
-// HasNext implements Iterator but always returns false for reverse iterator.
-func (srr *sstableIRangeRev) HasNext() bool { return false }
+// HasNext implements Iterator by delegating to the forward iterator.
+func (srr *sstableIRangeRev) HasNext() bool { return srr.fwd.HasNext() }
 
-// Next implements Iterator and always returns EOI.
-func (srr *sstableIRangeRev) Next() (Record, error) {
-	var empty Record
-	return empty, EOI
-}
+// Next implements Iterator by delegating to the forward iterator.
+func (srr *sstableIRangeRev) Next() (Record, error) { return srr.fwd.Next() }
 
 // HasPrev implements BiIterator.
 func (srr *sstableIRangeRev) HasPrev() bool {
 	srr.prepare()
-	return srr.pos >= 0
+	return srr.curValid
 }
 
 // Prev implements BiIterator.
@@ -266,8 +298,8 @@ func (srr *sstableIRangeRev) Prev() (Record, error) {
 		var empty Record
 		return empty, srr.err
 	}
-	meta := srr.records[srr.pos]
-	srr.pos--
+	meta := srr.cur
+	srr.curValid = false
 	reader := newOffsetReader(srr.s.FileSystem, meta.valueOff)
 	var value Bytes
 	if meta.valueLen > 0 {
