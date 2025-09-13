@@ -724,6 +724,30 @@ func Replay(ctx context.Context, my Engine, ref *SQLiteOracle, logPath string) (
 		return f.Sync()
 	}
 	last := entries[len(entries)-1]
+
+	// Reapply committed mutations to the reference engine in case it lost
+	// state during a crash. Inserts use OR IGNORE semantics so replays are
+	// idempotent.
+	for _, e := range entries {
+		if e.Phase != PhaseCommitted {
+			continue
+		}
+		switch e.Op.Kind {
+		case OpPut:
+			if ref != nil {
+				if err := ref.PutWithSeq(e.Op.K, e.Op.V, e.Seq+1); err != nil {
+					return 0, err
+				}
+			}
+		case OpDel:
+			if ref != nil {
+				if err := ref.DelWithSeq(e.Op.K, e.Seq+1); err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+
 	finalize := func(entry logEntry) (uint64, error) {
 		logPhase := func(p Phase) error {
 			return write(logEntry{I: entry.I, Seq: entry.Seq, Op: entry.Op, Phase: p})
@@ -734,7 +758,30 @@ func Replay(ctx context.Context, my Engine, ref *SQLiteOracle, logPath string) (
 		case OpDel:
 			return applyDel(ctx, my, ref, entry.Op, entry.Seq, entry.Phase, logPhase, nil)
 		case OpSnap:
-			return applySnap(ctx, my, ref, entry.Seq, entry.Phase, logPhase, nil)
+			seq, err := applySnap(ctx, my, ref, entry.Seq, entry.Phase, logPhase, nil)
+			if err != nil {
+				return 0, err
+			}
+			// Replay doesn't retain snapshot handles, so release any
+			// snapshots created while finalizing the log entry.
+			switch entry.Phase {
+			case PhasePrepared:
+				if err := my.ReleaseSnapshot(ctx, seq); err != nil {
+					return 0, err
+				}
+				if ref != nil {
+					if err := ref.ReleaseSnapshot(ctx, seq); err != nil {
+						return 0, err
+					}
+				}
+			case PhaseMyDone:
+				if ref != nil {
+					if err := ref.ReleaseSnapshot(ctx, seq); err != nil {
+						return 0, err
+					}
+				}
+			}
+			return seq, nil
 		default:
 			switch entry.Phase {
 			case PhasePrepared:
