@@ -46,15 +46,15 @@ func (e *errIterator) Prev() (Record, error) {
 	return e.records[e.idx], nil
 }
 
-func TestMergingIterator(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+func rec(k, v string, seq uint64, typ RecordType) Record {
+	var nv Bytes
+	if v != "" {
+		nv = Bytes(v)
 	}
+	return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+}
 
+func TestMergingIterator(t *testing.T) {
 	tests := []struct {
 		name  string
 		iters [][]Record
@@ -97,13 +97,6 @@ func TestMergingIterator(t *testing.T) {
 }
 
 func TestMergingIteratorPrev(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-	}
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue), rec("c", "vc", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -123,19 +116,12 @@ func TestMergingIteratorPrev(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, r2, back)
 
-	fwd, err := mi.Next()
+	nextRec, err := mi.Next()
 	assert.NoError(t, err)
-	assert.Equal(t, r2, fwd)
+	assert.Equal(t, r2, nextRec)
 }
 
 func TestMergingIteratorPrevBeforeNext(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-	}
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -154,13 +140,6 @@ func TestMergingIteratorPrevBeforeNext(t *testing.T) {
 }
 
 func TestMergingIteratorAlternating(t *testing.T) {
-	rec := func(k, v string, seq uint64, typ RecordType) Record {
-		var nv Bytes = nil
-		if v != "" {
-			nv = Bytes(v)
-		}
-		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-	}
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -189,9 +168,9 @@ func TestMergingIteratorAlternating(t *testing.T) {
 	assert.Equal(t, 1, mi.fwd.Len())
 	assert.Equal(t, 1, mi.rev.Len())
 
-	fwd, err := mi.Next()
+	nextRec, err := mi.Next()
 	assert.NoError(t, err)
-	assert.Equal(t, r2, fwd)
+	assert.Equal(t, r2, nextRec)
 	assert.Equal(t, 1, mi.fwd.Len())
 	assert.Equal(t, 2, mi.rev.Len())
 }
