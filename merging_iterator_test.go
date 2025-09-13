@@ -128,6 +128,74 @@ func TestMergingIteratorPrev(t *testing.T) {
 	assert.Equal(t, r2, fwd)
 }
 
+func TestMergingIteratorPrevBeforeNext(t *testing.T) {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
+	iterators := []Iterator[Record]{
+		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
+	}
+	mi, err := NewMergingIterator(iterators, nil)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, mi.fwd.Len())
+	assert.Equal(t, 0, mi.rev.Len())
+
+	_, err = mi.Prev()
+	assert.ErrorIs(t, err, EOI)
+
+	assert.Equal(t, 2, mi.fwd.Len())
+	assert.Equal(t, 0, mi.rev.Len())
+}
+
+func TestMergingIteratorAlternating(t *testing.T) {
+	rec := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
+	iterators := []Iterator[Record]{
+		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
+	}
+	mi, err := NewMergingIterator(iterators, nil)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, mi.fwd.Len())
+	assert.Equal(t, 0, mi.rev.Len())
+
+	r1, err := mi.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, rec("a", "va", 1, TypeValue), r1)
+	assert.Equal(t, 1, mi.fwd.Len())
+	assert.Equal(t, 1, mi.rev.Len())
+
+	r2, err := mi.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, rec("b", "vb", 1, TypeValue), r2)
+	assert.Equal(t, 0, mi.fwd.Len())
+	assert.Equal(t, 2, mi.rev.Len())
+
+	back, err := mi.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, r2, back)
+	assert.Equal(t, 1, mi.fwd.Len())
+	assert.Equal(t, 1, mi.rev.Len())
+
+	fwd, err := mi.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, r2, fwd)
+	assert.Equal(t, 1, mi.fwd.Len())
+	assert.Equal(t, 2, mi.rev.Len())
+}
+
 func TestMergingIteratorInitialError(t *testing.T) {
 	r := newRecord(Bytes("a"), Bytes("1"), 1)
 	it := &errIterator{records: []Record{r}, failIdx: 0}
