@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -253,7 +254,7 @@ func TestRindb_IRangeDirections(t *testing.T) {
 
 	rec, err = iter.Prev()
 	assert.NoError(t, err)
-	assert.Equal(t, Bytes("a"), rec.GetKey())
+	assert.Equal(t, Bytes("b"), rec.GetKey())
 
 	rec, err = iter.Next()
 	assert.NoError(t, err)
@@ -264,12 +265,15 @@ func TestRindb_IRangeDirections(t *testing.T) {
 		assert.NoError(t, err)
 	}
 	var keys []Bytes
-	for iter.HasPrev() {
+	for {
 		r, err := iter.Prev()
+		if errors.Is(err, EOI) {
+			break
+		}
 		assert.NoError(t, err)
 		keys = append(keys, r.GetKey())
 	}
-	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
+	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, keys)
 
 	emptyIter, err := rin.IRange(ctx, Bytes("x"), Bytes("y"))
 	require.NoError(t, err)

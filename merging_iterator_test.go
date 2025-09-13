@@ -111,9 +111,9 @@ func TestMergingIteratorPrev(t *testing.T) {
 	mi, err := NewMergingIterator(iterators, nil)
 	assert.NoError(t, err)
 
-	r1, err := mi.Next()
+	_, err = mi.Next()
 	assert.NoError(t, err)
-	assert.False(t, mi.HasPrev())
+	assert.True(t, mi.HasPrev())
 
 	r2, err := mi.Next()
 	assert.NoError(t, err)
@@ -121,7 +121,7 @@ func TestMergingIteratorPrev(t *testing.T) {
 
 	back, err := mi.Prev()
 	assert.NoError(t, err)
-	assert.Equal(t, r1, back)
+	assert.Equal(t, r2, back)
 
 	fwd, err := mi.Next()
 	assert.NoError(t, err)

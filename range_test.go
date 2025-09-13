@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -116,12 +117,15 @@ func TestRangeIteratorReverse(t *testing.T) {
 	assert.Equal(t, []exp{{"a", "va"}, {"b", "vb"}, {"c", "vc"}}, forward)
 
 	var backward []exp
-	for iter.HasPrev() {
+	for {
 		r, err := iter.Prev()
+		if errors.Is(err, EOI) {
+			break
+		}
 		assert.NoError(t, err)
 		backward = append(backward, exp{string(r.GetKey()), string(r.GetValue())})
 	}
-	assert.Equal(t, []exp{{"b", "vb"}, {"a", "va"}}, backward)
+	assert.Equal(t, []exp{{"c", "vc"}, {"b", "vb"}, {"a", "va"}}, backward)
 }
 
 func TestIRangeCloseReleasesSSTables(t *testing.T) {
