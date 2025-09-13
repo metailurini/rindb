@@ -46,7 +46,7 @@ Replace `applyPut`, `applyDel`, etc. with structs implementing a common `Operati
 // op.go
 package diffharness
 
- type Operation interface {
+type Operation interface {
      Apply(ctx context.Context, h *Harness, log PhaseLogger) (committed bool, err error)
  }
 
