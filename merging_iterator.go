@@ -109,16 +109,10 @@ func (m *MergingIterator) Prev() (Record, error) {
 				m.err = err
 			}
 		} else if rec.GetKey().Compare(cur.rec.GetKey()) != CmpEqual || rec.GetSequenceNumber() != cur.rec.GetSequenceNumber() {
-			item := pqItem{rec: rec, iter: cur.iter}
-			m.fwd.PushItem(item)
-			m.rev.PushItem(item)
+			m.fwd.PushItem(pqItem{rec: rec, iter: cur.iter})
 		}
 	}
 	m.fwd.PushItem(cur)
-	if m.rev.Len() == 0 {
-		var empty Record
-		return empty, EOI
-	}
 	prev := m.rev.PeekItem()
 	m.cur = prev
 	m.curSet = true
