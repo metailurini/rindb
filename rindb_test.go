@@ -227,6 +227,60 @@ func TestRindb_IRange(t *testing.T) {
 	}
 }
 
+func TestRindb_IRangeDirections(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	defer cleanup()
+
+	assert.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	assert.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	assert.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+
+	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("c"))
+	require.NoError(t, err)
+
+	assert.False(t, iter.HasPrev())
+	_, err = iter.Prev()
+	assert.ErrorIs(t, err, EOI)
+
+	rec, err := iter.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	rec, err = iter.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = iter.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	rec, err = iter.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	for iter.HasNext() {
+		_, err = iter.Next()
+		assert.NoError(t, err)
+	}
+	var keys []Bytes
+	for iter.HasPrev() {
+		r, err := iter.Prev()
+		assert.NoError(t, err)
+		keys = append(keys, r.GetKey())
+	}
+	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
+
+	emptyIter, err := rin.IRange(ctx, Bytes("x"), Bytes("y"))
+	require.NoError(t, err)
+	assert.False(t, emptyIter.HasNext())
+	assert.False(t, emptyIter.HasPrev())
+	_, err = emptyIter.Next()
+	assert.ErrorIs(t, err, EOI)
+	_, err = emptyIter.Prev()
+	assert.ErrorIs(t, err, EOI)
+}
+
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
 	ctx := context.Background()
