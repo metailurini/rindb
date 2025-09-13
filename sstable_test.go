@@ -413,6 +413,24 @@ func TestSSTableIRangeReverseFiltered(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b")}, keys)
 }
 
+func TestSSTableIRangeReverseNextAlwaysEOI(t *testing.T) {
+	cfg := testConfig()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("1"), 1))
+	sst, _, err := flush(context.Background(), cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.IRangeReverse(Bytes("a"), Bytes("a"))
+	require.NoError(t, err)
+	assert.False(t, it.HasNext())
+	_, err = it.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
 // TestSStable_GetValueSparseIndexFallback ensures GetValue can retrieve keys
 // when they are absent from the sparse index by scanning from the nearest
 // preceding entry.

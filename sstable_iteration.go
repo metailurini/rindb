@@ -184,9 +184,17 @@ type sstableIRangeRev struct {
 	blockIdx int
 	offset   int64
 	dataEnd  int64
-	offsets  []int64
+	records  []recMeta
 	pos      int
 	err      error
+}
+
+type recMeta struct {
+	key      Bytes
+	seq      uint64
+	typ      RecordType
+	valueOff int64
+	valueLen uint64
 }
 
 func (srr *sstableIRangeRev) fillBuf() {
@@ -201,14 +209,9 @@ func (srr *sstableIRangeRev) fillBuf() {
 		nextOffset = srr.dataEnd
 	}
 	reader := newOffsetReader(srr.s.FileSystem, srr.offset)
-	var (
-		keys []Bytes
-		seqs []uint64
-		offs []int64
-	)
+	var metas []recMeta
 	for reader.Offset() < nextOffset {
-		start := reader.Offset()
-		key, seq, err := readRecordMeta(reader)
+		key, seq, typ, valueOff, valueLen, err := readRecordMeta(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -219,19 +222,17 @@ func (srr *sstableIRangeRev) fillBuf() {
 		if key.Compare(srr.endKey) > 0 {
 			break
 		}
-		keys = append(keys, key)
-		seqs = append(seqs, seq)
-		offs = append(offs, start)
+		metas = append(metas, recMeta{key: key, seq: seq, typ: typ, valueOff: valueOff, valueLen: valueLen})
 	}
-	left := sort.Search(len(keys), func(i int) bool { return keys[i].Compare(srr.startKey) >= 0 })
-	right := sort.Search(len(keys), func(i int) bool { return keys[i].Compare(srr.endKey) > 0 })
-	srr.offsets = srr.offsets[:0]
+	left := sort.Search(len(metas), func(i int) bool { return metas[i].key.Compare(srr.startKey) >= 0 })
+	right := sort.Search(len(metas), func(i int) bool { return metas[i].key.Compare(srr.endKey) > 0 })
+	srr.records = srr.records[:0]
 	for i := left; i < right; i++ {
-		if seqs[i] <= srr.seq {
-			srr.offsets = append(srr.offsets, offs[i])
+		if metas[i].seq <= srr.seq {
+			srr.records = append(srr.records, metas[i])
 		}
 	}
-	srr.pos = len(srr.offsets) - 1
+	srr.pos = len(srr.records) - 1
 	srr.blockIdx--
 	if srr.blockIdx >= 0 {
 		srr.offset = srr.s.SparseIndex[srr.blockIdx].offset
@@ -265,13 +266,26 @@ func (srr *sstableIRangeRev) Prev() (Record, error) {
 		var empty Record
 		return empty, srr.err
 	}
-	off := srr.offsets[srr.pos]
+	meta := srr.records[srr.pos]
 	srr.pos--
-	reader := newOffsetReader(srr.s.FileSystem, off)
-	rec, err := readRecord(reader)
-	if err != nil {
-		srr.err = err
-		return rec, err
+	reader := newOffsetReader(srr.s.FileSystem, meta.valueOff)
+	var value Bytes
+	if meta.valueLen > 0 {
+		value = make(Bytes, meta.valueLen)
+		if _, err := io.ReadFull(reader, value); err != nil {
+			srr.err = err
+			return nil, err
+		}
 	}
-	return rec, nil
+	var checksumBytes [checksumSize]byte
+	if _, err := io.ReadFull(reader, checksumBytes[:]); err != nil {
+		srr.err = err
+		return nil, err
+	}
+	ikey := EncodeInternalKey(meta.key, meta.seq, meta.typ)
+	if checksum(ikey, value) != byteOrder.Uint32(checksumBytes[:]) {
+		srr.err = ErrChecksumMismatch
+		return nil, ErrChecksumMismatch
+	}
+	return RecordImpl{Key: meta.key, Value: value, SequenceNumber: meta.seq, Type: meta.typ}, nil
 }

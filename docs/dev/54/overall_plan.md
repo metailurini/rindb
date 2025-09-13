@@ -3,7 +3,6 @@
 1. **Introduce bi-directional iterator contracts**
    - Extend the minimal `Iterator` to optionally move backwards.
 ```go
-// Iterator now supports symmetric traversal.
 type BiIterator[T any] interface {
     HasNext() bool
     Next() (T, error)
@@ -11,6 +10,11 @@ type BiIterator[T any] interface {
     Prev() (T, error)
 }
 ```
+   - **Cursor semantics:** `Next` and `Prev` maintain independent cursors.
+     Calling `Prev` after `Next` does **not** return the element preceding the
+     last `Next` result; instead `Prev` iterates from the end of the range.  A
+     `BiIterator` is therefore expected to be consumed in a single direction per
+     use.
 2. **Allow `MergingIterator` to order items descending**
    - Add a `reverse bool` flag and adjust the priority queue comparator.
 ```go

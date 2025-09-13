@@ -347,21 +347,19 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 
 	t.Run("skip higher seq", func(t *testing.T) {
 		it := mem.IRange(Bytes("k"), Bytes("k"), 6)
-		mi, ok := it.(*memtableIRange)
-		assert.True(t, ok)
-
-		assert.True(t, mi.HasNext())
-		assert.Equal(t, uint64(5), mi.next.GetSequenceNumber())
-		assert.NoError(t, mi.nextErr)
+		require.True(t, it.HasNext())
+		rec, err := it.Next()
+		require.NoError(t, err)
+		assert.Equal(t, uint64(5), rec.GetSequenceNumber())
+		_, err = it.Next()
+		assert.ErrorIs(t, err, EOI)
 	})
 
 	t.Run("no matching seq", func(t *testing.T) {
 		it := mem.IRange(Bytes("k"), Bytes("k"), 4)
-		mi, ok := it.(*memtableIRange)
-		assert.True(t, ok)
-
-		assert.False(t, mi.HasNext())
-		assert.ErrorIs(t, mi.nextErr, EOI)
+		assert.False(t, it.HasNext())
+		_, err := it.Next()
+		assert.ErrorIs(t, err, EOI)
 	})
 }
 
@@ -417,4 +415,28 @@ func TestMemtableIRangeReverse(t *testing.T) {
 	assert.Equal(t, []string{"c", "b", "a"}, keys)
 	_, err := it.Prev()
 	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRangeReverse_PreparePrev(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("k"), Bytes("v7"), 7))
+	mem.Put(newRecord(Bytes("k"), Bytes("v5"), 5))
+
+	t.Run("skip higher seq", func(t *testing.T) {
+		it := mem.IRangeReverse(Bytes("k"), Bytes("k"), 6)
+		require.True(t, it.HasPrev())
+		rec, err := it.Prev()
+		require.NoError(t, err)
+		assert.Equal(t, uint64(5), rec.GetSequenceNumber())
+		_, err = it.Prev()
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("no matching seq", func(t *testing.T) {
+		it := mem.IRangeReverse(Bytes("k"), Bytes("k"), 4)
+		assert.False(t, it.HasPrev())
+		_, err := it.Prev()
+		assert.ErrorIs(t, err, EOI)
+	})
 }

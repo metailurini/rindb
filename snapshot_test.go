@@ -165,6 +165,31 @@ func TestSnapshot_IRange(t *testing.T) {
 	assert.NoError(t, snap.Release(ctx))
 }
 
+func TestSnapshot_IRangeReverse(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
+	defer cleanup()
+
+	assert.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("v1")))
+	assert.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("v2")))
+	snap, err := rin.NewSnapshot(ctx)
+	require.NoError(t, err)
+
+	assert.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("v3")))
+
+	iter, err := snap.IRangeReverse(ctx, Bytes("a"), Bytes("c"))
+	assert.NoError(t, err)
+	var keys []Bytes
+	for iter.HasNext() {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
+
+	assert.NoError(t, snap.Release(ctx))
+}
+
 func TestSnapshot_ReleaseConcurrent(t *testing.T) {
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
