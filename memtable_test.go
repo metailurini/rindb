@@ -423,3 +423,57 @@ func TestMemtableIRange_Reverse(t *testing.T) {
 
 	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
 }
+
+func TestMemtableIRange_PrevBeforeNext(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+
+	it := mem.IRange(Bytes("a"), Bytes("a"), 1)
+	assert.False(t, it.HasPrev())
+	_, err := it.Prev()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRange_Alternating(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+
+	it := mem.IRange(Bytes("a"), Bytes("b"), 2)
+
+	rec, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	rec, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	rec, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	rec, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+}
+
+func TestMemtableIRange_Empty(t *testing.T) {
+	cfg := testConfig()
+	mem := InitMemtable(cfg)
+
+	it := mem.IRange(Bytes("x"), Bytes("z"), 1)
+	assert.False(t, it.HasNext())
+	assert.False(t, it.HasPrev())
+
+	_, err := it.Next()
+	assert.ErrorIs(t, err, EOI)
+	_, err = it.Prev()
+	assert.ErrorIs(t, err, EOI)
+}
