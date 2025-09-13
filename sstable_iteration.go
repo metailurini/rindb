@@ -184,7 +184,7 @@ type sstableIRangeRev struct {
 	blockIdx int
 	offset   int64
 	dataEnd  int64
-	buf      []Record
+	offsets  []int64
 	pos      int
 	err      error
 }
@@ -201,8 +201,9 @@ func (srr *sstableIRangeRev) fillBuf() {
 		nextOffset = srr.dataEnd
 	}
 	reader := newOffsetReader(srr.s.FileSystem, srr.offset)
-	srr.buf = srr.buf[:0]
+	srr.offsets = srr.offsets[:0]
 	for reader.Offset() < nextOffset {
+		start := reader.Offset()
 		rec, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -220,9 +221,9 @@ func (srr *sstableIRangeRev) fillBuf() {
 		if rec.GetSequenceNumber() > srr.seq {
 			continue
 		}
-		srr.buf = append(srr.buf, rec)
+		srr.offsets = append(srr.offsets, start)
 	}
-	srr.pos = len(srr.buf) - 1
+	srr.pos = len(srr.offsets) - 1
 	srr.blockIdx--
 	if srr.blockIdx >= 0 {
 		srr.offset = srr.s.SparseIndex[srr.blockIdx].offset
@@ -256,7 +257,13 @@ func (srr *sstableIRangeRev) Prev() (Record, error) {
 		var empty Record
 		return empty, srr.err
 	}
-	rec := srr.buf[srr.pos]
+	off := srr.offsets[srr.pos]
 	srr.pos--
+	reader := newOffsetReader(srr.s.FileSystem, off)
+	rec, err := readRecord(reader)
+	if err != nil {
+		srr.err = err
+		return rec, err
+	}
 	return rec, nil
 }
