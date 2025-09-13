@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -310,6 +311,49 @@ func TestSkipList_IteratorMixed(t *testing.T) {
 	v, err = it.Next()
 	assert.NoError(t, err)
 	assert.Equal(t, 2, v)
+}
+
+func TestSkipList_IteratorConcurrentMutations(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for _, v := range []int{1, 3, 5, 7} {
+		list.Put(v, v)
+	}
+
+	it, ok := list.Iterator().(*slIterator[int, int])
+	assert.True(t, ok)
+
+	v, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		list.Put(2, 2)
+		_ = list.Remove(5)
+	}()
+	wg.Wait()
+
+	forward := []int{1}
+	for it.HasNext() {
+		v, err := it.Next()
+		assert.NoError(t, err)
+		forward = append(forward, v)
+	}
+	assert.Equal(t, []int{1, 2, 3, 7}, forward)
+
+	var backward []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		backward = append(backward, v)
+	}
+	assert.Equal(t, []int{7, 3, 2, 1}, backward)
+	assertOrderedList(t, list.Head())
 }
 
 func TestSkipList_IRangeReverse(t *testing.T) {
