@@ -34,9 +34,10 @@ type (
 
 type SStable struct {
 	*FileSystem
-	SparseIndex SparseIndex
-	Bloom       *BloomFilter
-	dataEnd     int64
+	SparseIndex    SparseIndex
+	Bloom          *BloomFilter
+	dataEnd        int64
+	iterMaxHistory int
 }
 
 func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
@@ -84,7 +85,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	}
 
 	info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset)}, nil
+	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset), iterMaxHistory: config.sstableIterMaxHistory}, nil
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {

@@ -7,8 +7,6 @@ import (
 	"sort"
 )
 
-const maxSSTableIteratorOffsets = 1 << 16
-
 type offsetStack struct {
 	buf   []int64
 	start int
@@ -58,7 +56,7 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 		FileSystem: s.FileSystem,
 		dataEnd:    s.dataEnd,
 		offset:     0,
-		offs:       newOffsetStack(maxSSTableIteratorOffsets),
+		offs:       newOffsetStack(s.iterMaxHistory),
 	}, nil
 }
 
@@ -91,7 +89,7 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	}
 	dataEnd := int64(byteOrder.Uint64(buf))
 
-	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd, offs: newOffsetStack(maxSSTableIteratorOffsets)}, nil
+	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd, offs: newOffsetStack(s.iterMaxHistory)}, nil
 }
 
 type sstableIterator struct {

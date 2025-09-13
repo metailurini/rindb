@@ -95,6 +95,11 @@ type Config struct {
 	// no limit is enforced, which may lead to resource exhaustion on busy
 	// systems. Provide an implementation to bound FD usage.
 	fdLimiter FDLimiter
+
+	// sstableIterMaxHistory bounds the number of previous offsets retained
+	// by SSTable iterators to support Prev(). Older offsets are discarded
+	// once this limit is exceeded.
+	sstableIterMaxHistory int
 }
 
 // Option defines a functional option type for Config.
@@ -140,6 +145,7 @@ func DefaultConfig() Config {
 		cacheCorruptTTL:           5 * time.Minute,
 		cacheTombstoneTTL:         0,
 		fdLimiter:                 noopFDLimiter{},
+		sstableIterMaxHistory:     1 << 16,
 	}
 }
 
@@ -220,6 +226,9 @@ func (c Config) Validate() {
 	if c.cacheTombstoneTTL < 0 {
 		panic("cacheTombstoneTTL must be >= 0")
 	}
+	if c.sstableIterMaxHistory < 0 {
+		panic("sstableIterMaxHistory must be >= 0")
+	}
 }
 
 func WithConfig(cfg Config) Option {
@@ -266,6 +275,12 @@ func WithCacheTombstoneTTL(d time.Duration) Option {
 // unlimited implementation.
 func WithFDLimiter(l FDLimiter) Option {
 	return func(c *Config) { c.fdLimiter = l }
+}
+
+// WithSSTableIterMaxHistory sets the maximum number of offsets retained by
+// SSTable iterators to support Prev().
+func WithSSTableIterMaxHistory(n int) Option {
+	return func(c *Config) { c.sstableIterMaxHistory = n }
 }
 
 // WithMaxMemtableSize sets the maximum number of entries allowed in the memtable before flushing.

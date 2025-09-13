@@ -117,3 +117,113 @@ func TestSSTableIRangeReverse(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("a"), Bytes("b"), Bytes("c")}, fwd)
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, rev)
 }
+
+func TestSSTableIteratorHistoryLimit(t *testing.T) {
+	cases := []struct {
+		name    string
+		history int
+	}{
+		{"h0", 0},
+		{"h1", 1},
+		{"h2", 2},
+	}
+	keys := []string{"a", "b", "c", "d", "e"}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.sstableIterMaxHistory = tc.history
+			ctx := context.Background()
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
+			fs := fss[0]
+
+			mem := InitMemtable(cfg)
+			for i, k := range keys {
+				mem.Put(newRecord(Bytes(k), Bytes("v"), uint64(i+1)))
+			}
+
+			sst, _, err := flush(ctx, cfg, mem, fs)
+			require.NoError(t, err)
+
+			it, err := sst.Iterator()
+			require.NoError(t, err)
+
+			for range keys {
+				_, err := it.Next()
+				require.NoError(t, err)
+			}
+
+			si := it.(*sstableIterator)
+			assert.Equal(t, tc.history, len(si.offs.buf))
+			expLen := tc.history
+			if expLen > len(keys) {
+				expLen = len(keys)
+			}
+			assert.Equal(t, expLen, si.offs.len())
+
+			for i := 0; i < tc.history && i < len(keys); i++ {
+				rec, err := it.Prev()
+				require.NoError(t, err)
+				assert.Equal(t, Bytes(keys[len(keys)-1-i]), rec.GetKey())
+			}
+
+			_, err = it.Prev()
+			assert.ErrorIs(t, err, EOI)
+		})
+	}
+}
+
+func TestSSTableIRangeHistoryLimit(t *testing.T) {
+	cases := []struct {
+		name    string
+		history int
+	}{
+		{"h0", 0},
+		{"h1", 1},
+		{"h2", 2},
+	}
+	keys := []string{"a", "b", "c", "d", "e"}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.sstableIterMaxHistory = tc.history
+			ctx := context.Background()
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
+			fs := fss[0]
+
+			mem := InitMemtable(cfg)
+			for i, k := range keys {
+				mem.Put(newRecord(Bytes(k), Bytes("v"), uint64(i+1)))
+			}
+
+			sst, _, err := flush(ctx, cfg, mem, fs)
+			require.NoError(t, err)
+
+			it, err := sst.IRange(Bytes("a"), Bytes("e"))
+			require.NoError(t, err)
+
+			for range keys {
+				_, err := it.Next()
+				require.NoError(t, err)
+			}
+
+			sri := it.(*sstableIRange)
+			assert.Equal(t, tc.history, len(sri.offs.buf))
+			expLen := tc.history
+			if expLen > len(keys) {
+				expLen = len(keys)
+			}
+			assert.Equal(t, expLen, sri.offs.len())
+
+			for i := 0; i < tc.history && i < len(keys); i++ {
+				rec, err := it.Prev()
+				require.NoError(t, err)
+				assert.Equal(t, Bytes(keys[len(keys)-1-i]), rec.GetKey())
+			}
+
+			_, err = it.Prev()
+			assert.ErrorIs(t, err, EOI)
+		})
+	}
+}
