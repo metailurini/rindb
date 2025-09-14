@@ -67,6 +67,7 @@ func TestRecord_WriteRead(t *testing.T) {
 	for _, tt := range cases {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tx, cleanup := newFileTx(t)
 			defer cleanup()
 			path := tx.log.Path()
@@ -176,6 +177,7 @@ func TestReadRecord_Errors(t *testing.T) {
 	for _, tt := range cases {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			r := tt.setup()
 			_, err := readRecord(r)
 			for _, msg := range tt.errContains {
