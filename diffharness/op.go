@@ -106,7 +106,6 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
-		h.addKey(p.K)
 		return true, nil
 	default:
 		return false, nil
@@ -179,7 +178,6 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
-		h.delKey(d.K)
 		return true, nil
 	default:
 		return false, nil
