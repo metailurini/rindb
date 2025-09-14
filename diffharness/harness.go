@@ -1,7 +1,6 @@
 package diffharness
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,7 +15,7 @@ func NewHarness(my Engine, ref *SQLiteOracle, seed int64, logPath string) (*Harn
 	if err != nil {
 		return nil, err
 	}
-	return &Harness{My: my, Ref: ref, Seed: seed, logger: l}, nil
+	return &Harness{My: my, Ref: ref, Seed: seed, logger: l, invariants: defaultInvariants}, nil
 }
 
 // Close closes underlying resources.
@@ -95,8 +94,10 @@ func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 				kt.Del(t.K)
 			}
 		}
-		if err := h.checkInvariants(ctx, r, cfg); err != nil {
-			return h.fail(h.ops, Op{Kind: OpInvariantCheck}, err)
+		for _, inv := range h.invariants {
+			if err := inv(ctx, h, r, cfg); err != nil {
+				return h.fail(h.ops, Op{Kind: OpInvariantCheck}, err)
+			}
 		}
 		if len(h.Snapshots) > 1 && r.Intn(10) == 0 {
 			idx := 1 + r.Intn(len(h.Snapshots)-1)
@@ -126,117 +127,6 @@ func (h *Harness) RunForever(ctx context.Context, cfg Cfg) error { return h.Run(
 
 func (h *Harness) fail(i int, op Op, cause error) error {
 	return fmt.Errorf("fuzz fail at i=%d seq=%d kind=%d: %w", i, h.Seq, op.Kind, cause)
-}
-
-func compareKVLists(a, b []KV) error {
-	if len(a) != len(b) {
-		return fmt.Errorf("length mismatch %d vs %d", len(a), len(b))
-	}
-	for i := range a {
-		if !bytes.Equal(a[i].K, b[i].K) || !bytes.Equal(a[i].V, b[i].V) {
-			return fmt.Errorf("kv mismatch at %d", i)
-		}
-	}
-	return nil
-}
-
-func (h *Harness) checkInvariants(ctx context.Context, r *rand.Rand, cfg Cfg) error {
-	if h.Ref == nil {
-		return nil
-	}
-
-	if len(h.Snapshots) == 0 {
-		return nil
-	}
-
-	// Monotonic reads: pick k and two snapshots s1 <= s2
-	k := randKey(r, cfg.KeyLen)
-	s1 := h.Snapshots[r.Intn(len(h.Snapshots))]
-	s2 := h.Snapshots[r.Intn(len(h.Snapshots))]
-	if s1 > s2 {
-		s1, s2 = s2, s1
-	}
-	mv1, mok1, err := h.My.Get(ctx, k, s1)
-	if err != nil {
-		return err
-	}
-	mv2, mok2, err := h.My.Get(ctx, k, s2)
-	if err != nil {
-		return err
-	}
-	sv1, sok1, err := h.Ref.GetWithSeq(k, s1)
-	if err != nil {
-		return err
-	}
-	sv2, sok2, err := h.Ref.GetWithSeq(k, s2)
-	if err != nil {
-		return err
-	}
-	if mok1 != sok1 || !bytes.Equal(mv1, sv1) {
-		return fmt.Errorf("monotonic: s1 mismatch")
-	}
-	if mok2 != sok2 || !bytes.Equal(mv2, sv2) {
-		return fmt.Errorf("monotonic: s2 mismatch")
-	}
-
-	// Range concatenation: [lo,mid) + [mid,hi) == [lo,hi)
-	if cfg.RangeMax > 0 {
-		lo := randKey(r, cfg.KeyLen)
-		hi := randKey(r, cfg.KeyLen)
-		for bytes.Compare(hi, lo) <= 0 {
-			hi = randKey(r, cfg.KeyLen)
-		}
-		mid := randKey(r, cfg.KeyLen)
-		for bytes.Compare(mid, lo) <= 0 || bytes.Compare(mid, hi) >= 0 {
-			mid = randKey(r, cfg.KeyLen)
-		}
-		snap := pickSnapshot(r, h.Seq, h.Snapshots)
-		left, err := h.My.Range(ctx, lo, mid, snap, cfg.RangeMax)
-		if err != nil {
-			return err
-		}
-		right, err := h.My.Range(ctx, mid, hi, snap, cfg.RangeMax)
-		if err != nil {
-			return err
-		}
-
-		if len(left) < cfg.RangeMax && len(right) < cfg.RangeMax {
-			limit := len(left) + len(right) + 1
-			full, err := h.My.Range(ctx, lo, hi, snap, limit)
-			if err != nil {
-				return err
-			}
-			concat := append(append([]KV{}, left...), right...)
-			if err := compareKVLists(concat, full); err != nil {
-				return fmt.Errorf("range concat: %w", err)
-			}
-			// Compare full range with reference only when not truncated
-			f2, err := h.Ref.RangeWithSeq(lo, hi, snap, limit)
-			if err != nil {
-				return err
-			}
-			if err := compareKVLists(full, f2); err != nil {
-				return fmt.Errorf("range full mismatch: %w", err)
-			}
-		}
-
-		// Compare sub-ranges with reference for coverage
-		l2, err := h.Ref.RangeWithSeq(lo, mid, snap, cfg.RangeMax)
-		if err != nil {
-			return err
-		}
-		if err := compareKVLists(left, l2); err != nil {
-			return fmt.Errorf("range left mismatch: %w", err)
-		}
-		r2, err := h.Ref.RangeWithSeq(mid, hi, snap, cfg.RangeMax)
-		if err != nil {
-			return err
-		}
-		if err := compareKVLists(right, r2); err != nil {
-			return fmt.Errorf("range right mismatch: %w", err)
-		}
-	}
-	return nil
 }
 
 // Replay replays operations from logPath against the provided engines.
