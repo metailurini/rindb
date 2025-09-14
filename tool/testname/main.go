@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"regexp"
 	"strings"
@@ -39,7 +40,9 @@ func main() {
 
 func checkDir(dir string) ([]string, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
+	pkgs, err := parser.ParseDir(fset, dir, func(info fs.FileInfo) bool {
+		return strings.HasSuffix(info.Name(), "_test.go")
+	}, 0)
 	if err != nil {
 		return nil, fmt.Errorf("parse dir %s: %w", dir, err)
 	}
@@ -52,7 +55,8 @@ func checkDir(dir string) ([]string, error) {
 					continue
 				}
 				if strings.HasPrefix(fn.Name.Name, "Test") && !testNameRe.MatchString(fn.Name.Name) {
-					bad = append(bad, fn.Name.Name)
+					pos := fset.Position(fn.Pos())
+					bad = append(bad, fmt.Sprintf("%s:%d: %s", pos.Filename, pos.Line, fn.Name.Name))
 				}
 			}
 		}
