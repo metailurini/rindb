@@ -19,7 +19,10 @@ The invariant mirrors the index into the oracle slice and validates each iterato
 
 ```go
 func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) error {
-    re := h.My.(*RinDBEngine)
+    re, ok := h.My.(*RinDBEngine)
+    if !ok || h.Ref == nil {
+        return nil
+    }
     lo, hi := randKey(r, cfg.KeyLen), randKey(r, cfg.KeyLen)
     snap := pickSnapshot(r, h.Seq, h.Snapshots, cfg.SnapshotReuseEvery)
 
