@@ -3,6 +3,7 @@ package diffharness
 import (
 	"bytes"
 	"math/rand"
+	"sort"
 )
 
 const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -42,7 +43,9 @@ func (kt *KeyTracker) Add(k []byte) {
 	}
 	if len(kt.keys) >= maxKnownKeys {
 		oldest := kt.keys[0]
-		kt.keys = kt.keys[1:]
+		copy(kt.keys, kt.keys[1:])
+		kt.keys[len(kt.keys)-1] = ""
+		kt.keys = kt.keys[:len(kt.keys)-1]
 		delete(kt.keySet, oldest)
 	}
 	kt.keys = append(kt.keys, s)
@@ -60,7 +63,9 @@ func (kt *KeyTracker) Del(k []byte) {
 	delete(kt.keySet, s)
 	for i, v := range kt.keys {
 		if v == s {
-			kt.keys = append(kt.keys[:i], kt.keys[i+1:]...)
+			copy(kt.keys[i:], kt.keys[i+1:])
+			kt.keys[len(kt.keys)-1] = ""
+			kt.keys = kt.keys[:len(kt.keys)-1]
 			break
 		}
 	}
@@ -94,12 +99,16 @@ func pickSnapshot(r *rand.Rand, seq uint64, snaps []uint64) uint64 {
 
 func (ro RandOps) Next(r *rand.Rand, kt *KeyTracker, seq uint64, snaps []uint64) Operation {
 	sum := 0
-	for _, w := range ro.cfg.Weights {
+	var kinds []OpKind
+	for op, w := range ro.cfg.Weights {
 		sum += w
+		kinds = append(kinds, op)
 	}
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
 	x := r.Intn(sum)
 	var kind OpKind
-	for op, w := range ro.cfg.Weights {
+	for _, op := range kinds {
+		w := ro.cfg.Weights[op]
 		if x < w {
 			kind = op
 			break
