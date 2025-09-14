@@ -28,64 +28,89 @@ func newTestCache(t *testing.T, opt tableCacheOptions) *tableCache {
 	return newTableCache(opt)
 }
 
-func TestTableCacheHitMiss(t *testing.T) {
+func TestTableCache_HitMiss(t *testing.T) {
 	ctx := context.Background()
-	var opens atomic.Int32
-	cache := newTestCache(t, tableCacheOptions{
-		Open: func(ctx context.Context, k tableKey) (*SStable, error) {
-			opens.Add(1)
-			return &SStable{}, nil
-		},
-	})
+	cases := []struct {
+		name       string
+		getCalls   int
+		wantMisses int64
+		wantHits   int64
+		wantOpens  int32
+	}{
+		{"miss", 1, 1, 0, 1},
+		{"hit", 2, 1, 1, 1},
+	}
 
-	// tests use default DBID 0; override when multi-DB is supported
-	key := tableKey{FileNum: 1}
-	h, err := cache.get(ctx, key)
-	require.NoError(t, err)
-	h.unref()
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			var opens atomic.Int32
+			cache := newTestCache(t, tableCacheOptions{
+				Open: func(ctx context.Context, k tableKey) (*SStable, error) {
+					opens.Add(1)
+					return &SStable{}, nil
+				},
+			})
 
-	require.True(t, cache.tryRef(key))
-	st := cache.stats()
-	require.EqualValues(t, 1, st.Misses)
-	require.EqualValues(t, 0, st.Hits)
+			key := tableKey{FileNum: 1}
+			for i := 0; i < tt.getCalls; i++ {
+				h, err := cache.get(ctx, key)
+				require.NoError(t, err)
+				h.unref()
+				if i == 0 {
+					require.True(t, cache.tryRef(key))
+				}
+			}
 
-	h, err = cache.get(ctx, key)
-	require.NoError(t, err)
-	h.unref()
-
-	require.EqualValues(t, 1, opens.Load())
-	st = cache.stats()
-	require.EqualValues(t, 1, st.Misses)
-	require.EqualValues(t, 1, st.Hits)
+			require.EqualValues(t, tt.wantOpens, opens.Load())
+			st := cache.stats()
+			require.EqualValues(t, tt.wantMisses, st.Misses)
+			require.EqualValues(t, tt.wantHits, st.Hits)
+		})
+	}
 }
 
-func TestTableCacheTryGetStats(t *testing.T) {
-	ctx := context.Background()
-	cache := newTestCache(t, tableCacheOptions{})
+func TestTableCache_TryGetStats(t *testing.T) {
+	cases := []struct {
+		name       string
+		tryKey     tableKey
+		wantOK     bool
+		wantMisses int64
+		wantHits   int64
+	}{
+		{"hit", tableKey{FileNum: 1}, true, 1, 1},
+		{"miss", tableKey{FileNum: 2}, false, 2, 1},
+	}
 
-	k1 := tableKey{FileNum: 1}
-	h, err := cache.get(ctx, k1)
-	require.NoError(t, err)
-	h.unref()
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			cache := newTestCache(t, tableCacheOptions{})
 
-	st := cache.stats()
-	require.EqualValues(t, 1, st.Misses)
-	require.EqualValues(t, 0, st.Hits)
+			k1 := tableKey{FileNum: 1}
+			h, err := cache.get(ctx, k1)
+			require.NoError(t, err)
+			h.unref()
 
-	h, ok := cache.tryGet(ctx, k1)
-	require.True(t, ok)
-	h.unref()
+			if tt.wantOK {
+				h, ok := cache.tryGet(ctx, tt.tryKey)
+				require.True(t, ok)
+				h.unref()
+			} else {
+				h, ok := cache.tryGet(ctx, k1)
+				require.True(t, ok)
+				h.unref()
 
-	st = cache.stats()
-	require.EqualValues(t, 1, st.Misses)
-	require.EqualValues(t, 1, st.Hits)
+				_, ok = cache.tryGet(ctx, tt.tryKey)
+				require.False(t, ok)
+			}
 
-	_, ok = cache.tryGet(ctx, tableKey{FileNum: 2})
-	require.False(t, ok)
-
-	st = cache.stats()
-	require.EqualValues(t, 2, st.Misses)
-	require.EqualValues(t, 1, st.Hits)
+			st := cache.stats()
+			require.EqualValues(t, tt.wantMisses, st.Misses)
+			require.EqualValues(t, tt.wantHits, st.Hits)
+		})
+	}
 }
 
 func TestTableCacheEviction(t *testing.T) {
