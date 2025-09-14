@@ -44,7 +44,7 @@ test-integration:
 diffharness-local:
 	@echo "[NOTE], if you want a fresh run, please delete /tmp/test/ manually"
 	@echo "Running diffharness tests locally..."
-	@cd diffharness && go run cmd/main.go --dir /tmp/test/
+	@cd diffharness && go run cmd/main.go --dir /tmp/test/ --crash-every=5 --telemetry-every=1 --metamorphic=true
 
 diffharness-build:
 	@echo "Building diffharness for linux/amd64..."

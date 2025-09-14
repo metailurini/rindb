@@ -61,11 +61,11 @@ type sqliteEngine struct {
 }
 
 func (e *sqliteEngine) Put(ctx context.Context, k, v []byte) error {
-	return e.o.PutWithSeq(k, v, *e.seq)
+	return e.o.PutWithSeq(k, v, *e.seq+1)
 }
 
 func (e *sqliteEngine) Delete(ctx context.Context, k []byte) error {
-	return e.o.DelWithSeq(k, *e.seq)
+	return e.o.DelWithSeq(k, *e.seq+1)
 }
 
 func (e *sqliteEngine) Get(ctx context.Context, k []byte, snapshot uint64) ([]byte, bool, error) {
@@ -311,6 +311,7 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 
 	calls := 0
+	h.hooks.CrashEvery = 1
 	h.WithCrash(func(int) error {
 		calls++
 		if calls == 1 {
@@ -365,6 +366,8 @@ func TestHarnessCloseWithoutSnapshots(t *testing.T) {
 
 func TestHookOrderAndNilSafety(t *testing.T) {
 	h := &Harness{logger: nopLogger}
+	h.hooks.TelemetryEvery = 1
+	h.hooks.CrashEvery = 1
 	order := []string{}
 	h.WithTelemetry(func(seq uint64, ops int) { order = append(order, "telemetry") })
 	h.WithCrash(func(int) error { order = append(order, "crash"); return nil })
