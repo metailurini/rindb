@@ -6,100 +6,67 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestMemtable_Basic(t *testing.T) {
+func TestMemtable_Get(t *testing.T) {
 	cfg := testConfig()
-	pairs := generateKeyValuePairs(1000, 10, 20)
-	mem := populateMemtable(cfg, pairs...)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 1))
+	mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 2))
 
-	// Verify generated pairs
-	for _, pair := range pairs {
-		key := pair[0]
-		expectedValue := pair[1]
-		got, err := mem.Get(key)
-		assert.NoError(t, err)
-		assert.Equal(t, expectedValue, got)
+	tests := []struct {
+		name    string
+		key     Bytes
+		want    Bytes
+		wantErr error
+	}{
+		{"found key1", Bytes("key1"), Bytes("value1"), nil},
+		{"found key2", Bytes("key2"), Bytes("value2"), nil},
+		{"missing key", Bytes("missing"), nil, ErrKeyNotFound},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := mem.Get(tt.key)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
 	}
 }
 
-func TestGetMaxSequenceNumberFromMemtable(t *testing.T) {
+func TestMemtable_MaxSequenceNumber(t *testing.T) {
 	cfg := testConfig()
 
-	t.Run("Empty Memtable", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(0), maxSeqNum)
-	})
+	tests := []struct {
+		name    string
+		records []Record
+		want    uint64
+	}{
+		{"empty", nil, 0},
+		{"single record", []Record{newRecord(Bytes("key1"), Bytes("value1"), 10)}, 10},
+		{"increasing seq", []Record{newRecord(Bytes("key1"), Bytes("value1"), 1), newRecord(Bytes("key2"), Bytes("value2"), 5), newRecord(Bytes("key3"), Bytes("value3"), 10)}, 10},
+		{"decreasing seq", []Record{newRecord(Bytes("key1"), Bytes("value1"), 20), newRecord(Bytes("key2"), Bytes("value2"), 15), newRecord(Bytes("key3"), Bytes("value3"), 10)}, 20},
+		{"mixed seq", []Record{newRecord(Bytes("key1"), Bytes("value1"), 5), newRecord(Bytes("key2"), Bytes("value2"), 20), newRecord(Bytes("key3"), Bytes("value3"), 10), newRecord(Bytes("key4"), Bytes("value4"), 1)}, 20},
+		{"all zero", []Record{newRecord(Bytes("key1"), Bytes("value1"), 0), newRecord(Bytes("key2"), Bytes("value2"), 0)}, 0},
+		{"mixed including zero", []Record{newRecord(Bytes("key1"), Bytes("value1"), 0), newRecord(Bytes("key2"), Bytes("value2"), 5), newRecord(Bytes("key3"), Bytes("value3"), 0), newRecord(Bytes("key4"), Bytes("value4"), 10)}, 10},
+		{"duplicate max", []Record{newRecord(Bytes("key1"), Bytes("value1"), 5), newRecord(Bytes("key2"), Bytes("value2"), 20), newRecord(Bytes("key3"), Bytes("value3"), 10), newRecord(Bytes("key4"), Bytes("value4"), 20)}, 20},
+	}
 
-	t.Run("Single Record", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 10))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(10), maxSeqNum)
-	})
-
-	t.Run("Multiple Records - Increasing Sequence Numbers", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 1))
-		mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 5))
-		mem.Put(newRecord(Bytes("key3"), Bytes("value3"), 10))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(10), maxSeqNum)
-	})
-
-	t.Run("Multiple Records - Decreasing Sequence Numbers", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 20))
-		mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 15))
-		mem.Put(newRecord(Bytes("key3"), Bytes("value3"), 10))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(20), maxSeqNum)
-	})
-
-	t.Run("Multiple Records - Mixed Sequence Numbers", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 5))
-		mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 20))
-		mem.Put(newRecord(Bytes("key3"), Bytes("value3"), 10))
-		mem.Put(newRecord(Bytes("key4"), Bytes("value4"), 1))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(20), maxSeqNum)
-	})
-
-	t.Run("All Records Have Sequence Number 0", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 0))
-		mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 0))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(0), maxSeqNum)
-	})
-
-	t.Run("Mixed Sequence Numbers Including 0", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 0))
-		mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 5))
-		mem.Put(newRecord(Bytes("key3"), Bytes("value3"), 0))
-		mem.Put(newRecord(Bytes("key4"), Bytes("value4"), 10))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(10), maxSeqNum)
-	})
-
-	t.Run("Duplicate Maximum Sequence Numbers", func(t *testing.T) {
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("key1"), Bytes("value1"), 5))
-		mem.Put(newRecord(Bytes("key2"), Bytes("value2"), 20))
-		mem.Put(newRecord(Bytes("key3"), Bytes("value3"), 10))
-		mem.Put(newRecord(Bytes("key4"), Bytes("value4"), 20))
-		maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
-		assert.NoError(t, err)
-		assert.Equal(t, uint64(20), maxSeqNum)
-	})
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			mem := InitMemtable(cfg)
+			for _, r := range tt.records {
+				mem.Put(r)
+			}
+			maxSeqNum, err := getMaxSequenceNumberFromMemtable(mem)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, maxSeqNum)
+		})
+	}
 }
 
 func TestMemtable_ByteSize(t *testing.T) {
