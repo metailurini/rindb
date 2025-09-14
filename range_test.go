@@ -1,81 +1,81 @@
 package rindb
 
 import (
-    "context"
-    "errors"
-    "testing"
+	"context"
+	"errors"
+	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func rec(k, v string, seq uint64, typ RecordType) Record {
-    var nv Bytes
-    if v != "" {
-        nv = Bytes(v)
-    }
-    return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	var nv Bytes
+	if v != "" {
+		nv = Bytes(v)
+	}
+	return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
 }
 
 func TestRangeIterator_Next(t *testing.T) {
-    recL := func(k, v string, seq uint64, typ RecordType) Record {
-        var nv Bytes = nil
-        if v != "" {
-            nv = Bytes(v)
-        }
-        return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
-    }
+	recL := func(k, v string, seq uint64, typ RecordType) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
+	}
 
-    type iterSpec struct {
-        records []Record
-        failIdx int
-    }
+	type iterSpec struct {
+		records []Record
+		failIdx int
+	}
 
-    type exp struct {
-        k, v string
-    }
+	type exp struct {
+		k, v string
+	}
 
-    tests := []struct {
-        name    string
-        iters   []iterSpec
-        want    []exp
-        wantErr string
-    }{
-        {
-            name: "basic next across sources",
-            iters: []iterSpec{
-                {records: []Record{recL("a", "1", 1, TypeValue), recL("b", "2", 2, TypeValue)}, failIdx: -1},
-            },
-            want: []exp{{"a", "1"}, {"b", "2"}},
-        },
-    }
+	tests := []struct {
+		name    string
+		iters   []iterSpec
+		want    []exp
+		wantErr string
+	}{
+		{
+			name: "basic next across sources",
+			iters: []iterSpec{
+				{records: []Record{recL("a", "1", 1, TypeValue), recL("b", "2", 2, TypeValue)}, failIdx: -1},
+			},
+			want: []exp{{"a", "1"}, {"b", "2"}},
+		},
+	}
 
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            var iterators []Iterator[Record]
-            for _, spec := range tt.iters {
-                iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
-            }
-            mi, err := NewMergingIterator(iterators, nil)
-            assert.NoError(t, err)
-            iter := NewRangeIterator(mi)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var iterators []Iterator[Record]
+			for _, spec := range tt.iters {
+				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
+			}
+			mi, err := NewMergingIterator(iterators, nil)
+			assert.NoError(t, err)
+			iter := NewRangeIterator(mi)
 
-            var got []exp
-            for iter.HasNext() {
-                r, err := iter.Next()
-                assert.NoError(t, err)
-                got = append(got, exp{string(r.GetKey()), string(r.GetValue())})
-            }
-            assert.Equal(t, tt.want, got)
+			var got []exp
+			for iter.HasNext() {
+				r, err := iter.Next()
+				assert.NoError(t, err)
+				got = append(got, exp{string(r.GetKey()), string(r.GetValue())})
+			}
+			assert.Equal(t, tt.want, got)
 
-            _, err = iter.Next()
-            if tt.wantErr != "" {
-                assert.EqualError(t, err, tt.wantErr)
-            } else {
-                assert.ErrorIs(t, err, EOI)
-            }
-        })
-    }
+			_, err = iter.Next()
+			if tt.wantErr != "" {
+				assert.EqualError(t, err, tt.wantErr)
+			} else {
+				assert.ErrorIs(t, err, EOI)
+			}
+		})
+	}
 }
 
 func TestRangeIterator(t *testing.T) {
@@ -143,10 +143,10 @@ func TestRangeIterator(t *testing.T) {
 }
 
 func TestRangeIteratorReverse(t *testing.T) {
-    type iterSpec struct {
-        records []Record
-        failIdx int
-    }
+	type iterSpec struct {
+		records []Record
+		failIdx int
+	}
 	type exp struct {
 		k, v string
 	}
@@ -244,10 +244,10 @@ func TestRangeIteratorEmpty(t *testing.T) {
 }
 
 func TestIRange_CloseReleasesSSTables(t *testing.T) {
-    cfg := testConfig()
-    ctx := context.Background()
-    ts := newTestRindbSetup(t, ctx, &cfg)
-    defer ts.Cleanup()
+	cfg := testConfig()
+	ctx := context.Background()
+	ts := newTestRindbSetup(t, ctx, &cfg)
+	defer ts.Cleanup()
 
 	mem1 := InitMemtable(cfg)
 	mem1.Put(newRecord(Bytes("a"), Bytes("sstA"), 1))
@@ -277,66 +277,66 @@ func TestIRange_CloseReleasesSSTables(t *testing.T) {
 }
 
 func TestRangeIterator_Prepare(t *testing.T) {
-    rec := func(k, v string, seq uint64) Record {
-        var nv Bytes = nil
-        if v != "" {
-            nv = Bytes(v)
-        }
-        return newRecord(Bytes(k), nv, seq)
-    }
+	rec := func(k, v string, seq uint64) Record {
+		var nv Bytes = nil
+		if v != "" {
+			nv = Bytes(v)
+		}
+		return newRecord(Bytes(k), nv, seq)
+	}
 
-    type testCase struct {
-        name         string
-        records      []Record
-        failIdx      int
-        wantPrepared bool
-        wantKey      string
-        wantValue    string
-        wantErr      string
-    }
+	type testCase struct {
+		name         string
+		records      []Record
+		failIdx      int
+		wantPrepared bool
+		wantKey      string
+		wantValue    string
+		wantErr      string
+	}
 
-    tests := []testCase{
-        {
-            name:         "skips duplicates in same iterator",
-            records:      []Record{rec("a", "v2", 2), rec("a", "v1", 1), rec("b", "vb", 1)},
-            failIdx:      -1,
-            wantPrepared: true,
-            wantKey:      "b",
-            wantValue:    "vb",
-        },
-        {
-            name:         "propagates iterator error",
-            records:      []Record{rec("a", "v2", 2), rec("a", "v1", 1)},
-            failIdx:      1,
-            wantPrepared: false,
-            wantErr:      "boom",
-        },
-    }
+	tests := []testCase{
+		{
+			name:         "skips duplicates in same iterator",
+			records:      []Record{rec("a", "v2", 2), rec("a", "v1", 1), rec("b", "vb", 1)},
+			failIdx:      -1,
+			wantPrepared: true,
+			wantKey:      "b",
+			wantValue:    "vb",
+		},
+		{
+			name:         "propagates iterator error",
+			records:      []Record{rec("a", "v2", 2), rec("a", "v1", 1)},
+			failIdx:      1,
+			wantPrepared: false,
+			wantErr:      "boom",
+		},
+	}
 
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            it := &errIterator{records: tt.records, failIdx: tt.failIdx}
-            mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
-            assert.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			it := &errIterator{records: tt.records, failIdx: tt.failIdx}
+			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+			assert.NoError(t, err)
 
-            iter := NewRangeIterator(mi)
-            // Emulate internal preparation flow used by HasNext/Next
-            iter.prepareNext()
-            _, err = iter.Next()
-            assert.NoError(t, err)
+			iter := NewRangeIterator(mi)
+			// Emulate internal preparation flow used by HasNext/Next
+			iter.prepareNext()
+			_, err = iter.Next()
+			assert.NoError(t, err)
 
-            // Prepare the next element and validate expectations
-            iter.prepareNext()
-            if tt.wantErr != "" {
-                assert.EqualError(t, iter.err, tt.wantErr)
-                iter.nextPrepared = false
-                iter.prepareNext()
-                assert.False(t, iter.nextPrepared)
-            } else {
-                assert.Equal(t, tt.wantPrepared, iter.nextPrepared)
-                assert.Equal(t, tt.wantKey, string(iter.next.GetKey()))
-                assert.Equal(t, tt.wantValue, string(iter.next.GetValue()))
-            }
-        })
-    }
+			// Prepare the next element and validate expectations
+			iter.prepareNext()
+			if tt.wantErr != "" {
+				assert.EqualError(t, iter.err, tt.wantErr)
+				iter.nextPrepared = false
+				iter.prepareNext()
+				assert.False(t, iter.nextPrepared)
+			} else {
+				assert.Equal(t, tt.wantPrepared, iter.nextPrepared)
+				assert.Equal(t, tt.wantKey, string(iter.next.GetKey()))
+				assert.Equal(t, tt.wantValue, string(iter.next.GetValue()))
+			}
+		})
+	}
 }
