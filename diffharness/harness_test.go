@@ -78,7 +78,6 @@ func TestHarness_RangeIteratorPrev(t *testing.T) {
 	require.True(t, ok)
 	it, err := iterEng.IterRange(ctx, []byte("a"), []byte("z"), h.Seq)
 	require.NoError(t, err)
-	defer it.Close()
 
 	var forward [][]byte
 	for {
@@ -102,6 +101,7 @@ func TestHarness_RangeIteratorPrev(t *testing.T) {
 
 	slices.Reverse(forward)
 	require.Equal(t, forward, backward)
+	require.NoError(t, it.Close())
 }
 
 // sqliteEngine adapts SQLiteOracle to the Engine interface for testing.
