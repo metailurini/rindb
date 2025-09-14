@@ -150,7 +150,6 @@ func TestRangeIterator_Prepare(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			it := &errIterator{records: tt.records, failIdx: tt.failIdx}
 			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)

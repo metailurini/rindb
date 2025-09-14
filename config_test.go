@@ -37,7 +37,6 @@ func TestConfig_Default(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.got != tt.want {
 				t.Errorf("DefaultConfig() %s = %v, want %v", tt.name, tt.got, tt.want)
@@ -240,7 +239,6 @@ func TestConfig_NewWithOptions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := NewConfig(tt.opts...)
 			tt.verify(t, cfg)
@@ -284,7 +282,6 @@ func TestConfig_ValidatePanics(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := base
 			tt.mutate(&cfg)

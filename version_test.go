@@ -90,7 +90,6 @@ func TestVersion_Edit(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, tt.run)
 	}
 }
@@ -172,7 +171,6 @@ func TestCoalesce_NonZero(t *testing.T) {
 func runCoalesceTests[T comparable](t *testing.T, cases []coalesceTestCase[T]) {
 	t.Helper()
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			if got := coalesceNonZero(tt.args.existing, tt.args.new); got != tt.want {
 				t.Errorf("CoalesceNonZero() = %v, want %v", got, tt.want)

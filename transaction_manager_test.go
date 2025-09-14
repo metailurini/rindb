@@ -132,7 +132,6 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			fs, cleanup := tt.setup(t)
 			if cleanup != nil {
@@ -386,7 +385,6 @@ func TestTransactionManager_CommitErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			fs := newTempFS(t)
 			tm := newTransactionManager()
@@ -434,7 +432,6 @@ func TestTransactionManager_RollbackErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			fs := newTempFS(t)
 			tm := newTransactionManager()

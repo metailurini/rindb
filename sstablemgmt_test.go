@@ -81,7 +81,6 @@ func TestSSTableManager_OpenAndLoadSSTable(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			cfg := testConfig()

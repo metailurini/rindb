@@ -43,7 +43,6 @@ func TestOffsetReader_Read(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("hello")})
 			defer closer()

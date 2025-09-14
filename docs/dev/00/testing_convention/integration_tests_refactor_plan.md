@@ -36,7 +36,6 @@
            {"descending", []string{"b","a"}},
        }
        for _, tt := range cases {
-           tt := tt
            t.Run(tt.name, func(t *testing.T) {
                // ...
            })

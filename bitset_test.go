@@ -24,8 +24,8 @@ func TestBitset_New(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			bs := NewBitset(tt.size)
 			assert.Equal(t, tt.size, bs.size)
 			for i := uint32(0); i < tt.size; i++ {
@@ -75,8 +75,8 @@ func TestBitset_Set(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tt.action(t, tt.size)
 		})
 	}

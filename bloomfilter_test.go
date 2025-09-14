@@ -43,7 +43,6 @@ func TestBloomFilter_BasicOperations(t *testing.T) {
 		{"lookup absent words", wordAbsent, false},
 	}
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			for _, w := range tt.words {
 				assert.Equal(t, tt.want, b.Lookup(Bytes(w)))
@@ -93,7 +92,6 @@ func TestBloomFilter_Options(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewBloomFilter(tt.opts...)
 

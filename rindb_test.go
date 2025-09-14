@@ -38,7 +38,6 @@ func TestRindb_Put(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			err := rin.Put(context.Background(), tt.key, tt.value)
 			assert.NoError(t, err)

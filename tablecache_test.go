@@ -42,7 +42,6 @@ func TestTableCache_HitMiss(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			var opens atomic.Int32
 			cache := newTestCache(t, tableCacheOptions{
@@ -102,7 +101,6 @@ func TestTableCache_TryGetStats(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			cache := newTestCache(t, tableCacheOptions{})

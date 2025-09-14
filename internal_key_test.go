@@ -31,7 +31,6 @@ func TestInternalKey_Decode(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			internalKey := EncodeInternalKey(tt.userKey, tt.seq, tt.typ)
 			decodedUserKey, decodedSeq, decodedTyp, err := DecodeInternalKey(internalKey)

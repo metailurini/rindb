@@ -65,7 +65,6 @@ func TestRecord_WriteRead(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tx, cleanup := newFileTx(t)
@@ -175,7 +174,6 @@ func TestReadRecord_Errors(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			r := tt.setup()

@@ -90,7 +90,6 @@ func TestFileSystem_BasicOperations(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, tt.test)
 	}
 }
@@ -177,7 +176,6 @@ func TestFileSystem_CursorPos(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			fss, closer := initTempFileSystems(t, 1, nil)
 			defer closer()
@@ -218,7 +216,6 @@ func TestOpenExistingFS_FilePresence(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			dir := t.TempDir()

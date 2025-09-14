@@ -23,7 +23,6 @@
            {"miss", "k2", false},
        }
        for _, tt := range cases {
-           tt := tt
            t.Run(tt.name, func(t *testing.T) {
                got := cache.Load(tt.key)
                require.Equal(t, tt.want, got)

@@ -126,7 +126,6 @@ func TestMemtable_MaxSequenceNumber(t *testing.T) {
 	}
 
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			mem := InitMemtable(cfg)
 			for _, r := range tt.records {

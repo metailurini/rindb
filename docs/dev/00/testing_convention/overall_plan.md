@@ -32,7 +32,6 @@
            {"tombstone", newDeletion(Bytes("k"), 2), []byte{0x00}},
        }
        for _, tt := range tests {
-           tt := tt
            t.Run(tt.name, func(t *testing.T) {
                got := Encode(tt.rec)
                assert.Equal(t, tt.want, got)
