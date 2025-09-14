@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestDefaultConfig verifies that DefaultConfig returns the expected default values.
-func TestDefaultConfig(t *testing.T) {
+// TestConfig_Default verifies that DefaultConfig returns the expected default values.
+func TestConfig_Default(t *testing.T) {
 	cfg := DefaultConfig()
 
 	tests := []struct {
@@ -37,6 +37,7 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.got != tt.want {
 				t.Errorf("DefaultConfig() %s = %v, want %v", tt.name, tt.got, tt.want)
@@ -45,8 +46,8 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
-// TestNewConfigWithOptions tests that NewConfig applies options correctly.
-func TestNewConfigWithOptions(t *testing.T) {
+// TestConfig_NewWithOptions tests that NewConfig applies options correctly.
+func TestConfig_NewWithOptions(t *testing.T) {
 	tests := []struct {
 		name   string
 		opts   []Option
@@ -239,6 +240,7 @@ func TestNewConfigWithOptions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := NewConfig(tt.opts...)
 			tt.verify(t, cfg)
@@ -246,7 +248,7 @@ func TestNewConfigWithOptions(t *testing.T) {
 	}
 }
 
-func TestConfigValidatePanics(t *testing.T) {
+func TestConfig_ValidatePanics(t *testing.T) {
 	base := DefaultConfig()
 	tests := []struct {
 		name   string
@@ -282,6 +284,7 @@ func TestConfigValidatePanics(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := base
 			tt.mutate(&cfg)
