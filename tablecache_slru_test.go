@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestShardGetEntryLockedRemovesClosedEntry covers the branch where a closed entry is pruned.
-func TestShardGetEntryLockedRemovesClosedEntry(t *testing.T) {
+// TestShardGetEntryLocked_RemovesClosedEntry covers the branch where a closed entry is pruned.
+func TestShardGetEntryLocked_RemovesClosedEntry(t *testing.T) {
 	parent := &tableCache{}
 	s := &shard{
 		items:  make(map[tableKey]*entry),
@@ -42,8 +42,8 @@ func TestShardGetEntryLockedRemovesClosedEntry(t *testing.T) {
 	require.False(t, ok)
 }
 
-// TestPromoteOnHitDemoteAndBreak ensures demotion and the break path when protected list is empty.
-func TestPromoteOnHitDemoteAndBreak(t *testing.T) {
+// TestPromoteOnHit_DemoteAndBreak ensures demotion and the break path when protected list is empty.
+func TestPromoteOnHit_DemoteAndBreak(t *testing.T) {
 	s := &shard{
 		items:        make(map[tableKey]*entry),
 		protCapBytes: 0,
@@ -68,8 +68,8 @@ func TestPromoteOnHitDemoteAndBreak(t *testing.T) {
 	require.EqualValues(t, 1, s.protBytes)
 }
 
-// TestChooseVictimFromProtectedSkipsPinned covers iteration over protected list.
-func TestChooseVictimFromProtectedSkipsPinned(t *testing.T) {
+// TestChooseVictimFromProtected_SkipsPinned covers iteration over protected list.
+func TestChooseVictimFromProtected_SkipsPinned(t *testing.T) {
 	s := &shard{}
 	eUnpinned := &entry{key: tableKey{FileNum: 1}, entry: &tableCacheEntry{}, seg: segProtected}
 	eUnpinned.elem = s.prot.PushBack(eUnpinned)
@@ -80,8 +80,8 @@ func TestChooseVictimFromProtectedSkipsPinned(t *testing.T) {
 	require.Equal(t, eUnpinned, victim)
 }
 
-// TestEvictOrDemoteLockedDemotesTail verifies demotion when protected exceeds cap.
-func TestEvictOrDemoteLockedDemotesTail(t *testing.T) {
+// TestEvictOrDemoteLocked_DemotesTail verifies demotion when protected exceeds cap.
+func TestEvictOrDemoteLocked_DemotesTail(t *testing.T) {
 	parent := &tableCache{}
 	s := &shard{
 		items:        make(map[tableKey]*entry),
@@ -111,8 +111,8 @@ func TestEvictOrDemoteLockedDemotesTail(t *testing.T) {
 	require.EqualValues(t, e2.entry.actualBytes, s.probBytes)
 }
 
-// TestEvictOrDemoteLockedBreakOnEmptyProtected exercises the break when protected list is empty.
-func TestEvictOrDemoteLockedBreakOnEmptyProtected(t *testing.T) {
+// TestEvictOrDemoteLocked_BreakOnEmptyProtected exercises the break when protected list is empty.
+func TestEvictOrDemoteLocked_BreakOnEmptyProtected(t *testing.T) {
 	s := &shard{
 		protCapBytes: 0,
 		protBytes:    1,
@@ -128,8 +128,8 @@ func TestEvictOrDemoteLockedBreakOnEmptyProtected(t *testing.T) {
 	require.Equal(t, 0, s.prot.Len())
 }
 
-// TestEvictOrDemoteLockedDropsRecentWhenNoVictim ensures recent entry is dropped when all are pinned.
-func TestEvictOrDemoteLockedDropsRecentWhenNoVictim(t *testing.T) {
+// TestEvictOrDemoteLocked_DropsRecentWhenNoVictim ensures recent entry is dropped when all are pinned.
+func TestEvictOrDemoteLocked_DropsRecentWhenNoVictim(t *testing.T) {
 	parent := &tableCache{}
 	recentEntry := &tableCacheEntry{
 		Table:       &SStable{},
