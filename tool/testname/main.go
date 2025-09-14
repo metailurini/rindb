@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-var testNameRe = regexp.MustCompile(`^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+$`)
+var testNameRe = regexp.MustCompile(`^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9]+$`)
 
 func main() {
 	flag.Parse()

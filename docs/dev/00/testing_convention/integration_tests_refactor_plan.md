@@ -45,9 +45,9 @@
    - Complexity: 7/10
 
 4. **Add naming enforcement test**
-   - Plan: Implement a test that fails when functions don't match regex `^Test[A-Za-z0-9]+_[A-Za-z0-9]+$`.
+   - Plan: Implement a test that fails when functions don't match regex `^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9]+$`.
    ```go
-   var testNameRe = regexp.MustCompile(`^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+$`)
+   var testNameRe = regexp.MustCompile(`^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9]+$`)
 
    func TestNamingConventions(t *testing.T) {
        for _, name := range testNamesFromPackage(t) {
