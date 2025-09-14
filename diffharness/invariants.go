@@ -3,8 +3,11 @@ package diffharness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+
+	rindb "github.com/metailurini/rindb"
 )
 
 // Invariant checks harness state after each operation.
@@ -17,6 +20,7 @@ func (h *Harness) WithInvariants(invs []Invariant) { h.invariants = invs }
 var defaultInvariants = []Invariant{
 	checkMonotonicReads,
 	checkRangeConcat,
+	checkRangeIterNextPrev,
 }
 
 func compareKVLists(a, b []KV) error {
@@ -121,4 +125,77 @@ func checkRangeConcat(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) er
 		return fmt.Errorf("range right mismatch: mid=%q hi=%q snap=%d: %w", mid, hi, snap, err)
 	}
 	return nil
+}
+
+func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) error {
+	eng, ok := h.My.(IteratorEngine)
+	if !ok || h.Ref == nil || cfg.RangeMax <= 0 || cfg.IterWalk <= 0 {
+		return nil
+	}
+
+	lo := randKey(r, cfg.KeyLen)
+	hi := randKey(r, cfg.KeyLen)
+	for bytes.Compare(hi, lo) <= 0 {
+		hi = randKey(r, cfg.KeyLen)
+	}
+	snap := pickSnapshot(r, h.Seq, h.Snapshots, cfg.SnapshotReuseEvery)
+
+	limit := max(cfg.RangeMax, cfg.IterWalk)
+	want, err := h.Ref.RangeWithSeq(lo, hi, snap, limit)
+	if err != nil {
+		return err
+	}
+
+	it, err := eng.IterRange(ctx, lo, hi, snap)
+	if err != nil {
+		return err
+	}
+	defer it.Close()
+
+	idx, eoi := 0, 0
+	for step := 0; step < cfg.IterWalk && eoi < 2; step++ {
+		if r.Intn(2) == 0 {
+			rec, err := it.Next()
+			if idx >= len(want) {
+				if !errors.Is(err, rindb.EOI) {
+					return fmt.Errorf("expected EOI")
+				}
+				eoi++
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
+				return fmt.Errorf("Next mismatch at %d", idx)
+			}
+			idx++
+			eoi = 0
+		} else {
+			rec, err := it.Prev()
+			if idx <= 0 {
+				if !errors.Is(err, rindb.EOI) {
+					return fmt.Errorf("expected EOI")
+				}
+				eoi++
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			idx--
+			if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
+				return fmt.Errorf("Prev mismatch at %d", idx)
+			}
+			eoi = 0
+		}
+	}
+	return nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
