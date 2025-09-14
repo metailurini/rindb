@@ -180,6 +180,98 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ---
 
+### Cleanup and Reliability
+
+**Goal**: Remove deprecated artifacts and harden manifest lifecycle.
+
+- **Tasks**:
+  - [x] Remove obsolete manifest files.
+  - [x] Handle manifest cleanup errors gracefully.
+
+- **Deliverables**:
+  - Leaner on-disk state without stale manifests.
+  - More reliable startup/shutdown cycles.
+
+- **Version**: `v0.9.0`
+  - **Rationale**: Focused cleanup and reliability improvements warrant a minor release.
+
+---
+
+### Footer & Index Metadata
+
+**Goal**: Encode and validate rich SSTable metadata for safer reads.
+
+- **Tasks**:
+  - [x] Write index metadata to SSTable footer.
+  - [x] Validate footer metadata and index alignment.
+  - [x] Validate empty-index SSTables and padding.
+  - [x] Reuse offset reader for sparse index loading.
+
+- **Deliverables**:
+  - Stronger read-path invariants with verified metadata.
+  - Clear errors on malformed or misaligned indexes.
+
+- **Version**: `v0.10.0`
+  - **Rationale**: Material changes to file format validation justify a minor version.
+
+---
+
+### Oracle Fuzzing & Read Safety
+
+**Goal**: Improve correctness via fuzzing and tighten read semantics.
+
+- **Tasks**:
+  - [x] Add SQLite oracle for fuzzing harness.
+  - [x] Avoid truncated range checks; advance offset reader correctly.
+  - [x] Correct offset reader behavior on read errors.
+  - [x] Improve internal key decoding; prevent reads past data section.
+
+- **Deliverables**:
+  - Differential testing against a known-good oracle.
+  - Safer iterators and IO error handling.
+
+- **Version**: `v0.11.0`
+  - **Rationale**: New fuzzing capabilities and safety fixes merit a minor bump.
+
+---
+
+### Deterministic Replay & Harness Hardening
+
+**Goal**: Make test harness behavior reproducible and robust across restarts.
+
+- **Tasks**:
+  - [x] Replay diffharness operations on restart.
+  - [x] Harden diffharness replay against edge cases.
+  - [x] Avoid spurious commits; prevent key tracker leaks and nondeterminism.
+
+- **Deliverables**:
+  - Deterministic harness behavior across crashes/restarts.
+  - Reduced flakiness in integration testing.
+
+- **Version**: `v0.12.0` / `v0.12.1`
+  - **Rationale**: Feature plus follow-up hardening patch.
+
+---
+
+### Query UX & Test Conventions
+
+**Goal**: Enhance query capabilities and standardize testing/validation.
+
+- **Tasks**:
+  - [x] Add support for reverse range scanning.
+  - [x] Introduce testing conventions and validation tools.
+  - [x] Refine iterator rewind semantics.
+  - [x] Enforce tracing span naming via custom `go vet` analyzer (`tool/spanname`) and integrate into `make check`.
+
+- **Deliverables**:
+  - Richer range query ergonomics.
+  - Consistent tests and stronger quality gates in CI.
+
+- **Version**: `v0.13.0`
+  - **Rationale**: User-facing API improvement alongside developer tooling.
+
+---
+
 ### Production Readiness
 
 **Goal**: Ensure reliability and completeness for real-world use.
@@ -195,7 +287,7 @@ This roadmap outlines the development path for `rindb`, starting from version `v
     - [x] Add `stats` command to `cmd/main.go`.
     - [ ] Add `backup` and `config` commands to `cmd/main.go`.
   - **Packaging**:
-    - [ ] Publish Go module with versioning (update `go.mod`).
+    - [x] Publish Go module with versioning (update `go.mod`).
     - [ ] Create Docker image (add `Dockerfile`).
   - **Release v1.0**:
     - [ ] Production-ready version with comprehensive testing.
@@ -236,13 +328,19 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ## Version Summary
 
-- **`v0.2.0`**: Current version (core LSM functionality: Memtable, WAL, SSTables, Bloom filters).
-- **`v0.2.1`**: Stabilization and Documentation (bug fixes, docs, basic CLI).
-- **`v0.3.0`**: Core Feature Enhancements (range queries, advanced compaction, metrics).
-- **`v0.4.0`**: Performance Optimization (benchmarks, read/write optimizations, memory management).
-- **`v0.5.0`**: Snapshot and Concurrency (point-in-time snapshots, stability improvements).
-- **`v0.6.0`**: SSTable Enhancements and Reliability (SSTable builder, checksums, bug fixes).
-- **`v0.7.0`**: Manifest and Version Management (manifest rotation, repair mode, file tracking).
-- **`v0.8.0`**: Table Cache and File Descriptor Management (table cache, FD limiter, bug fixes).
-- **`v1.0.0`**: Production Readiness (replication, backup, advanced transactions, full CLI, packaging).
-- **`v1.1.0`**: Ecosystem and Community (bindings, plugins, community engagement, optional time-series).
+- **`v0.13.0`**: Current (reverse range scans; testing conventions; spanname vet; iterator refinements).
+- **`v0.12.1` / `v0.12.0`**: Deterministic diffharness replay plus hardening.
+- **`v0.11.0`**: SQLite oracle fuzzing; read-path safety fixes.
+- **`v0.10.0`**: Footer/index metadata encoding and validation.
+- **`v0.9.0`**: Manifest cleanup and reliability.
+- **`v0.8.0`**: Table cache and FD limiter; stability fixes.
+- **`v0.7.0`**: Manifest and version management (rotation, repair mode, tracking).
+- **`v0.6.0`**: SSTable builder, checksums, and reliability improvements.
+- **`v0.5.0`**: Snapshots and concurrency improvements.
+- **`v0.4.0`**: Performance optimization and benchmarking.
+- **`v0.3.0`**: Range queries, compaction triggers, metrics.
+- **`v0.2.1`**: Stabilization, docs, and basic CLI.
+- **`v0.2.0`**: Initial core LSM (Memtable, WAL, SSTables, Bloom filters).
+
+- **`v1.0.0`**: Production readiness (replication, backup, transactions, packaging).
+- **`v1.1.0`**: Ecosystem and community (bindings, plugins, engagement, optional time-series).
