@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,11 +37,7 @@ func TestInternalKey_Decode(t *testing.T) {
 			decodedUserKey, decodedSeq, decodedTyp, err := DecodeInternalKey(internalKey)
 
 			require.NoError(t, err)
-			if tt.wantKey == nil {
-				require.Nil(t, decodedUserKey)
-			} else {
-				require.True(t, bytes.Equal(tt.wantKey, decodedUserKey))
-			}
+			require.Equal(t, tt.wantKey, decodedUserKey)
 			require.Equal(t, tt.seq, decodedSeq)
 			require.Equal(t, tt.typ, decodedTyp)
 		})
