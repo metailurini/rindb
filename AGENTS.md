@@ -24,7 +24,7 @@
 
 ## Testing Guidelines
 - Frameworks: Standard `testing` with `testify` for assertions.
-- Naming: Top‑level tests follow `Test<Subject>_<Behavior>`; integration tests in `integration/` use the same pattern.
+- Naming: Top‑level tests follow `Test<Subject>_<Behavior>`; integration tests in `integration/` use the same pattern. See `docs/dev/00/testing_convention/test_naming_and_template.md` for examples and the table-driven template.
 - Structure: When covering multiple cases, use table‑driven tests with `t.Run(tt.name, ...)`; subtest names should be descriptive and human‑readable.
 - Data: Write temp files under `testdata/`. Tests clean this directory; do not commit generated artifacts.
 - Integration tests live in `integration/` and use build tags. Run quick tests with `make test-integration-smoke` and the full suite with `make test-integration-full`.
