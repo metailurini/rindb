@@ -2,6 +2,7 @@ package diffharness
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	rindb "github.com/metailurini/rindb"
@@ -32,7 +33,7 @@ func TestRinDBEngine_IterRange(t *testing.T) {
 	for it.HasNext() {
 		rec, err := it.Next()
 		require.NoError(t, err)
-		got = append(got, append([]byte(nil), []byte(rec.GetKey())...))
+		got = append(got, slices.Clone([]byte(rec.GetKey())))
 	}
 
 	require.Equal(t, [][]byte{[]byte("a"), []byte("b"), []byte("c")}, got)
