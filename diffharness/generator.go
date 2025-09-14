@@ -26,48 +26,69 @@ func randKey(r *rand.Rand, n int) []byte { return randPrefixedBytes(r, n, "sk", 
 
 func randValue(r *rand.Rand, n int) []byte { return randPrefixedBytes(r, n, "sv", "ev") }
 
-const maxKnownKeys = 100
-
+// KeyTracker tracks up to max recently seen keys.
 type KeyTracker struct {
-	keys   []string
-	keySet map[string]struct{}
+	keys  []string
+	index map[string]int
+	max   int
+	next  int
+}
+
+// NewKeyTracker initializes a KeyTracker with a maximum size.
+func NewKeyTracker(max int) KeyTracker {
+	if max <= 0 {
+		max = 100
+	}
+	return KeyTracker{max: max, index: make(map[string]int, max)}
 }
 
 func (kt *KeyTracker) Add(k []byte) {
-	if kt.keySet == nil {
-		kt.keySet = make(map[string]struct{})
+	if kt.index == nil {
+		kt.index = make(map[string]int, kt.max)
 	}
 	s := string(k)
-	if _, ok := kt.keySet[s]; ok {
+	if _, ok := kt.index[s]; ok {
 		return
 	}
-	if len(kt.keys) >= maxKnownKeys {
-		oldest := kt.keys[0]
-		copy(kt.keys, kt.keys[1:])
-		kt.keys[len(kt.keys)-1] = ""
-		kt.keys = kt.keys[:len(kt.keys)-1]
-		delete(kt.keySet, oldest)
+	if len(kt.keys) < kt.max {
+		kt.keys = append(kt.keys, s)
+		kt.index[s] = len(kt.keys) - 1
+		return
 	}
-	kt.keys = append(kt.keys, s)
-	kt.keySet[s] = struct{}{}
+	victim := kt.keys[kt.next]
+	delete(kt.index, victim)
+	kt.keys[kt.next] = s
+	kt.index[s] = kt.next
+	kt.next++
+	if kt.next >= kt.max {
+		kt.next = 0
+	}
 }
 
 func (kt *KeyTracker) Del(k []byte) {
-	if kt.keySet == nil {
+	if kt.index == nil {
 		return
 	}
 	s := string(k)
-	if _, ok := kt.keySet[s]; !ok {
+	idx, ok := kt.index[s]
+	if !ok {
 		return
 	}
-	delete(kt.keySet, s)
-	for i, v := range kt.keys {
-		if v == s {
-			copy(kt.keys[i:], kt.keys[i+1:])
-			kt.keys[len(kt.keys)-1] = ""
-			kt.keys = kt.keys[:len(kt.keys)-1]
-			break
-		}
+	last := len(kt.keys) - 1
+	if idx != last {
+		kt.keys[idx] = kt.keys[last]
+		kt.index[kt.keys[idx]] = idx
+	}
+	kt.keys[last] = ""
+	kt.keys = kt.keys[:last]
+	delete(kt.index, s)
+	if kt.next > idx {
+		kt.next--
+	}
+	if len(kt.keys) > 0 {
+		kt.next %= len(kt.keys)
+	} else {
+		kt.next = 0
 	}
 }
 
@@ -90,8 +111,11 @@ func (ro RandOps) genKey(r *rand.Rand, kt *KeyTracker) []byte {
 	return k
 }
 
-func pickSnapshot(r *rand.Rand, seq uint64, snaps []uint64) uint64 {
-	if len(snaps) == 0 || r.Intn(10) == 0 {
+func pickSnapshot(r *rand.Rand, seq uint64, snaps []uint64, reuseEvery int) uint64 {
+	if reuseEvery <= 0 {
+		reuseEvery = 10
+	}
+	if len(snaps) == 0 || r.Intn(reuseEvery) == 0 {
 		return seq
 	}
 	return snaps[r.Intn(len(snaps))]
@@ -125,7 +149,7 @@ func (ro RandOps) Next(r *rand.Rand, kt *KeyTracker, seq uint64, snaps []uint64)
 		return DelOp{K: key}
 	case OpGet:
 		key := ro.genKey(r, kt)
-		s := pickSnapshot(r, seq, snaps)
+		s := pickSnapshot(r, seq, snaps, ro.cfg.SnapshotReuseEvery)
 		return GetOp{K: key, SnapSeq: s}
 	case OpRange:
 		lo := randKey(r, ro.cfg.KeyLen)
@@ -133,7 +157,7 @@ func (ro RandOps) Next(r *rand.Rand, kt *KeyTracker, seq uint64, snaps []uint64)
 		for bytes.Compare(hi, lo) <= 0 {
 			hi = randKey(r, ro.cfg.KeyLen)
 		}
-		s := pickSnapshot(r, seq, snaps)
+		s := pickSnapshot(r, seq, snaps, ro.cfg.SnapshotReuseEvery)
 		return RangeOp{Lo: lo, Hi: hi, SnapSeq: s, Limit: ro.cfg.RangeMax}
 	case OpSnap:
 		return SnapOp{}

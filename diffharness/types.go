@@ -58,6 +58,8 @@ type Cfg struct {
 	RangeMax  int
 	Weights   map[OpKind]int
 
-	CrashEvery     int
-	TelemetryEvery int
+	CrashEvery         int
+	TelemetryEvery     int
+	MaxKnownKeys       int
+	SnapshotReuseEvery int
 }
