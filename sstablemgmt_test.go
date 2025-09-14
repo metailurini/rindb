@@ -24,50 +24,74 @@ func (failingManifest) Sync() error              { return nil }
 func (failingManifest) Close() error             { return nil }
 func (failingManifest) Path() string             { return "" }
 
-func TestSSTableManager_openAndLoadSSTable(t *testing.T) {
-	ctx := context.Background()
-	cfg := testConfig()
-	mgr := &ssTableManager{config: cfg}
+func TestSSTableManager_OpenAndLoadSSTable(t *testing.T) {
+	cases := []struct {
+		name    string
+		fsSetup func(t *testing.T, ctx context.Context, cfg Config) *FileSystem
+		verify  func(t *testing.T, ctx context.Context, loaded *SStable, fs *FileSystem, err error)
+	}{
+		{
+			name: "loads valid sstable",
+			fsSetup: func(t *testing.T, ctx context.Context, cfg Config) *FileSystem {
+				dir := t.TempDir()
+				fs, err := OpenFS(ctx, filepath.Join(dir, sstPath(1)))
+				require.NoError(t, err)
+				mem := InitMemtable(cfg)
+				mem.Put(newRecord(Bytes("k"), Bytes("v"), 1))
+				sst, _, err := flush(ctx, cfg, mem, fs)
+				require.NoError(t, err)
+				require.NoError(t, sst.Close())
+				return &FileSystem{filePath: sst.Path()}
+			},
+			verify: func(t *testing.T, ctx context.Context, loaded *SStable, _ *FileSystem, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, loaded)
+				assert.True(t, loaded.IsOpened())
+				val, err := loaded.GetValue(ctx, Bytes("k"))
+				assert.NoError(t, err)
+				assert.Equal(t, Bytes("v"), val)
+				require.NoError(t, loaded.Close())
+			},
+		},
+		{
+			name: "fs open failure",
+			fsSetup: func(t *testing.T, _ context.Context, _ Config) *FileSystem {
+				return &FileSystem{filePath: filepath.Join(t.TempDir(), "no", "dir", sstPath(2))}
+			},
+			verify: func(t *testing.T, _ context.Context, loaded *SStable, fs *FileSystem, err error) {
+				assert.Nil(t, loaded)
+				assert.Error(t, err)
+				assert.False(t, fs.IsOpened())
+			},
+		},
+		{
+			name: "sstable creation failure closes fs",
+			fsSetup: func(t *testing.T, _ context.Context, _ Config) *FileSystem {
+				dir := t.TempDir()
+				badPath := filepath.Join(dir, sstPath(3))
+				require.NoError(t, os.WriteFile(badPath, []byte("bad"), 0o644))
+				return &FileSystem{filePath: badPath}
+			},
+			verify: func(t *testing.T, _ context.Context, loaded *SStable, fs *FileSystem, err error) {
+				assert.Nil(t, loaded)
+				assert.Error(t, err)
+				assert.False(t, fs.IsOpened())
+			},
+		},
+	}
 
-	t.Run("loads valid sstable", func(t *testing.T) {
-		dir := t.TempDir()
-		fs, err := OpenFS(ctx, filepath.Join(dir, sstPath(1)))
-		require.NoError(t, err)
-		mem := InitMemtable(cfg)
-		mem.Put(newRecord(Bytes("k"), Bytes("v"), 1))
-		sst, _, err := flush(ctx, cfg, mem, fs)
-		require.NoError(t, err)
-		require.NoError(t, sst.Close())
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			cfg := testConfig()
+			mgr := &ssTableManager{config: cfg}
 
-		fsToLoad := &FileSystem{filePath: sst.Path()}
-		loaded, err := mgr.openAndLoadSSTable(ctx, fsToLoad)
-		require.NoError(t, err)
-		require.NotNil(t, loaded)
-		assert.True(t, loaded.IsOpened())
-		val, err := loaded.GetValue(ctx, Bytes("k"))
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v"), val)
-		require.NoError(t, loaded.Close())
-	})
-
-	t.Run("fs open failure", func(t *testing.T) {
-		fs := &FileSystem{filePath: filepath.Join(t.TempDir(), "no", "dir", sstPath(2))}
-		sst, err := mgr.openAndLoadSSTable(ctx, fs)
-		assert.Nil(t, sst)
-		assert.Error(t, err)
-		assert.False(t, fs.IsOpened())
-	})
-
-	t.Run("sstable creation failure closes fs", func(t *testing.T) {
-		dir := t.TempDir()
-		badPath := filepath.Join(dir, sstPath(3))
-		require.NoError(t, os.WriteFile(badPath, []byte("bad"), 0o644))
-		fs := &FileSystem{filePath: badPath}
-		sst, err := mgr.openAndLoadSSTable(ctx, fs)
-		assert.Nil(t, sst)
-		assert.Error(t, err)
-		assert.False(t, fs.IsOpened())
-	})
+			fs := tt.fsSetup(t, ctx, cfg)
+			loaded, err := mgr.openAndLoadSSTable(ctx, fs)
+			tt.verify(t, ctx, loaded, fs, err)
+		})
+	}
 }
 
 func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
