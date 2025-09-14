@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/metailurini/rindb/compare/v0.12.1...v0.13.0) (2025-09-14)
+
+
+### Features
+
+* Introduce testing conventions and validation tools ([f9dce71](https://github.com/metailurini/rindb/commit/f9dce715251f7252a2f73abb90f457d64a585741))
+
 ## [0.12.1](https://github.com/metailurini/rindb/compare/v0.12.0...v0.12.1) (2025-09-14)
 
 
