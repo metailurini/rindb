@@ -1,10 +1,5 @@
 package diffharness
 
-import (
-	"encoding/json"
-	"os"
-)
-
 // OpKind enumerates supported operation types.
 type OpKind uint8
 
@@ -48,12 +43,10 @@ type Harness struct {
 	Seq       uint64
 	Snapshots []uint64
 
-	log *os.File
-	enc *json.Encoder
 	ops int
 
-	crash     func() error
-	telemetry func(seq uint64, ops int)
+	logger PhaseLogger
+	hooks  HookSet
 }
 
 // Cfg controls random operation generation.

@@ -217,7 +217,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 
 	crashes := 0
 	telem := 0
-	h.SetCrashHook(func() error {
+	h.WithCrash(func() error {
 		crashes++
 		if err := eng.Close(); err != nil {
 			return err
@@ -229,7 +229,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 		eng.o = myOracle
 		return nil
 	})
-	h.SetTelemetryHook(func(seq uint64, ops int) { telem++ })
+	h.WithTelemetry(func(seq uint64, ops int) { telem++ })
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
@@ -238,7 +238,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	snap := h.Seq
 	_, err = h.Step(ctx, SnapOp{})
 	require.NoError(t, err)
-	require.NoError(t, h.crash())
+	require.NoError(t, h.hooks.Crash())
 	v, ok, err := h.My.Get(ctx, []byte("k"), h.Seq)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -283,9 +283,9 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 
 	calls := 0
-	h.SetCrashHook(func() error {
+	h.WithCrash(func() error {
 		calls++
-		if calls == 2 {
+		if calls == 1 {
 			_ = eng.Close()
 			_ = ref.Close()
 			return fmt.Errorf("crash")
@@ -295,7 +295,7 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 
 	_, err = h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v")})
 	require.Error(t, err)
-	require.Equal(t, 2, calls)
+	require.Equal(t, 1, calls)
 	_ = h.Close()
 
 	db2, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir))
@@ -333,4 +333,27 @@ func TestHarnessCloseWithoutSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() { _ = h.Close() })
+}
+
+func TestHookOrderAndNilSafety(t *testing.T) {
+	h := &Harness{logger: nopLogger}
+	order := []string{}
+	h.WithTelemetry(func(seq uint64, ops int) { order = append(order, "telemetry") })
+	h.WithCrash(func() error { order = append(order, "crash"); return nil })
+
+	op := opFunc(func(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) { return true, nil })
+	_, err := h.Step(context.Background(), op)
+	require.NoError(t, err)
+	require.Equal(t, []string{"telemetry", "crash"}, order)
+
+	// Nil hooks should not panic.
+	h.WithHooks(HookSet{})
+	_, err = h.Step(context.Background(), op)
+	require.NoError(t, err)
+}
+
+type opFunc func(ctx context.Context, h *Harness, log PhaseLogger) (bool, error)
+
+func (f opFunc) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
+	return f(ctx, h, log)
 }
