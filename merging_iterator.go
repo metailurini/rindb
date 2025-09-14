@@ -102,14 +102,9 @@ func (m *MergingIterator) Prev() (Record, error) {
 		return empty, EOI
 	}
 	cur := m.rev.PopItem()
-	if cur.iter.HasPrev() {
-		rec, err := cur.iter.Prev()
-		if err != nil {
-			if !errors.Is(err, EOI) {
-				m.err = err
-			}
-		} else if rec.GetKey().Compare(cur.rec.GetKey()) != CmpEqual || rec.GetSequenceNumber() != cur.rec.GetSequenceNumber() {
-			m.fwd.PushItem(pqItem{rec: rec, iter: cur.iter})
+	if _, err := cur.iter.Prev(); err != nil {
+		if !errors.Is(err, EOI) {
+			m.err = err
 		}
 	}
 	m.fwd.PushItem(cur)
