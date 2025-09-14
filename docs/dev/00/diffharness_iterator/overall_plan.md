@@ -9,7 +9,7 @@ func (e *RinDBEngine) IterRange(ctx context.Context, lo, hi []byte, snap uint64)
 ```
 
 ## 2. Extend `Cfg` with `IterWalk`
-Limit the number of iterator steps during invariants.
+Limit the number of iterator steps during invariants. The diffharness CLI exposes this via `--iter-walk`.
 ```go
 type Cfg struct {
     // ...existing fields...
