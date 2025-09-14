@@ -75,3 +75,23 @@ func TestGetOpMismatch(t *testing.T) {
 	var mm *MismatchError
 	require.ErrorAs(t, err, &mm)
 }
+
+func TestPutOpDefaultNoCommit(t *testing.T) {
+	ctx := context.Background()
+	h := &Harness{My: dummyEngine{}}
+	logger := phaseLoggerFunc(func(Op, uint64, Phase) error { return nil })
+	op := PutOp{start: PhaseCommitted}
+	committed, err := op.Apply(ctx, h, logger)
+	require.NoError(t, err)
+	require.False(t, committed)
+}
+
+func TestDelOpDefaultNoCommit(t *testing.T) {
+	ctx := context.Background()
+	h := &Harness{My: dummyEngine{}}
+	logger := phaseLoggerFunc(func(Op, uint64, Phase) error { return nil })
+	op := DelOp{start: PhaseCommitted}
+	committed, err := op.Apply(ctx, h, logger)
+	require.NoError(t, err)
+	require.False(t, committed)
+}
