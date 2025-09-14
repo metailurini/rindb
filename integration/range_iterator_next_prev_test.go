@@ -12,7 +12,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestRangeIteratorAlternatingNextPrevAcrossLevels(t *testing.T) {
+func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
 	// Limit history to ensure Prev() hits EOI after exceeding bounds.
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(100), rindb.WithSSTableIterMaxHistory(1))
 	t.Cleanup(cleanup)

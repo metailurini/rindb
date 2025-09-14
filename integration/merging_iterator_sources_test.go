@@ -11,7 +11,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestIRangeAlternatingAcrossMemtableAndSSTable(t *testing.T) {
+func TestIRange_AlternatingAcrossMemtableAndSSTable(t *testing.T) {
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(175))
 	t.Cleanup(cleanup)
 	ctx := context.Background()
@@ -72,7 +72,7 @@ func TestIRangeAlternatingAcrossMemtableAndSSTable(t *testing.T) {
 	}
 }
 
-func TestIRangeExhaustsSources(t *testing.T) {
+func TestIRange_ExhaustsSources(t *testing.T) {
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(175))
 	t.Cleanup(cleanup)
 	ctx := context.Background()
