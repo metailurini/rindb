@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.13.0](https://github.com/metailurini/rindb/compare/v0.12.1...v0.13.0) (2025-09-14)
+
+
+### Features
+
+* Add support for reverse range scanning ([7948545](https://github.com/metailurini/rindb/commit/7948545355be7566b841f2cda39f1dbb89bee1b0))
+* Introduce testing conventions and validation tools ([f9dce71](https://github.com/metailurini/rindb/commit/f9dce715251f7252a2f73abb90f457d64a585741))
+
+
+### Bug Fixes
+
+* refine iterator rewind semantics ([5153670](https://github.com/metailurini/rindb/commit/51536705d18b7658a03529b0207f81f780588ffc))
+
 ## [0.12.1](https://github.com/metailurini/rindb/compare/v0.12.0...v0.12.1) (2025-09-14)
 
 
