@@ -62,10 +62,10 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
                 }
                 continue
             }
-            idx--
             if err != nil {
                 return err
             }
+            idx--
             if !bytes.Equal(rec.GetKey(), want[idx].Key) {
                 return fmt.Errorf("key mismatch")
             }
