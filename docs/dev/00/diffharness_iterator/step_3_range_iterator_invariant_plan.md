@@ -46,7 +46,9 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
                 continue
             }
             if err != nil { return err }
-            if !bytes.Equal(rec.GetKey(), want[idx].Key) { return fmt.Errorf("key mismatch") }
+if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
+    return fmt.Errorf("Next() mismatch at index %d: got K=%q, want K=%q", idx, rec.GetKey(), want[idx].K)
+}
             idx++
         } else {
             rec, err := it.Prev()
