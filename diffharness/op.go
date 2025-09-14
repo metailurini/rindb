@@ -109,7 +109,7 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		h.addKey(p.K)
 		return true, nil
 	default:
-		return true, nil
+		return false, nil
 	}
 }
 
@@ -182,7 +182,7 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		h.delKey(d.K)
 		return true, nil
 	default:
-		return true, nil
+		return false, nil
 	}
 }
 
