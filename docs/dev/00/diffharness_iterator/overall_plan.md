@@ -22,8 +22,14 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
     if !ok || h.Ref == nil { return nil }
     lo, hi := randKey(r, cfg.KeyLen), randKey(r, cfg.KeyLen)
     snap := pickSnapshot(r, h.Seq, h.Snapshots, cfg.SnapshotReuseEvery)
-    want, _ := h.Ref.RangeWithSeq(lo, hi, snap, cfg.RangeMax)
-    it, _ := re.IterRange(ctx, lo, hi, snap)
+    want, err := h.Ref.RangeWithSeq(lo, hi, snap, cfg.RangeMax)
+    if err != nil {
+        return err
+    }
+    it, err := re.IterRange(ctx, lo, hi, snap)
+    if err != nil {
+        return err
+    }
     defer it.Close()
     // randomly call it.Next() or it.Prev() and compare with `want`
     return nil
