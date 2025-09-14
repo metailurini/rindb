@@ -12,7 +12,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestTableCacheMissAfterGetFollowingCompaction(t *testing.T) {
+func TestTableCache_GetAfterCompactionMiss(t *testing.T) {
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(2),
 		rindb.WithMaxMemtableSize(1),

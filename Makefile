@@ -5,6 +5,7 @@ PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd$$' -e '/cmd/' -e '/diffharne
 
 check:
 	@$(MAKE) check-spanname
+	@$(MAKE) check-testname
 	@$(GO) fmt ./...
 	@echo "Running staticcheck..."
 	@$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
@@ -13,6 +14,10 @@ check:
 check-spanname:
 	@$(GO) build -o ./bin/spanname ./tool/spanname
 	@$(GO) vet -vettool=$$(pwd)/bin/spanname ./...
+
+check-testname:
+	@$(GO) build -o ./bin/testname ./tool/testname
+	@./bin/testname ./integration
 
 .PHONY: clean-testdata
 clean-testdata:

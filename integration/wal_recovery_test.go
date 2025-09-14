@@ -19,7 +19,7 @@ var walRecoveryKVs = []struct{ key, val string }{
 	{"k3", "v3"},
 }
 
-func TestWALRecovery(t *testing.T) {
+func TestWAL_Recovery(t *testing.T) {
 	dir := os.Getenv("WAL_RECOVERY_TEST_DIR")
 	if dir != "" {
 		walRecoveryHelper(t, dir)
@@ -28,7 +28,7 @@ func TestWALRecovery(t *testing.T) {
 
 	dir = t.TempDir()
 
-	args := []string{"-test.run", "TestWALRecovery"}
+	args := []string{"-test.run", "TestWAL_Recovery"}
 	if testing.Verbose() {
 		args = append(args, "-test.v")
 	}

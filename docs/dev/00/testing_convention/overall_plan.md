@@ -65,21 +65,15 @@
    - Dedicated plan file: Yes (unit_tests_refactor_plan.md)
 
 4. **Refactor integration tests and enforce naming check**
-   - Plan: Align integration test names with the same pattern and add a lightweight check to flag misnamed tests.
+   - Plan: Align integration test names with the same pattern and add a dedicated tool to flag misnamed tests.
    ```go
    //go:build integration
    func TestRangeQuery_ReturnsOrderedKeys(t *testing.T) {
        // ...
    }
 
-   var testNameRe = regexp.MustCompile(`^Test[A-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+$`)
-   func TestNameConventions(t *testing.T) {
-       for _, name := range testNamesFromPackage() {
-           if !testNameRe.MatchString(name) {
-               t.Errorf("%s does not follow Test<Subject>_<Behavior>", name)
-           }
-       }
-   }
+   // run during `make check`
+   $ go run ./tool/testname ./integration
    ```
    - Complexity: 7/10
    - Dedicated plan file: Yes (integration_tests_refactor_plan.md)

@@ -12,7 +12,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestCompactionMovesSSTablesToNextLevel(t *testing.T) {
+func TestCompaction_MovesSSTablesToNextLevel(t *testing.T) {
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(2),
 		rindb.WithMaxMemtableSize(1),
@@ -30,14 +30,14 @@ func TestCompactionMovesSSTablesToNextLevel(t *testing.T) {
 		require.NoError(t, db.Put(ctx, rindb.Bytes(kv.key), rindb.Bytes(kv.val)))
 	}
 
-       // Compaction runs asynchronously; allow extra time for slower environments.
-       require.Eventually(t, func() bool {
-               st := db.Stats()
-               if len(st.SSTablesPerLevel) < 2 {
-                       return false
-               }
-               return st.SSTablesPerLevel[0] == 0 && st.SSTablesPerLevel[1] > 0
-       }, 10*time.Second, 100*time.Millisecond, "compaction did not move SSTables to next level")
+	// Compaction runs asynchronously; allow extra time for slower environments.
+	require.Eventually(t, func() bool {
+		st := db.Stats()
+		if len(st.SSTablesPerLevel) < 2 {
+			return false
+		}
+		return st.SSTablesPerLevel[0] == 0 && st.SSTablesPerLevel[1] > 0
+	}, 10*time.Second, 100*time.Millisecond, "compaction did not move SSTables to next level")
 
 	expectedKVs := map[string]string{
 		"k1": "v1_new",
