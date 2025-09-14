@@ -11,72 +11,6 @@ import (
 	"os"
 )
 
-// OpKind enumerates supported operation types.
-type OpKind uint8
-
-const (
-	OpPut OpKind = iota
-	OpDel
-	OpGet
-	OpRange
-	OpSnap
-)
-
-const OpInvariantCheck OpKind = 255
-
-// Op models a single diffharness operation.
-type Op struct {
-	Kind    OpKind
-	K       []byte
-	V       []byte
-	Lo      []byte
-	Hi      []byte
-	SnapSeq uint64
-	Limit   int
-}
-
-type Phase string
-
-const (
-	PhasePrepared  Phase = "prepared"
-	PhaseMyDone    Phase = "my_done"
-	PhaseRefDone   Phase = "ref_done"
-	PhaseCommitted Phase = "committed"
-)
-
-// Harness coordinates both engines and records every executed operation.
-type Harness struct {
-	Seed int64
-
-	My  Engine
-	Ref *SQLiteOracle
-
-	Seq       uint64
-	Snapshots []uint64
-
-	keys   []string
-	keySet map[string]struct{}
-
-	log *os.File
-	enc *json.Encoder
-	ops int
-
-	crash     func() error
-	telemetry func(seq uint64, ops int)
-}
-
-// Cfg controls random operation generation.
-type Cfg struct {
-	KeyLen    int
-	ValLenMin int
-	ValLenMax int
-	RangeMax  int
-	Weights   map[OpKind]int
-
-	CrashEvery     int
-	TelemetryEvery int
-}
-
 // NewHarness creates a harness with the given engines and log file path.
 func NewHarness(my Engine, ref *SQLiteOracle, seed int64, logPath string) (*Harness, error) {
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -223,274 +157,28 @@ func (h *Harness) SetCrashHook(fn func() error) { h.crash = fn }
 // It receives the current sequence and op count.
 func (h *Harness) SetTelemetryHook(fn func(seq uint64, ops int)) { h.telemetry = fn }
 
-type phaseLogger func(Phase) error
-type phaseHook func() error
-
-func applyPut(ctx context.Context, my Engine, ref *SQLiteOracle, op Op, seq uint64, start Phase, log phaseLogger, hook phaseHook) (uint64, error) {
-	finalSeq := seq + 1
-	switch start {
-	case PhasePrepared:
-		if err := my.Begin(ctx); err != nil {
-			return 0, err
-		}
-		if err := my.Put(ctx, op.K, op.V); err != nil {
-			_ = my.Rollback(ctx)
-			return 0, err
-		}
-		if err := my.Commit(ctx); err != nil {
-			return 0, err
-		}
-		if err := log(PhaseMyDone); err != nil {
-			return 0, err
-		}
-		if hook != nil {
-			if err := hook(); err != nil {
-				return 0, err
-			}
-		}
-		fallthrough
-	case PhaseMyDone:
-		if ref != nil {
-			if err := ref.Begin(ctx); err != nil {
-				return 0, err
-			}
-			if err := ref.PutWithSeq(op.K, op.V, finalSeq); err != nil {
-				_ = ref.Rollback(ctx)
-				return 0, err
-			}
-			if err := ref.Commit(ctx); err != nil {
-				return 0, err
-			}
-		}
-		if err := log(PhaseRefDone); err != nil {
-			return 0, err
-		}
-		if hook != nil {
-			if err := hook(); err != nil {
-				return 0, err
-			}
-		}
-		fallthrough
-	case PhaseRefDone:
-		if err := log(PhaseCommitted); err != nil {
-			return 0, err
-		}
-	}
-	return finalSeq, nil
-}
-
-func applyDel(ctx context.Context, my Engine, ref *SQLiteOracle, op Op, seq uint64, start Phase, log phaseLogger, hook phaseHook) (uint64, error) {
-	finalSeq := seq + 1
-	switch start {
-	case PhasePrepared:
-		if err := my.Begin(ctx); err != nil {
-			return 0, err
-		}
-		if err := my.Delete(ctx, op.K); err != nil {
-			_ = my.Rollback(ctx)
-			return 0, err
-		}
-		if err := my.Commit(ctx); err != nil {
-			return 0, err
-		}
-		if err := log(PhaseMyDone); err != nil {
-			return 0, err
-		}
-		if hook != nil {
-			if err := hook(); err != nil {
-				return 0, err
-			}
-		}
-		fallthrough
-	case PhaseMyDone:
-		if ref != nil {
-			if err := ref.Begin(ctx); err != nil {
-				return 0, err
-			}
-			if err := ref.DelWithSeq(op.K, finalSeq); err != nil {
-				_ = ref.Rollback(ctx)
-				return 0, err
-			}
-			if err := ref.Commit(ctx); err != nil {
-				return 0, err
-			}
-		}
-		if err := log(PhaseRefDone); err != nil {
-			return 0, err
-		}
-		if hook != nil {
-			if err := hook(); err != nil {
-				return 0, err
-			}
-		}
-		fallthrough
-	case PhaseRefDone:
-		if err := log(PhaseCommitted); err != nil {
-			return 0, err
-		}
-	}
-	return finalSeq, nil
-}
-
-func applySnap(ctx context.Context, my Engine, ref *SQLiteOracle, seq uint64, start Phase, log phaseLogger, hook phaseHook) (uint64, error) {
-	switch start {
-	case PhasePrepared:
-		s, err := my.NewSnapshot(ctx)
-		if err != nil {
-			return 0, err
-		}
-		if s != seq {
-			return 0, fmt.Errorf("snapshot sequence mismatch: my=%d, have=%d", seq, s)
-		}
-		if err := log(PhaseMyDone); err != nil {
-			return 0, err
-		}
-		if hook != nil {
-			if err := hook(); err != nil {
-				return 0, err
-			}
-		}
-		fallthrough
-	case PhaseMyDone:
-		if ref != nil {
-			refSeq, err := ref.NewSnapshot(ctx)
-			if err != nil {
-				return 0, err
-			}
-			if refSeq != seq {
-				return 0, fmt.Errorf("snapshot sequence mismatch: my=%d, ref=%d", seq, refSeq)
-			}
-		}
-		if err := log(PhaseRefDone); err != nil {
-			return 0, err
-		}
-		if hook != nil {
-			if err := hook(); err != nil {
-				return 0, err
-			}
-		}
-		fallthrough
-	case PhaseRefDone:
-		if err := log(PhaseCommitted); err != nil {
-			return 0, err
-		}
-	}
-	return seq, nil
-}
-
 // Step applies a single operation, logging it before execution.
-func (h *Harness) Step(ctx context.Context, op Op) error {
+func (h *Harness) Step(ctx context.Context, op Operation) error {
 	i := h.ops
-	seq := h.Seq
-	logPhase := func(p Phase) error {
+	logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error {
 		if err := h.enc.Encode(struct {
 			I     int    `json:"i"`
 			Seq   uint64 `json:"seq"`
 			Op    Op     `json:"op"`
 			Phase Phase  `json:"phase"`
-		}{i, seq, op, p}); err != nil {
+		}{i, seq, o, p}); err != nil {
 			return err
 		}
 		return h.log.Sync()
-	}
-	if err := logPhase(PhasePrepared); err != nil {
+	})
+	committed, err := op.Apply(ctx, h, logger)
+	if err != nil {
 		return err
 	}
-	if h.crash != nil {
-		if err := h.crash(); err != nil {
-			return err
-		}
+	if committed {
+		h.Seq++
 	}
 	h.ops++
-	committed := false
-	switch op.Kind {
-	case OpPut:
-		h.Seq++
-		if _, err := applyPut(ctx, h.My, h.Ref, op, seq, PhasePrepared, logPhase, h.crash); err != nil {
-			return h.fail(i, op, err)
-		}
-		h.addKey(op.K)
-		committed = true
-	case OpDel:
-		h.Seq++
-		if _, err := applyDel(ctx, h.My, h.Ref, op, seq, PhasePrepared, logPhase, h.crash); err != nil {
-			return h.fail(i, op, err)
-		}
-		h.delKey(op.K)
-		committed = true
-	case OpGet:
-		mv, mok, me := h.My.Get(ctx, op.K, op.SnapSeq)
-		if me != nil {
-			return h.fail(i, op, me)
-		}
-		if err := logPhase(PhaseMyDone); err != nil {
-			return err
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return err
-			}
-		}
-		if h.Ref != nil {
-			sv, sok, se := h.Ref.GetWithSeq(op.K, op.SnapSeq)
-			if se != nil {
-				return h.fail(i, op, se)
-			}
-			if mok != sok || !bytes.Equal(mv, sv) {
-				return h.mismatch(i, op, mv, mok, sv, sok)
-			}
-		}
-		if err := logPhase(PhaseRefDone); err != nil {
-			return err
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return err
-			}
-		}
-	case OpRange:
-		mres, me := h.My.Range(ctx, op.Lo, op.Hi, op.SnapSeq, op.Limit)
-		if me != nil {
-			return h.fail(i, op, me)
-		}
-		if err := logPhase(PhaseMyDone); err != nil {
-			return err
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return err
-			}
-		}
-		if h.Ref != nil {
-			sres, se := h.Ref.RangeWithSeq(op.Lo, op.Hi, op.SnapSeq, op.Limit)
-			if se != nil {
-				return h.fail(i, op, se)
-			}
-			if err := compareKVLists(mres, sres); err != nil {
-				return h.fail(i, op, err)
-			}
-		}
-		if err := logPhase(PhaseRefDone); err != nil {
-			return err
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return err
-			}
-		}
-	case OpSnap:
-		seqSnap := h.Seq
-		if _, err := applySnap(ctx, h.My, h.Ref, seqSnap, PhasePrepared, logPhase, h.crash); err != nil {
-			return h.fail(i, op, err)
-		}
-		h.Snapshots = append(h.Snapshots, seqSnap)
-		committed = true
-	}
-	if !committed {
-		if err := logPhase(PhaseCommitted); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -524,7 +212,7 @@ func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 	for i := 0; n < 0 || i < n; i++ {
 		op := h.genOp(r, cfg)
-		if err := h.Step(ctx, op); err != nil {
+		if err := h.Step(ctx, opFrom(op, "")); err != nil {
 			return err
 		}
 		if err := h.checkInvariants(ctx, r, cfg); err != nil {
@@ -567,10 +255,6 @@ func (h *Harness) RunForever(ctx context.Context, cfg Cfg) error { return h.Run(
 func (h *Harness) fail(i int, op Op, cause error) error {
 	_ = h.log.Sync()
 	return fmt.Errorf("fuzz fail at i=%d seq=%d kind=%d: %w", i, h.Seq, op.Kind, cause)
-}
-
-func (h *Harness) mismatch(i int, op Op, mv []byte, mok bool, sv []byte, sok bool) error {
-	return h.fail(i, op, fmt.Errorf("mismatch: my=(ok=%v, val=%q) ref=(ok=%v, val=%q)", mok, mv, sok, sv))
 }
 
 func compareKVLists(a, b []KV) error {
@@ -749,59 +433,38 @@ func Replay(ctx context.Context, my Engine, ref *SQLiteOracle, logPath string) (
 	}
 
 	finalize := func(entry logEntry) (uint64, error) {
-		logPhase := func(p Phase) error {
-			return write(logEntry{I: entry.I, Seq: entry.Seq, Op: entry.Op, Phase: p})
+		logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error {
+			return write(logEntry{I: entry.I, Seq: seq, Op: o, Phase: p})
+		})
+		htemp := &Harness{My: my, Ref: ref, Seq: entry.Seq}
+		op := opFrom(entry.Op, entry.Phase)
+		committed, err := op.Apply(ctx, htemp, logger)
+		if err != nil {
+			return 0, err
 		}
-		switch entry.Op.Kind {
-		case OpPut:
-			return applyPut(ctx, my, ref, entry.Op, entry.Seq, entry.Phase, logPhase, nil)
-		case OpDel:
-			return applyDel(ctx, my, ref, entry.Op, entry.Seq, entry.Phase, logPhase, nil)
-		case OpSnap:
-			seq, err := applySnap(ctx, my, ref, entry.Seq, entry.Phase, logPhase, nil)
-			if err != nil {
-				return 0, err
-			}
-			// Replay doesn't retain snapshot handles, so release any
-			// snapshots created while finalizing the log entry.
+		if entry.Op.Kind == OpSnap {
 			switch entry.Phase {
 			case PhasePrepared:
-				if err := my.ReleaseSnapshot(ctx, seq); err != nil {
+				if err := my.ReleaseSnapshot(ctx, entry.Seq); err != nil {
 					return 0, err
 				}
 				if ref != nil {
-					if err := ref.ReleaseSnapshot(ctx, seq); err != nil {
+					if err := ref.ReleaseSnapshot(ctx, entry.Seq); err != nil {
 						return 0, err
 					}
 				}
 			case PhaseMyDone:
 				if ref != nil {
-					if err := ref.ReleaseSnapshot(ctx, seq); err != nil {
+					if err := ref.ReleaseSnapshot(ctx, entry.Seq); err != nil {
 						return 0, err
 					}
 				}
 			}
-			return seq, nil
-		default:
-			switch entry.Phase {
-			case PhasePrepared:
-				if err := logPhase(PhaseCommitted); err != nil {
-					return 0, err
-				}
-			case PhaseMyDone:
-				if err := logPhase(PhaseRefDone); err != nil {
-					return 0, err
-				}
-				if err := logPhase(PhaseCommitted); err != nil {
-					return 0, err
-				}
-			case PhaseRefDone:
-				if err := logPhase(PhaseCommitted); err != nil {
-					return 0, err
-				}
-			}
-			return entry.Seq, nil
 		}
+		if committed {
+			return entry.Seq + 1, nil
+		}
+		return entry.Seq, nil
 	}
 	var finalSeq uint64
 	for _, e := range entries {

@@ -26,10 +26,10 @@ func TestHarnessLogsAndSnapshots(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
 
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("a"), V: []byte("b")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("a"), V: []byte("b")}))
 	require.Equal(t, uint64(1), h.Seq)
 
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	require.NoError(t, h.Step(ctx, SnapOp{}))
 	require.Len(t, h.Snapshots, 2)
 	require.Equal(t, uint64(1), h.Snapshots[1])
 
@@ -105,10 +105,10 @@ func TestHistoricalReads(t *testing.T) {
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v1")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v1")}))
 	snap := h.Seq
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v2")}))
+	require.NoError(t, h.Step(ctx, SnapOp{}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v2")}))
 
 	v, ok, err := h.My.Get(ctx, []byte("k"), snap)
 	require.NoError(t, err)
@@ -139,14 +139,14 @@ func TestRangeHistoricalSnapshot(t *testing.T) {
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("a"), V: []byte("1")}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("b"), V: []byte("2")}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("c"), V: []byte("3")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("a"), V: []byte("1")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("b"), V: []byte("2")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("c"), V: []byte("3")}))
 	snap := h.Seq
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	require.NoError(t, h.Step(ctx, SnapOp{}))
 
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("b"), V: []byte("2'")}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpDel, K: []byte("c")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("b"), V: []byte("2'")}))
+	require.NoError(t, h.Step(ctx, DelOp{K: []byte("c")}))
 
 	res, err := h.My.Range(ctx, []byte("a"), []byte("z"), snap, 10)
 	require.NoError(t, err)
@@ -222,9 +222,9 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v")}))
+	require.NoError(t, h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v")}))
 	snap := h.Seq
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	require.NoError(t, h.Step(ctx, SnapOp{}))
 	require.NoError(t, h.crash())
 	v, ok, err := h.My.Get(ctx, []byte("k"), h.Seq)
 	require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 		return nil
 	})
 
-	err = h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v")})
+	err = h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v")})
 	require.Error(t, err)
 	require.Equal(t, 2, calls)
 	_ = h.Close()
