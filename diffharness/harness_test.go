@@ -217,7 +217,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 
 	crashes := 0
 	telem := 0
-	h.WithCrash(func() error {
+	h.WithCrash(func(int) error {
 		crashes++
 		if err := eng.Close(); err != nil {
 			return err
@@ -238,7 +238,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	snap := h.Seq
 	_, err = h.Step(ctx, SnapOp{})
 	require.NoError(t, err)
-	require.NoError(t, h.hooks.Crash())
+	require.NoError(t, h.hooks.Crash(h.ops))
 	v, ok, err := h.My.Get(ctx, []byte("k"), h.Seq)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -283,7 +283,7 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 
 	calls := 0
-	h.WithCrash(func() error {
+	h.WithCrash(func(int) error {
 		calls++
 		if calls == 1 {
 			_ = eng.Close()
@@ -339,7 +339,7 @@ func TestHookOrderAndNilSafety(t *testing.T) {
 	h := &Harness{logger: nopLogger}
 	order := []string{}
 	h.WithTelemetry(func(seq uint64, ops int) { order = append(order, "telemetry") })
-	h.WithCrash(func() error { order = append(order, "crash"); return nil })
+	h.WithCrash(func(int) error { order = append(order, "crash"); return nil })
 
 	op := opFunc(func(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) { return true, nil })
 	_, err := h.Step(context.Background(), op)
