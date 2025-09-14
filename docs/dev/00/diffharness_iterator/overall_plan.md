@@ -43,7 +43,10 @@ Ensure iterator walk reverses to the original sequence through a dedicated test.
 func TestHarness_RangeIteratorPrev(t *testing.T) {
     ctx := context.Background()
     h := newTestHarness(t)
-    it, _ := h.My.(*RinDBEngine).IterRange(ctx, []byte("a"), []byte("z"), 0)
+    it, err := h.My.(*RinDBEngine).IterRange(ctx, []byte("a"), []byte("z"), 0)
+    if err != nil {
+        t.Fatal(err)
+    }
     // collect forward then backward results and compare
 }
 ```
