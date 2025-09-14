@@ -218,11 +218,10 @@ func TestOpenExistingFS_FilePresence(t *testing.T) {
 				require.Nil(t, fs)
 			}
 
-			_, statErr := os.Stat(filePath)
 			if tt.expectExist {
-				assert.NoError(t, statErr)
+				assert.FileExists(t, filePath)
 			} else {
-				assert.True(t, os.IsNotExist(statErr))
+				assert.NoFileExists(t, filePath)
 			}
 		})
 	}
