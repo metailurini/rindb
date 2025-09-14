@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// TestIRangeRangeQueryDeterministic runs TestIRangeRangeQuery multiple times
-// to ensure deterministic results across runs.
-func TestIRangeRangeQueryDeterministic(t *testing.T) {
+// TestIRange_ReturnsOrderedKeysDeterministic runs TestIRange_ReturnsOrderedKeys
+// multiple times to ensure deterministic results across runs.
+func TestIRange_ReturnsOrderedKeysDeterministic(t *testing.T) {
 	for i := 0; i < 5; i++ {
-		t.Run(fmt.Sprintf("run-%d", i), TestIRangeRangeQuery)
+		t.Run(fmt.Sprintf("run-%d", i), TestIRange_ReturnsOrderedKeys)
 	}
 }

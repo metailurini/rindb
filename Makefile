@@ -1,10 +1,11 @@
 export GOTOOLCHAIN ?= go1.25.0
 GO = go
 UNAME_S := $(shell uname -s)
-PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd$$' -e '/cmd/' -e '/diffharness')
+PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd$$' -e '/cmd/' -e '/diffharness' -e '/tool')
 
 check:
 	@$(MAKE) check-spanname
+	@$(MAKE) check-testname
 	@$(GO) fmt ./...
 	@echo "Running staticcheck..."
 	@$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
@@ -13,6 +14,10 @@ check:
 check-spanname:
 	@$(GO) build -o ./bin/spanname ./tool/spanname
 	@$(GO) vet -vettool=$$(pwd)/bin/spanname ./...
+
+check-testname:
+	@$(GO) build -o ./bin/testname ./tool/testname
+	@./bin/testname ./integration
 
 .PHONY: clean-testdata
 clean-testdata:
@@ -44,7 +49,7 @@ test-integration:
 diffharness-local:
 	@echo "[NOTE], if you want a fresh run, please delete /tmp/test/ manually"
 	@echo "Running diffharness tests locally..."
-	@cd diffharness && go run cmd/main.go --dir /tmp/test/
+	@cd diffharness && go run cmd/main.go --dir /tmp/test/ --crash-every=5 --telemetry-every=1 --metamorphic=true
 
 diffharness-build:
 	@echo "Building diffharness for linux/amd64..."

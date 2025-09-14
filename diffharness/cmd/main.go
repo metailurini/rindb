@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/metailurini/rindb"
@@ -47,7 +49,32 @@ func main() {
 			struct {
 				label string
 				opts  []rindb.Option
-			}{"no-bloom", []rindb.Option{rindb.WithBloomFalsePositiveRate(0)}})
+			}{"no-bloom", []rindb.Option{rindb.WithBloomFalsePositiveRate(0.9)}})
+
+		var wg sync.WaitGroup
+		errCh := make(chan error, len(configs))
+		for _, c := range configs {
+			c := c
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runDir := *dir
+				if runDir != "" {
+					runDir = filepath.Join(runDir, c.label)
+				}
+				if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+					errCh <- fmt.Errorf("%s run failed: %w", c.label, err)
+				}
+			}()
+		}
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		return
 	}
 
 	for _, c := range configs {
@@ -140,12 +167,14 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 			diffharness.OpRange: 1,
 			diffharness.OpSnap:  1,
 		},
-		CrashEvery:     crashEvery,
-		TelemetryEvery: telemetryEvery,
+		CrashEvery:         crashEvery,
+		TelemetryEvery:     telemetryEvery,
+		MaxKnownKeys:       100,
+		SnapshotReuseEvery: 10,
 	}
 
 	if crashEvery > 0 {
-		h.SetCrashHook(func() error {
+		h.WithCrash(func(ops int) error {
 			if err := eng.Close(); err != nil {
 				return err
 			}
@@ -164,6 +193,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 			h.My = eng
 			h.Ref = r
 			ref = r
+			h.Snapshots = nil
 			return nil
 		})
 	}
@@ -171,7 +201,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	if telemetryEvery > 0 {
 		start := time.Now()
 		lastOps := 0
-		h.SetTelemetryHook(func(seq uint64, ops int) {
+		h.WithTelemetry(func(seq uint64, ops int) {
 			elapsed := time.Since(start)
 			rate := float64(ops-lastOps) / elapsed.Seconds()
 			log.Printf("seq=%d ops=%d rate=%.1f ops/s", seq, ops, rate)

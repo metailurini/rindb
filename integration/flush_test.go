@@ -11,7 +11,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestFlushPersistsDataToSSTables(t *testing.T) {
+func TestFlush_PersistsDataToSSTables(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 

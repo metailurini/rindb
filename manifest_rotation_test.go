@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestManifestRotation(t *testing.T) {
+func TestManifestRotation_Rotates(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	rin, cleanup := initRinDBWithCleanup(t,
@@ -45,29 +45,45 @@ func TestManifestRotation(t *testing.T) {
 	require.NoError(t, r.Close())
 }
 
-func TestMaybeRotateManifest(t *testing.T) {
+func TestManifestRotation_MaybeRotate(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
-	fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
-	require.NoError(t, err)
-	mw := newManifestWriterMock(fs)
-	vs := &versionSet{}
-	rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, SSTableManager: &ssTableManager{manifest: mw, versionSet: vs, config: cfg}}
+	cases := []struct {
+		name       string
+		writeExtra bool
+		rotated    bool
+	}{
+		{"below threshold", false, false},
+		{"exceed threshold", true, true},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
+			fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
+			require.NoError(t, err)
+			mw := newManifestWriterMock(fs)
+			vs := &versionSet{}
+			rin := &Rindb{config: cfg, versionSet: vs, manifest: mw, SSTableManager: &ssTableManager{manifest: mw, versionSet: vs, config: cfg}}
 
-	// Below threshold
-	require.NoError(t, rin.maybeRotateManifest(ctx))
-	require.Equal(t, fs.Path(), rin.manifest.Path())
+			if tc.writeExtra {
+				_, err = fs.Write([]byte(strings.Repeat("x", int(cfg.manifestSizeThreshold+1))))
+				require.NoError(t, err)
+			}
 
-	// Exceed threshold
-	_, err = fs.Write([]byte(strings.Repeat("x", int(cfg.manifestSizeThreshold+1))))
-	require.NoError(t, err)
-	oldPath := rin.manifest.Path()
-	require.NoError(t, rin.maybeRotateManifest(ctx))
-	require.NotEqual(t, oldPath, rin.manifest.Path())
+			oldPath := rin.manifest.Path()
+			require.NoError(t, rin.maybeRotateManifest(ctx))
+			if tc.rotated {
+				require.NotEqual(t, oldPath, rin.manifest.Path())
+			} else {
+				require.Equal(t, oldPath, rin.manifest.Path())
+			}
+		})
+	}
 }
 
-func TestCleanupManifests(t *testing.T) {
+func TestManifestRotation_Cleanup(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	for i := 1; i <= 5; i++ {
@@ -92,7 +108,7 @@ func TestCleanupManifests(t *testing.T) {
 	require.ElementsMatch(t, expected, names)
 }
 
-func TestManifestRotationCleanup(t *testing.T) {
+func TestManifestRotation_CleanupAfterRotation(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
@@ -126,7 +142,7 @@ func TestManifestRotationCleanup(t *testing.T) {
 	require.Equal(t, manifestsToKeepAfterRotation+1, len(manifests))
 }
 
-func TestManifestRotationRecovery(t *testing.T) {
+func TestManifestRotation_Recovery(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 

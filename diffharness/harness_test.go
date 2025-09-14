@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,10 +27,12 @@ func TestHarnessLogsAndSnapshots(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
 
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("a"), V: []byte("b")}))
+	_, err = h.Step(ctx, PutOp{K: []byte("a"), V: []byte("b")})
+	require.NoError(t, err)
 	require.Equal(t, uint64(1), h.Seq)
 
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	_, err = h.Step(ctx, SnapOp{})
+	require.NoError(t, err)
 	require.Len(t, h.Snapshots, 2)
 	require.Equal(t, uint64(1), h.Snapshots[1])
 
@@ -58,11 +61,11 @@ type sqliteEngine struct {
 }
 
 func (e *sqliteEngine) Put(ctx context.Context, k, v []byte) error {
-	return e.o.PutWithSeq(k, v, *e.seq)
+	return e.o.PutWithSeq(k, v, *e.seq+1)
 }
 
 func (e *sqliteEngine) Delete(ctx context.Context, k []byte) error {
-	return e.o.DelWithSeq(k, *e.seq)
+	return e.o.DelWithSeq(k, *e.seq+1)
 }
 
 func (e *sqliteEngine) Get(ctx context.Context, k []byte, snapshot uint64) ([]byte, bool, error) {
@@ -105,10 +108,13 @@ func TestHistoricalReads(t *testing.T) {
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v1")}))
+	_, err = h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v1")})
+	require.NoError(t, err)
 	snap := h.Seq
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v2")}))
+	_, err = h.Step(ctx, SnapOp{})
+	require.NoError(t, err)
+	_, err = h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v2")})
+	require.NoError(t, err)
 
 	v, ok, err := h.My.Get(ctx, []byte("k"), snap)
 	require.NoError(t, err)
@@ -139,14 +145,20 @@ func TestRangeHistoricalSnapshot(t *testing.T) {
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("a"), V: []byte("1")}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("b"), V: []byte("2")}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("c"), V: []byte("3")}))
+	_, err = h.Step(ctx, PutOp{K: []byte("a"), V: []byte("1")})
+	require.NoError(t, err)
+	_, err = h.Step(ctx, PutOp{K: []byte("b"), V: []byte("2")})
+	require.NoError(t, err)
+	_, err = h.Step(ctx, PutOp{K: []byte("c"), V: []byte("3")})
+	require.NoError(t, err)
 	snap := h.Seq
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
+	_, err = h.Step(ctx, SnapOp{})
+	require.NoError(t, err)
 
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("b"), V: []byte("2'")}))
-	require.NoError(t, h.Step(ctx, Op{Kind: OpDel, K: []byte("c")}))
+	_, err = h.Step(ctx, PutOp{K: []byte("b"), V: []byte("2'")})
+	require.NoError(t, err)
+	_, err = h.Step(ctx, DelOp{K: []byte("c")})
+	require.NoError(t, err)
 
 	res, err := h.My.Range(ctx, []byte("a"), []byte("z"), snap, 10)
 	require.NoError(t, err)
@@ -186,6 +198,33 @@ func TestHarnessRunChecksInvariants(t *testing.T) {
 	require.NoError(t, h.Run(ctx, cfg, 50))
 }
 
+func TestHarnessWithInvariants(t *testing.T) {
+	dir := t.TempDir()
+	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref.Close() })
+
+	myOracle, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	require.NoError(t, err)
+	eng := &sqliteEngine{o: myOracle}
+
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, ref, 1, logPath)
+	require.NoError(t, err)
+	eng.seq = &h.Seq
+	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+
+	called := 0
+	h.WithInvariants([]Invariant{func(ctx context.Context, _ *Harness, _ *rand.Rand, _ Cfg) error {
+		called++
+		return nil
+	}})
+
+	cfg := Cfg{KeyLen: 10, ValLenMax: 20, Weights: map[OpKind]int{OpPut: 1}}
+	require.NoError(t, h.Run(context.Background(), cfg, 1))
+	require.Equal(t, 1, called)
+}
+
 func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -206,7 +245,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 
 	crashes := 0
 	telem := 0
-	h.SetCrashHook(func() error {
+	h.WithCrash(func(int) error {
 		crashes++
 		if err := eng.Close(); err != nil {
 			return err
@@ -218,14 +257,16 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 		eng.o = myOracle
 		return nil
 	})
-	h.SetTelemetryHook(func(seq uint64, ops int) { telem++ })
+	h.WithTelemetry(func(seq uint64, ops int) { telem++ })
 
 	ctx := context.Background()
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	require.NoError(t, h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v")}))
+	_, err = h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v")})
+	require.NoError(t, err)
 	snap := h.Seq
-	require.NoError(t, h.Step(ctx, Op{Kind: OpSnap}))
-	require.NoError(t, h.crash())
+	_, err = h.Step(ctx, SnapOp{})
+	require.NoError(t, err)
+	require.NoError(t, h.hooks.Crash(h.ops))
 	v, ok, err := h.My.Get(ctx, []byte("k"), h.Seq)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -270,9 +311,10 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 	h.Snapshots = append(h.Snapshots, h.Seq)
 
 	calls := 0
-	h.SetCrashHook(func() error {
+	h.hooks.CrashEvery = 1
+	h.WithCrash(func(int) error {
 		calls++
-		if calls == 2 {
+		if calls == 1 {
 			_ = eng.Close()
 			_ = ref.Close()
 			return fmt.Errorf("crash")
@@ -280,9 +322,9 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 		return nil
 	})
 
-	err = h.Step(ctx, Op{Kind: OpPut, K: []byte("k"), V: []byte("v")})
+	_, err = h.Step(ctx, PutOp{K: []byte("k"), V: []byte("v")})
 	require.Error(t, err)
-	require.Equal(t, 2, calls)
+	require.Equal(t, 1, calls)
 	_ = h.Close()
 
 	db2, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dbDir))
@@ -320,4 +362,29 @@ func TestHarnessCloseWithoutSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() { _ = h.Close() })
+}
+
+func TestHookOrderAndNilSafety(t *testing.T) {
+	h := &Harness{logger: nopLogger}
+	h.hooks.TelemetryEvery = 1
+	h.hooks.CrashEvery = 1
+	order := []string{}
+	h.WithTelemetry(func(seq uint64, ops int) { order = append(order, "telemetry") })
+	h.WithCrash(func(int) error { order = append(order, "crash"); return nil })
+
+	op := opFunc(func(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) { return true, nil })
+	_, err := h.Step(context.Background(), op)
+	require.NoError(t, err)
+	require.Equal(t, []string{"telemetry", "crash"}, order)
+
+	// Nil hooks should not panic.
+	h.WithHooks(HookSet{})
+	_, err = h.Step(context.Background(), op)
+	require.NoError(t, err)
+}
+
+type opFunc func(ctx context.Context, h *Harness, log PhaseLogger) (bool, error)
+
+func (f opFunc) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
+	return f(ctx, h, log)
 }

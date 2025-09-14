@@ -11,7 +11,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestRemovePersistsTombstone(t *testing.T) {
+func TestRemove_PersistsTombstone(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	const maxMemtableSize = uint(64)

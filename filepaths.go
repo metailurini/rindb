@@ -32,6 +32,9 @@ func manifestNum(base string) (int, error) {
 func fileNum(p string) (uint64, error) {
 	base := filepath.Base(p)
 	ext := filepath.Ext(base)
+	if ext != walExt && ext != sstExt {
+		return 0, fmt.Errorf("invalid file extension for path %s", p)
+	}
 	name := strings.TrimSuffix(base, ext)
 	return strconv.ParseUint(name, 10, 64)
 }

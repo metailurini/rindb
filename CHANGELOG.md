@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/metailurini/rindb/compare/v0.12.0...v0.12.1) (2025-09-14)
+
+
+### Bug Fixes
+
+* avoid spurious commits in diffharness ops ([bf83ce4](https://github.com/metailurini/rindb/commit/bf83ce49ba0f8ce7feb9e930269a7601bdb034dc))
+* prevent key tracker leaks and nondeterministic ops ([86de030](https://github.com/metailurini/rindb/commit/86de030ff4c85d6a1fd934315737015abd396928))
+
 ## [0.12.0](https://github.com/metailurini/rindb/compare/v0.11.0...v0.12.0) (2025-09-13)
 
 

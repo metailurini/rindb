@@ -9,41 +9,59 @@ import (
 )
 
 func TestOffsetReader_Read(t *testing.T) {
-	t.Run("advances offset on full read", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("hello")})
-		defer closer()
+	cases := []struct {
+		name      string
+		bufSize   int
+		wantN     int
+		wantOff   int64
+		wantErr   error
+		setupFunc func(fs *FileSystem)
+	}{
+		{
+			name:    "advances offset on full read",
+			bufSize: 5,
+			wantN:   5,
+			wantOff: 5,
+		},
+		{
+			name:    "partial read advances offset",
+			bufSize: 10,
+			wantN:   5,
+			wantOff: 5,
+			wantErr: io.EOF,
+		},
+		{
+			name:    "read error leaves offset unchanged",
+			bufSize: 5,
+			wantN:   0,
+			wantOff: 0,
+			wantErr: ErrFileNotOpened,
+			setupFunc: func(fs *FileSystem) {
+				require.NoError(t, fs.Close())
+			},
+		},
+	}
 
-		r := newOffsetReader(fss[0], 0)
-		buf := make([]byte, 5)
-		n, err := r.Read(buf)
-		require.NoError(t, err)
-		assert.Equal(t, 5, n)
-		assert.Equal(t, int64(5), r.Offset())
-	})
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("hello")})
+			defer closer()
 
-	t.Run("partial read advances offset", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("hello")})
-		defer closer()
+			fs := fss[0]
+			r := newOffsetReader(fs, 0)
+			if tt.setupFunc != nil {
+				tt.setupFunc(fs)
+			}
 
-		r := newOffsetReader(fss[0], 0)
-		buf := make([]byte, 10)
-		n, err := r.Read(buf)
-		assert.ErrorIs(t, err, io.EOF)
-		assert.Equal(t, 5, n)
-		assert.Equal(t, int64(5), r.Offset())
-	})
-
-	t.Run("read error leaves offset unchanged", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("hello")})
-		defer closer()
-
-		fs := fss[0]
-		r := newOffsetReader(fs, 0)
-		require.NoError(t, fs.Close())
-
-		n, err := r.Read(make([]byte, 5))
-		assert.ErrorIs(t, err, ErrFileNotOpened)
-		assert.Zero(t, n)
-		assert.Equal(t, int64(0), r.Offset())
-	})
+			buf := make([]byte, tt.bufSize)
+			n, err := r.Read(buf)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantN, n)
+			assert.Equal(t, tt.wantOff, r.Offset())
+		})
+	}
 }
