@@ -3,10 +3,12 @@ package diffharness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +54,54 @@ func TestHarnessLogsAndSnapshots(t *testing.T) {
 	require.Equal(t, uint64(0), first.Seq)
 	require.Equal(t, OpPut, first.Op.Kind)
 	require.Equal(t, PhasePrepared, first.Phase)
+}
+
+func TestHarness_RangeIteratorPrev(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(filepath.Join(dir, "db")))
+	require.NoError(t, err)
+	eng := NewRinDBEngine(db)
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, nil, 1, logPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+
+	_, err = h.Step(ctx, PutOp{K: []byte("a"), V: []byte("1")})
+	require.NoError(t, err)
+	_, err = h.Step(ctx, PutOp{K: []byte("b"), V: []byte("2")})
+	require.NoError(t, err)
+	_, err = h.Step(ctx, PutOp{K: []byte("c"), V: []byte("3")})
+	require.NoError(t, err)
+
+	iterEng, ok := h.My.(IteratorEngine)
+	require.True(t, ok)
+	it, err := iterEng.IterRange(ctx, []byte("a"), []byte("z"), h.Seq)
+	require.NoError(t, err)
+	defer it.Close()
+
+	var forward [][]byte
+	for {
+		rec, err := it.Next()
+		if errors.Is(err, rindb.EOI) {
+			break
+		}
+		require.NoError(t, err)
+		forward = append(forward, slices.Clone(rec.GetKey()))
+	}
+
+	var backward [][]byte
+	for range forward {
+		rec, err := it.Prev()
+		if errors.Is(err, rindb.EOI) {
+			break
+		}
+		require.NoError(t, err)
+		backward = append(backward, slices.Clone(rec.GetKey()))
+	}
+
+	slices.Reverse(forward)
+	require.Equal(t, forward, backward)
 }
 
 // sqliteEngine adapts SQLiteOracle to the Engine interface for testing.
