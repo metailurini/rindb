@@ -14,39 +14,72 @@ ref:
 - https://github.com/bits-and-blooms/bitset/blob/67644e686bb4b1240a5032822ceaa4cbb7ff8d85/bitset_test.go
 */
 
-func TestBitset_Init(t *testing.T) {
+func TestBitset_New(t *testing.T) {
+	tests := []struct {
+		name string
+		size uint32
+	}{
+		{name: "zero size", size: 0},
+		{name: "non-zero size", size: 10},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			bs := NewBitset(tt.size)
+			assert.Equal(t, tt.size, bs.size)
+			for i := uint32(0); i < tt.size; i++ {
+				assert.False(t, bs.Test(i))
+			}
+		})
+	}
 }
 
 func TestBitset_Set(t *testing.T) {
-	t.Run("Set index bigger than size", func(t *testing.T) {
-		bitset := NewBitset(0)
-		bitset.Set(0)
-		assert.False(t, bitset.Test(9999))
-		assert.Equal(t, uint32(0), bitset.size)
-	})
-
-	t.Run("Bitset with huge size", func(t *testing.T) {
-		size := uint32(1000)
-
-		for skipNum := uint32(2); skipNum < 9; skipNum++ {
-			bitset := NewBitset(size)
-			assert.Equal(t, size, bitset.size)
-
-			for i := size - 1; i > 0; i-- {
-				if i%skipNum == 0 {
-					bitset.Set(i)
+	tests := []struct {
+		name   string
+		size   uint32
+		action func(t *testing.T, size uint32)
+	}{
+		{
+			name: "index bigger than size",
+			size: 0,
+			action: func(t *testing.T, size uint32) {
+				bs := NewBitset(size)
+				bs.Set(0)
+				assert.False(t, bs.Test(9999))
+				assert.Equal(t, uint32(0), bs.size)
+			},
+		},
+		{
+			name: "huge size",
+			size: 1000,
+			action: func(t *testing.T, size uint32) {
+				for skipNum := uint32(2); skipNum < 9; skipNum++ {
+					bs := NewBitset(size)
+					for i := size - 1; i > 0; i-- {
+						if i%skipNum == 0 {
+							bs.Set(i)
+						}
+					}
+					for i := size - 1; i > 0; i-- {
+						if i%skipNum == 0 {
+							assert.True(t, bs.Test(i))
+						} else {
+							assert.False(t, bs.Test(i))
+						}
+					}
 				}
-			}
+			},
+		},
+	}
 
-			for i := size - 1; i > 0; i-- {
-				if i%skipNum == 0 {
-					assert.True(t, bitset.Test(i))
-				} else {
-					assert.False(t, bitset.Test(i))
-				}
-			}
-		}
-	})
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			tt.action(t, tt.size)
+		})
+	}
 }
 
 func BenchmarkBitset_Test(b *testing.B) {
