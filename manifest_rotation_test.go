@@ -58,6 +58,7 @@ func TestManifestRotation_MaybeRotate(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
 			fs, err := OpenFS(ctx, filepath.Join(dir, DefaultManifestFile))
