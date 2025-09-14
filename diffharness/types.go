@@ -48,9 +48,6 @@ type Harness struct {
 	Seq       uint64
 	Snapshots []uint64
 
-	keys   []string
-	keySet map[string]struct{}
-
 	log *os.File
 	enc *json.Encoder
 	ops int

@@ -26,128 +26,7 @@ func (h *Harness) Close() error {
 	return h.log.Close()
 }
 
-const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-func randPrefixedBytes(r *rand.Rand, n int, prefix, suffix string) []byte {
-	minLen := len(prefix) + len(suffix)
-	if n < minLen {
-		n = minLen
-	}
-	b := make([]byte, n)
-	copy(b, prefix)
-	for i := len(prefix); i < n-len(suffix); i++ {
-		b[i] = letters[r.Intn(len(letters))]
-	}
-	copy(b[n-len(suffix):], suffix)
-	return b
-}
-
-func randKey(r *rand.Rand, n int) []byte {
-	return randPrefixedBytes(r, n, "sk", "ek")
-}
-
-func randValue(r *rand.Rand, n int) []byte {
-	return randPrefixedBytes(r, n, "sv", "ev")
-}
-
-const maxKnownKeys = 100
-
-func (h *Harness) addKey(k []byte) {
-	if h.keySet == nil {
-		h.keySet = make(map[string]struct{})
-	}
-	s := string(k)
-	if _, ok := h.keySet[s]; ok {
-		return
-	}
-	if len(h.keys) >= maxKnownKeys {
-		oldest := h.keys[0]
-		h.keys = h.keys[1:]
-		delete(h.keySet, oldest)
-	}
-	h.keys = append(h.keys, s)
-	h.keySet[s] = struct{}{}
-}
-
-func (h *Harness) delKey(k []byte) {
-	if h.keySet == nil {
-		return
-	}
-	s := string(k)
-	if _, ok := h.keySet[s]; !ok {
-		return
-	}
-	delete(h.keySet, s)
-	for i, v := range h.keys {
-		if v == s {
-			h.keys = append(h.keys[:i], h.keys[i+1:]...)
-			break
-		}
-	}
-}
-
-func (h *Harness) pickKnownKey(r *rand.Rand) []byte {
-	if len(h.keys) == 0 {
-		return nil
-	}
-	return []byte(h.keys[r.Intn(len(h.keys))])
-}
-
-func (h *Harness) genKey(r *rand.Rand, n int) []byte {
-	k := randKey(r, n)
-	if ex := h.pickKnownKey(r); ex != nil && r.Intn(2) == 0 {
-		k = ex
-	}
-	return k
-}
-
-func (h *Harness) genOp(r *rand.Rand, cfg Cfg) Op {
-	sum := 0
-	for _, w := range cfg.Weights {
-		sum += w
-	}
-	x := r.Intn(sum)
-	var kind OpKind
-	for op, w := range cfg.Weights {
-		if x < w {
-			kind = op
-			break
-		}
-		x -= w
-	}
-	switch kind {
-	case OpPut:
-		vlen := cfg.ValLenMin + r.Intn(cfg.ValLenMax-cfg.ValLenMin+1)
-		key := h.genKey(r, cfg.KeyLen)
-		return Op{Kind: OpPut, K: key, V: randValue(r, vlen)}
-	case OpDel:
-		key := h.genKey(r, cfg.KeyLen)
-		return Op{Kind: OpDel, K: key}
-	case OpGet:
-		key := h.genKey(r, cfg.KeyLen)
-		s := h.pickSnapshot(r)
-		return Op{Kind: OpGet, K: key, SnapSeq: s}
-	case OpRange:
-		lo := randKey(r, cfg.KeyLen)
-		hi := randKey(r, cfg.KeyLen)
-		for bytes.Compare(hi, lo) <= 0 {
-			hi = randKey(r, cfg.KeyLen)
-		}
-		s := h.pickSnapshot(r)
-		return Op{Kind: OpRange, Lo: lo, Hi: hi, SnapSeq: s, Limit: cfg.RangeMax}
-	case OpSnap:
-		return Op{Kind: OpSnap}
-	default:
-		panic("unknown op kind")
-	}
-}
-
-func (h *Harness) pickSnapshot(r *rand.Rand) uint64 {
-	if len(h.Snapshots) == 0 || r.Intn(10) == 0 {
-		return h.Seq
-	}
-	return h.Snapshots[r.Intn(len(h.Snapshots))]
-}
+// randomness helpers moved to generator.go
 
 // SetCrashHook registers a callback invoked after CrashEvery operations.
 // The callback should close and reopen both engines to simulate recovery.
@@ -158,7 +37,7 @@ func (h *Harness) SetCrashHook(fn func() error) { h.crash = fn }
 func (h *Harness) SetTelemetryHook(fn func(seq uint64, ops int)) { h.telemetry = fn }
 
 // Step applies a single operation, logging it before execution.
-func (h *Harness) Step(ctx context.Context, op Operation) error {
+func (h *Harness) Step(ctx context.Context, op Operation) (bool, error) {
 	i := h.ops
 	logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error {
 		if err := h.enc.Encode(struct {
@@ -173,13 +52,13 @@ func (h *Harness) Step(ctx context.Context, op Operation) error {
 	})
 	committed, err := op.Apply(ctx, h, logger)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if committed {
 		h.Seq++
 	}
 	h.ops++
-	return nil
+	return committed, nil
 }
 
 func (h *Harness) releaseSnapshots(ctx context.Context, logErrors bool) error {
@@ -210,10 +89,21 @@ func (h *Harness) releaseSnapshots(ctx context.Context, logErrors bool) error {
 
 func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 	h.Snapshots = append(h.Snapshots, h.Seq)
+	kt := KeyTracker{}
+	ro := RandOps{cfg: cfg}
 	for i := 0; n < 0 || i < n; i++ {
-		op := h.genOp(r, cfg)
-		if err := h.Step(ctx, opFrom(op, "")); err != nil {
+		op := ro.Next(r, &kt, h.Seq, h.Snapshots)
+		committed, err := h.Step(ctx, op)
+		if err != nil {
 			return err
+		}
+		if committed {
+			switch t := op.(type) {
+			case PutOp:
+				kt.Add(t.K)
+			case DelOp:
+				kt.Del(t.K)
+			}
 		}
 		if err := h.checkInvariants(ctx, r, cfg); err != nil {
 			return h.fail(h.ops, Op{Kind: OpInvariantCheck}, err)
@@ -319,7 +209,7 @@ func (h *Harness) checkInvariants(ctx context.Context, r *rand.Rand, cfg Cfg) er
 		for bytes.Compare(mid, lo) <= 0 || bytes.Compare(mid, hi) >= 0 {
 			mid = randKey(r, cfg.KeyLen)
 		}
-		snap := h.pickSnapshot(r)
+		snap := pickSnapshot(r, h.Seq, h.Snapshots)
 		left, err := h.My.Range(ctx, lo, mid, snap, cfg.RangeMax)
 		if err != nil {
 			return err
