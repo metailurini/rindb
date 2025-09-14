@@ -13,7 +13,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestIRangeRangeQuery(t *testing.T) {
+func TestIRange_ReturnsOrderedKeys(t *testing.T) {
 	// Increase maxMemtableSize so some records remain unflushed.
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(300))
 	t.Cleanup(cleanup)

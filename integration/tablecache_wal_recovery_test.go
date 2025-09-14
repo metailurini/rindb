@@ -11,7 +11,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestTableCacheAfterWALRecovery(t *testing.T) {
+func TestTableCache_MissAfterWALRecovery(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	opts := []rindb.Option{

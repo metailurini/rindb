@@ -13,7 +13,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestCompactionRespectsSnapshot(t *testing.T) {
+func TestCompaction_RespectsSnapshot(t *testing.T) {
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(2),
 		rindb.WithMaxMemtableSize(175),
@@ -54,7 +54,7 @@ func TestCompactionRespectsSnapshot(t *testing.T) {
 	require.Zero(t, st.ActiveSnapshots)
 }
 
-func TestCompactionPreservesTombstoneForSnapshot(t *testing.T) {
+func TestCompaction_PreservesSnapshotTombstone(t *testing.T) {
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(1),
 		rindb.WithMaxMemtableSize(200),
