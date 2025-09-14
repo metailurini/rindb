@@ -40,7 +40,7 @@ type PutOp struct {
 func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
 	op := Op{Kind: OpPut, K: p.K, V: p.V}
 	if p.start == "" {
-		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
+		if err := log.Log(op, h.Seq, PhasePrepared, h.ops); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 
@@ -58,7 +58,7 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := h.My.Commit(ctx); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseMyDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
 		fallthrough
@@ -75,12 +75,12 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 				return false, wrapErr(op, PhaseMyDone, err)
 			}
 		}
-		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseRefDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
 		}
 		fallthrough
 	case PhaseRefDone:
-		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
+		if err := log.Log(op, h.Seq, PhaseCommitted, h.ops); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
 		return true, nil
@@ -98,7 +98,7 @@ type DelOp struct {
 func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
 	op := Op{Kind: OpDel, K: d.K}
 	if d.start == "" {
-		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
+		if err := log.Log(op, h.Seq, PhasePrepared, h.ops); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 		d.start = PhasePrepared
@@ -115,7 +115,7 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := h.My.Commit(ctx); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseMyDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
 		fallthrough
@@ -132,12 +132,12 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 				return false, wrapErr(op, PhaseMyDone, err)
 			}
 		}
-		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseRefDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
 		}
 		fallthrough
 	case PhaseRefDone:
-		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
+		if err := log.Log(op, h.Seq, PhaseCommitted, h.ops); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
 		return true, nil
@@ -156,7 +156,7 @@ type GetOp struct {
 func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
 	op := Op{Kind: OpGet, K: g.K, SnapSeq: g.SnapSeq}
 	if g.start == "" {
-		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
+		if err := log.Log(op, h.Seq, PhasePrepared, h.ops); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 		g.start = PhasePrepared
@@ -170,7 +170,7 @@ func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 		mv, mok = v, ok
-		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseMyDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
 		fallthrough
@@ -184,12 +184,12 @@ func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 				return false, &MismatchError{Op: op, MyV: mv, MyOK: mok, RefV: sv, RefOK: sok}
 			}
 		}
-		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseRefDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
 		}
 		fallthrough
 	case PhaseRefDone:
-		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
+		if err := log.Log(op, h.Seq, PhaseCommitted, h.ops); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
 	}
@@ -207,7 +207,7 @@ type RangeOp struct {
 func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
 	op := Op{Kind: OpRange, Lo: r.Lo, Hi: r.Hi, SnapSeq: r.SnapSeq, Limit: r.Limit}
 	if r.start == "" {
-		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
+		if err := log.Log(op, h.Seq, PhasePrepared, h.ops); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 		r.start = PhasePrepared
@@ -220,7 +220,7 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 		mres = res
-		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseMyDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
 		fallthrough
@@ -234,12 +234,12 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 				return false, wrapErr(op, PhaseMyDone, err)
 			}
 		}
-		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseRefDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
 		}
 		fallthrough
 	case PhaseRefDone:
-		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
+		if err := log.Log(op, h.Seq, PhaseCommitted, h.ops); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
 	}
@@ -252,7 +252,7 @@ type SnapOp struct{ start Phase }
 func (s SnapOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
 	op := Op{Kind: OpSnap}
 	if s.start == "" {
-		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
+		if err := log.Log(op, h.Seq, PhasePrepared, h.ops); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
 		s.start = PhasePrepared
@@ -266,7 +266,7 @@ func (s SnapOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, e
 		if seq != h.Seq {
 			return false, wrapErr(op, PhasePrepared, fmt.Errorf("snapshot sequence mismatch: my=%d have=%d", h.Seq, seq))
 		}
-		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseMyDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
 		fallthrough
@@ -280,12 +280,12 @@ func (s SnapOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, e
 				return false, wrapErr(op, PhaseMyDone, fmt.Errorf("snapshot sequence mismatch: my=%d ref=%d", h.Seq, refSeq))
 			}
 		}
-		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
+		if err := log.Log(op, h.Seq, PhaseRefDone, h.ops); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
 		}
 		fallthrough
 	case PhaseRefDone:
-		if err := log.Log(op, h.Seq, PhaseCommitted); err != nil {
+		if err := log.Log(op, h.Seq, PhaseCommitted, h.ops); err != nil {
 			return false, wrapErr(op, PhaseCommitted, err)
 		}
 		h.Snapshots = append(h.Snapshots, h.Seq)

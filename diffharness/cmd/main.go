@@ -145,8 +145,8 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	}
 
 	if crashEvery > 0 {
-		h.WithCrash(func() error {
-			if h.ops%crashEvery != 0 {
+		h.WithCrash(func(ops int) error {
+			if ops%crashEvery != 0 {
 				return nil
 			}
 			if err := eng.Close(); err != nil {
