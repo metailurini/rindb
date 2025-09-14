@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSStable tests the SStable functionality.
-func TestSStable(t *testing.T) {
+// TestSSTable_BasicOperations tests the SStable functionality.
+func TestSSTable_BasicOperations(t *testing.T) {
 	cfg := testConfig()
 	t.Run("FlushEmptyMemtable", func(t *testing.T) {
 		defer func() {

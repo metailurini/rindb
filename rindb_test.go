@@ -27,14 +27,23 @@ func TestRindb_Init(t *testing.T) {
 func TestRindb_Put(t *testing.T) {
 	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
 	defer cleanup()
-	t.Run("BasicPut", func(t *testing.T) {
-		err := rin.Put(context.Background(), Bytes("key"), Bytes("value"))
-		assert.NoError(t, err)
-	})
-	t.Run("Tombstone", func(t *testing.T) {
-		err := rin.Put(context.Background(), Bytes("rm-key"), nil)
-		assert.NoError(t, err)
-	})
+
+	cases := []struct {
+		name  string
+		key   Bytes
+		value Bytes
+	}{
+		{name: "stores value", key: Bytes("key"), value: Bytes("value")},
+		{name: "stores tombstone", key: Bytes("rm-key"), value: nil},
+	}
+
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			err := rin.Put(context.Background(), tt.key, tt.value)
+			assert.NoError(t, err)
+		})
+	}
 }
 
 func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
