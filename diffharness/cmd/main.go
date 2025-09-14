@@ -29,6 +29,7 @@ func main() {
 	seed := flag.Int64("seed", time.Now().UnixNano(), "PRNG seed")
 	n := flag.Int("n", -1, "number of operations (-1 for infinite)")
 	logPath := flag.String("log", "repro.jsonl", "log file path")
+	iterWalk := flag.Int("iter-walk", 64, "max elements to walk when testing iterators")
 	crashEvery := flag.Int("crash-every", 0, "crash/recover every N ops")
 	telemetryEvery := flag.Int("telemetry-every", 0, "emit telemetry every N ops")
 	jaeger := flag.String("jaeger", "", "Jaeger OTLP gRPC endpoint (e.g., localhost:4317)")
@@ -62,7 +63,7 @@ func main() {
 				if runDir != "" {
 					runDir = filepath.Join(runDir, c.label)
 				}
-				if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+				if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *iterWalk, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
 					errCh <- fmt.Errorf("%s run failed: %w", c.label, err)
 				}
 			}()
@@ -82,13 +83,13 @@ func main() {
 		if runDir != "" {
 			runDir = filepath.Join(runDir, c.label)
 		}
-		if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+		if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *iterWalk, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
 			log.Fatalf("%s run failed: %v", c.label, err)
 		}
 	}
 }
 
-func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
+func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, iterWalk, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
 	cleanup := false
 	existed := false
 	if dir == "" {
@@ -160,6 +161,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 		ValLenMin: 10,
 		ValLenMax: 100,
 		RangeMax:  64,
+		IterWalk:  iterWalk,
 		Weights: map[diffharness.OpKind]int{
 			diffharness.OpPut:   5,
 			diffharness.OpDel:   1,
