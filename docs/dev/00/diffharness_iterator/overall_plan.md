@@ -18,8 +18,11 @@ type Cfg struct {
 ```
 
 ## 3. Implement `checkRangeIterNextPrev` invariant
-Alternate `Next`/`Prev` calls against an oracle slice.
-Detailed plan: `step_3_range_iterator_invariant_plan.md`.
+Randomly alternate `Next`/`Prev` against an oracle slice while
+respecting iterator bounds. Skip when `h.Ref == nil`, `cfg.RangeMax <= 0`,
+or `cfg.IterWalk <= 0`. Resample `hi` until `lo < hi` (exclusive) and use
+`max(cfg.RangeMax, cfg.IterWalk)` to cap the oracle slice. Detailed plan:
+`step_3_range_iterator_invariant_plan.md`.
 
 ## 4. Add `TestHarness_RangeIteratorPrev`
 Ensure walking forward then backward yields the original sequence.
@@ -27,9 +30,30 @@ Ensure walking forward then backward yields the original sequence.
 func TestHarness_RangeIteratorPrev(t *testing.T) {
     it, err := h.My.IterRange(ctx, []byte("a"), []byte("z"), h.Snap)
     require.NoError(t, err)
-    forward := collectNext(it, 100)
-    reverse := walkPrev(it, len(forward))
-    require.Equal(t, reverseSlice(forward), reverse)
+
+    var forward [][]byte
+    for step := 0; step < 100; step++ {
+        rec, err := it.Next()
+        if errors.Is(err, rindb.EOI) {
+            break
+        }
+        require.NoError(t, err)
+        forward = append(forward, slices.Clone(rec.GetKey()))
+    }
+
+    var backward [][]byte
+    for step := 0; step < len(forward); step++ {
+        rec, err := it.Prev()
+        if errors.Is(err, rindb.EOI) {
+            break
+        }
+        require.NoError(t, err)
+        backward = append(backward, slices.Clone(rec.GetKey()))
+    }
+
+    slices.Reverse(forward)
+    require.Equal(t, forward, backward)
+    require.NoError(t, it.Close())
 }
 ```
 

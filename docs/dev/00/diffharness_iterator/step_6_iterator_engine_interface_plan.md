@@ -6,9 +6,9 @@ Decouple invariants from the concrete `RinDBEngine` by introducing an `IteratorE
 ## Steps
 1. Define `IteratorEngine` in `diffharness/engine.go` with an `IterRange` method.
 2. Implement the interface in `RinDBEngine` by forwarding to `IRange`.
-3. Update invariants to assert `h.My` satisfies `IteratorEngine` instead of casting to `*RinDBEngine`.
-4. Adjust tests or helpers that rely on iterator access to use the interface.
-5. Document the interface to clarify it bypasses the top-level `Engine` abstraction.
+3. Update invariants and harness tests to type-assert `h.My` to `IteratorEngine`.
+4. Adjust any helpers to accept the interface and close iterators after use.
+5. Document that the interface bypasses the higher-level `Engine` abstraction.
 
 ## Implementation sketch
 
@@ -26,8 +26,13 @@ func (e *RinDBEngine) IterRange(ctx context.Context, lo, hi []byte, snap uint64)
 // diffharness/invariants.go
 eng, ok := h.My.(IteratorEngine)
 if !ok {
-    return nil // Skip invariant if not supported
+    return nil // skip if engine lacks IterRange
 }
+
+// diffharness/harness_test.go
+it, err := h.My.IterRange(ctx, []byte("a"), []byte("z"), snap)
+require.NoError(t, err)
+defer it.Close()
 ```
 
 ## Notes
