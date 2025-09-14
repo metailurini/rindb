@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFileNumberAllocatorApply(t *testing.T) {
+func TestFileNumberAllocator_Apply(t *testing.T) {
 	tests := []struct {
 		name     string
 		start    uint64
@@ -27,11 +27,11 @@ func TestFileNumberAllocatorApply(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			a := newFileNumberAllocator(tc.start)
-			a.apply(tc.edit)
-			require.Equal(t, tc.expected, a.peek())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newFileNumberAllocator(tt.start)
+			a.apply(tt.edit)
+			require.Equal(t, tt.expected, a.peek())
 		})
 	}
 }

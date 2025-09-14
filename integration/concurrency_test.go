@@ -13,7 +13,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestConcurrentPutGet(t *testing.T) {
+func TestDB_ConcurrentPutGet(t *testing.T) {
 	db, cleanup := initTestDB(t)
 	ctx := context.Background()
 

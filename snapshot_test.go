@@ -87,7 +87,7 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 	assert.Equal(t, uint64(math.MaxUint64), rin.SSTableManager.minSnapshotSeq)
 }
 
-func TestTombstoneRemovedAfterSnapshotRelease(t *testing.T) {
+func TestSnapshot_TombstoneRemovedAfterRelease(t *testing.T) {
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(200), WithLevel0CompactionThreshold(1))
 	defer cleanup()

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSemaphoreFDLimiterConcurrentGet(t *testing.T) {
+func TestSemaphoreFDLimiter_ConcurrentGet(t *testing.T) {
 	ctx := context.Background()
 	limiter := NewSemaphoreFDLimiter(1)
 
@@ -48,16 +48,53 @@ func TestSemaphoreFDLimiterConcurrentGet(t *testing.T) {
 	require.EqualValues(t, 1, max.Load(), "concurrent opens should be limited to 1")
 }
 
-func TestSemaphoreFDLimiterAcquireCancelled(t *testing.T) {
-	limiter := NewSemaphoreFDLimiter(1)
+func TestSemaphoreFDLimiter_Acquire(t *testing.T) {
+	tests := []struct {
+		name    string
+		ctx     func() context.Context
+		setup   func(t *testing.T, l *SemaphoreFDLimiter)
+		cleanup func(t *testing.T, l *SemaphoreFDLimiter)
+		wantErr error
+	}{
+		{
+			name: "success",
+			ctx:  func() context.Context { return context.Background() },
+			cleanup: func(t *testing.T, l *SemaphoreFDLimiter) {
+				l.Release()
+			},
+		},
+		{
+			name: "canceled",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			setup: func(t *testing.T, l *SemaphoreFDLimiter) {
+				require.NoError(t, l.Acquire(context.Background()))
+			},
+			cleanup: func(t *testing.T, l *SemaphoreFDLimiter) {
+				l.Release()
+			},
+			wantErr: context.Canceled,
+		},
+	}
 
-	require.NoError(t, limiter.Acquire(context.Background()))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := limiter.Acquire(ctx)
-	require.ErrorIs(t, err, context.Canceled)
-
-	limiter.Release()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limiter := NewSemaphoreFDLimiter(1)
+			if tt.setup != nil {
+				tt.setup(t, limiter)
+			}
+			err := limiter.Acquire(tt.ctx())
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tt.cleanup != nil {
+				tt.cleanup(t, limiter)
+			}
+		})
+	}
 }

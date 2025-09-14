@@ -1,40 +1,46 @@
 package rindb
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecodeInternalKey(t *testing.T) {
-	t.Run("RegularKey", func(t *testing.T) {
-		userKey := []byte("mykey")
-		seq := uint64(123)
-		typ := TypeValue
+func TestInternalKey_Decode(t *testing.T) {
+	cases := []struct {
+		name    string
+		userKey Bytes
+		seq     uint64
+		typ     RecordType
+		wantKey Bytes
+	}{
+		{
+			name:    "regular key",
+			userKey: Bytes("mykey"),
+			seq:     123,
+			typ:     TypeValue,
+			wantKey: Bytes("mykey"),
+		},
+		{
+			name:    "nil user key",
+			userKey: nil,
+			seq:     456,
+			typ:     TypeDeletion,
+			wantKey: nil,
+		},
+	}
 
-		internalKey := EncodeInternalKey(userKey, seq, typ)
-		decodedUserKey, decodedSeq, decodedTyp, err := DecodeInternalKey(internalKey)
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			internalKey := EncodeInternalKey(tt.userKey, tt.seq, tt.typ)
+			decodedUserKey, decodedSeq, decodedTyp, err := DecodeInternalKey(internalKey)
 
-		require.NoError(t, err)
-		require.True(t, bytes.Equal(userKey, decodedUserKey))
-		require.Equal(t, seq, decodedSeq)
-		require.Equal(t, typ, decodedTyp)
-	})
-
-	t.Run("NilUserKey", func(t *testing.T) {
-		userKey := Bytes(nil)
-		seq := uint64(456)
-		typ := TypeDeletion
-
-		internalKey := EncodeInternalKey(userKey, seq, typ)
-		decodedUserKey, decodedSeq, decodedTyp, err := DecodeInternalKey(internalKey)
-
-		require.NoError(t, err)
-		require.Nil(t, decodedUserKey)
-		require.Equal(t, seq, decodedSeq)
-		require.Equal(t, typ, decodedTyp)
-	})
+			require.NoError(t, err)
+			require.Equal(t, tt.wantKey, decodedUserKey)
+			require.Equal(t, tt.seq, decodedSeq)
+			require.Equal(t, tt.typ, decodedTyp)
+		})
+	}
 }
 
 func BenchmarkDecodeInternalKey(b *testing.B) {

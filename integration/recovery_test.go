@@ -11,7 +11,7 @@ import (
 	"github.com/metailurini/rindb"
 )
 
-func TestDataPersistenceOnReopen(t *testing.T) {
+func TestDB_PersistsDataOnReopen(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 	dbOpt := rindb.WithDatabaseDir(dir)

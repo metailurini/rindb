@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRangeIterator(t *testing.T) {
+func TestRangeIterator_Next(t *testing.T) {
 	rec := func(k, v string, seq uint64, typ RecordType) Record {
 		var nv Bytes = nil
 		if v != "" {
@@ -79,7 +79,7 @@ func TestRangeIterator(t *testing.T) {
 	}
 }
 
-func TestIRangeCloseReleasesSSTables(t *testing.T) {
+func TestIRange_CloseReleasesSSTables(t *testing.T) {
 	cfg := testConfig()
 	ctx := context.Background()
 	ts := newTestRindbSetup(t, ctx, &cfg)
@@ -112,7 +112,7 @@ func TestIRangeCloseReleasesSSTables(t *testing.T) {
 	assert.Equal(t, int32(0), h.refs.Load())
 }
 
-func TestRangeIteratorPrepare(t *testing.T) {
+func TestRangeIterator_Prepare(t *testing.T) {
 	rec := func(k, v string, seq uint64) Record {
 		var nv Bytes = nil
 		if v != "" {
@@ -121,50 +121,56 @@ func TestRangeIteratorPrepare(t *testing.T) {
 		return newRecord(Bytes(k), nv, seq)
 	}
 
-	t.Run("skips duplicates in same iterator", func(t *testing.T) {
-		it := &errIterator{
-			records: []Record{
-				rec("a", "v2", 2),
-				rec("a", "v1", 1),
-				rec("b", "vb", 1),
-			},
-			failIdx: -1,
-		}
-		mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
-		assert.NoError(t, err)
+	type testCase struct {
+		name         string
+		records      []Record
+		failIdx      int
+		wantPrepared bool
+		wantKey      string
+		wantValue    string
+		wantErr      string
+	}
 
-		iter := NewRangeIterator(mi)
-		iter.prepare()
-		_, err = iter.Next()
-		assert.NoError(t, err)
+	tests := []testCase{
+		{
+			name:         "skips duplicates in same iterator",
+			records:      []Record{rec("a", "v2", 2), rec("a", "v1", 1), rec("b", "vb", 1)},
+			failIdx:      -1,
+			wantPrepared: true,
+			wantKey:      "b",
+			wantValue:    "vb",
+		},
+		{
+			name:         "propagates iterator error",
+			records:      []Record{rec("a", "v2", 2), rec("a", "v1", 1)},
+			failIdx:      1,
+			wantPrepared: false,
+			wantErr:      "boom",
+		},
+	}
 
-		iter.prepare()
-		assert.True(t, iter.prepared)
-		assert.Equal(t, "b", string(iter.next.GetKey()))
-		assert.Equal(t, "vb", string(iter.next.GetValue()))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			it := &errIterator{records: tt.records, failIdx: tt.failIdx}
+			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+			assert.NoError(t, err)
 
-	t.Run("propagates iterator error", func(t *testing.T) {
-		it := &errIterator{
-			records: []Record{
-				rec("a", "v2", 2),
-				rec("a", "v1", 1),
-			},
-			failIdx: 1,
-		}
-		mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
-		assert.NoError(t, err)
+			iter := NewRangeIterator(mi)
+			iter.prepare()
+			_, err = iter.Next()
+			assert.NoError(t, err)
 
-		iter := NewRangeIterator(mi)
-		iter.prepare()
-		_, err = iter.Next()
-		assert.NoError(t, err)
-
-		iter.prepare()
-		assert.EqualError(t, iter.err, "boom")
-
-		iter.prepared = false
-		iter.prepare()
-		assert.False(t, iter.prepared)
-	})
+			iter.prepare()
+			if tt.wantErr != "" {
+				assert.EqualError(t, iter.err, tt.wantErr)
+				iter.prepared = false
+				iter.prepare()
+				assert.False(t, iter.prepared)
+			} else {
+				assert.Equal(t, tt.wantPrepared, iter.prepared)
+				assert.Equal(t, tt.wantKey, string(iter.next.GetKey()))
+				assert.Equal(t, tt.wantValue, string(iter.next.GetValue()))
+			}
+		})
+	}
 }

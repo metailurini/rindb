@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestChecksumCRC32C(t *testing.T) {
+func TestChecksumCRC32C_ComputesConsistentValue(t *testing.T) {
 	cases := []struct {
 		name  string
 		parts [][]byte
