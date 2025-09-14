@@ -145,7 +145,10 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	}
 
 	if crashEvery > 0 {
-		h.SetCrashHook(func() error {
+		h.WithCrash(func() error {
+			if h.ops%crashEvery != 0 {
+				return nil
+			}
 			if err := eng.Close(); err != nil {
 				return err
 			}
@@ -171,7 +174,10 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	if telemetryEvery > 0 {
 		start := time.Now()
 		lastOps := 0
-		h.SetTelemetryHook(func(seq uint64, ops int) {
+		h.WithTelemetry(func(seq uint64, ops int) {
+			if ops%telemetryEvery != 0 {
+				return
+			}
 			elapsed := time.Since(start)
 			rate := float64(ops-lastOps) / elapsed.Seconds()
 			log.Printf("seq=%d ops=%d rate=%.1f ops/s", seq, ops, rate)

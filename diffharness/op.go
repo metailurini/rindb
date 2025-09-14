@@ -6,15 +6,6 @@ import (
 	"fmt"
 )
 
-// PhaseLogger records the phase transitions of an operation.
-type PhaseLogger interface {
-	Log(op Op, seq uint64, phase Phase) error
-}
-
-type phaseLoggerFunc func(op Op, seq uint64, phase Phase) error
-
-func (f phaseLoggerFunc) Log(op Op, seq uint64, phase Phase) error { return f(op, seq, phase) }
-
 // Operation defines a harness action.
 type Operation interface {
 	Apply(ctx context.Context, h *Harness, log PhaseLogger) (committed bool, err error)
@@ -52,11 +43,7 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
+
 		p.start = PhasePrepared
 	}
 	switch p.start {
@@ -74,11 +61,6 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		fallthrough
 	case PhaseMyDone:
 		if h.Ref != nil {
@@ -95,11 +77,6 @@ func (p PutOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		}
 		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
 		}
 		fallthrough
 	case PhaseRefDone:
@@ -124,11 +101,6 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		d.start = PhasePrepared
 	}
 	switch d.start {
@@ -146,11 +118,6 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		fallthrough
 	case PhaseMyDone:
 		if h.Ref != nil {
@@ -167,11 +134,6 @@ func (d DelOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		}
 		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
 		}
 		fallthrough
 	case PhaseRefDone:
@@ -197,11 +159,6 @@ func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		g.start = PhasePrepared
 	}
 	var mv []byte
@@ -216,11 +173,6 @@ func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		fallthrough
 	case PhaseMyDone:
 		if h.Ref != nil {
@@ -234,11 +186,6 @@ func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 		}
 		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
 		}
 		fallthrough
 	case PhaseRefDone:
@@ -263,11 +210,6 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		r.start = PhasePrepared
 	}
 	var mres []KV
@@ -280,11 +222,6 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 		mres = res
 		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
 		}
 		fallthrough
 	case PhaseMyDone:
@@ -299,11 +236,6 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 		}
 		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
 		}
 		fallthrough
 	case PhaseRefDone:
@@ -323,11 +255,6 @@ func (s SnapOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, e
 		if err := log.Log(op, h.Seq, PhasePrepared); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		s.start = PhasePrepared
 	}
 	switch s.start {
@@ -342,11 +269,6 @@ func (s SnapOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, e
 		if err := log.Log(op, h.Seq, PhaseMyDone); err != nil {
 			return false, wrapErr(op, PhaseMyDone, err)
 		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
-		}
 		fallthrough
 	case PhaseMyDone:
 		if h.Ref != nil {
@@ -360,11 +282,6 @@ func (s SnapOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, e
 		}
 		if err := log.Log(op, h.Seq, PhaseRefDone); err != nil {
 			return false, wrapErr(op, PhaseRefDone, err)
-		}
-		if h.crash != nil {
-			if err := h.crash(); err != nil {
-				return false, err
-			}
 		}
 		fallthrough
 	case PhaseRefDone:
