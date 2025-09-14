@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCalOnDiskSize(t *testing.T) {
+func TestCalOnDiskSize_ReturnsExpectedSize(t *testing.T) {
 	type args struct {
 		r Record
 	}
