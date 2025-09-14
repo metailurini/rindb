@@ -40,11 +40,11 @@ func (h *Harness) Step(ctx context.Context, op Operation) (bool, error) {
 		h.Seq++
 	}
 	h.ops++
-	if committed && h.hooks.Telemetry != nil {
+	if h.hooks.Telemetry != nil {
 		h.hooks.Telemetry(h.Seq, h.ops)
 	}
 	if h.hooks.Crash != nil {
-		if err := h.hooks.Crash(); err != nil {
+		if err := h.hooks.Crash(h.ops); err != nil {
 			return committed, err
 		}
 	}
@@ -304,7 +304,7 @@ func Replay(ctx context.Context, my Engine, ref *SQLiteOracle, logPath string) (
 	}
 
 	finalize := func(entry logEntry) (uint64, error) {
-		logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error {
+		logger := PhaseLoggerFunc(func(o Op, seq uint64, p Phase, _ int) error {
 			return write(logEntry{I: entry.I, Seq: seq, Op: o, Phase: p})
 		})
 		htemp := &Harness{My: my, Ref: ref, Seq: entry.Seq}

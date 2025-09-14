@@ -43,7 +43,7 @@ func TestPutOpLoggingAndError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &Harness{My: tc.eng}
 			var phases []Phase
-			logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error {
+			logger := PhaseLoggerFunc(func(o Op, seq uint64, p Phase, _ int) error {
 				phases = append(phases, p)
 				return nil
 			})
@@ -69,7 +69,7 @@ func TestGetOpMismatch(t *testing.T) {
 	require.NoError(t, ref.PutWithSeq([]byte("k"), []byte("v"), 1))
 	require.NoError(t, ref.Commit(ctx))
 	h := &Harness{My: dummyEngine{}, Ref: ref}
-	logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error { return nil })
+	logger := PhaseLoggerFunc(func(o Op, seq uint64, p Phase, _ int) error { return nil })
 	g := GetOp{K: []byte("k"), SnapSeq: 1}
 	_, err = g.Apply(ctx, h, logger)
 	var mm *MismatchError
@@ -79,7 +79,7 @@ func TestGetOpMismatch(t *testing.T) {
 func TestPutOpDefaultNoCommit(t *testing.T) {
 	ctx := context.Background()
 	h := &Harness{My: dummyEngine{}}
-	logger := phaseLoggerFunc(func(Op, uint64, Phase) error { return nil })
+	logger := PhaseLoggerFunc(func(Op, uint64, Phase, int) error { return nil })
 	op := PutOp{start: PhaseCommitted}
 	committed, err := op.Apply(ctx, h, logger)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestPutOpDefaultNoCommit(t *testing.T) {
 func TestDelOpDefaultNoCommit(t *testing.T) {
 	ctx := context.Background()
 	h := &Harness{My: dummyEngine{}}
-	logger := phaseLoggerFunc(func(Op, uint64, Phase) error { return nil })
+	logger := PhaseLoggerFunc(func(Op, uint64, Phase, int) error { return nil })
 	op := DelOp{start: PhaseCommitted}
 	committed, err := op.Apply(ctx, h, logger)
 	require.NoError(t, err)
