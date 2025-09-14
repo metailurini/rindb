@@ -15,7 +15,7 @@ func TestSequence_GetMaxSequenceNumber(t *testing.T) {
 		walRecords      []Record
 		lastManifestSeq uint64
 		wantSeq         uint64
-		wantMemLoaded   bool
+		checkMemtable   bool
 	}{
 		{
 			name: "WAL higher than manifest",
@@ -25,7 +25,7 @@ func TestSequence_GetMaxSequenceNumber(t *testing.T) {
 			},
 			lastManifestSeq: 3,
 			wantSeq:         5,
-			wantMemLoaded:   true,
+			checkMemtable:   true,
 		},
 		{
 			name: "Manifest higher than WAL",
@@ -34,7 +34,7 @@ func TestSequence_GetMaxSequenceNumber(t *testing.T) {
 			},
 			lastManifestSeq: 10,
 			wantSeq:         10,
-			wantMemLoaded:   false,
+			checkMemtable:   true,
 		},
 	}
 
@@ -58,8 +58,16 @@ func TestSequence_GetMaxSequenceNumber(t *testing.T) {
 			seq, mem, err := getMaxSequenceNumber(ctx, vs, wal)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantSeq, seq)
-			if tt.wantMemLoaded {
-				require.Greater(t, mem.ByteSize(), 0)
+			if tt.checkMemtable {
+				iter := mem.Iterator()
+
+				var recordCount int
+				for iter.HasNext() {
+					_, err := iter.Next()
+					require.NoError(t, err)
+					recordCount++
+				}
+				require.Equal(t, len(tt.walRecords), recordCount, "memtable should have all records from the WAL")
 			}
 		})
 	}
