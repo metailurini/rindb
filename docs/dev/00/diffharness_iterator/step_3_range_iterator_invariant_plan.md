@@ -58,7 +58,9 @@ if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[
             }
             if err != nil { return err }
             idx--
-            if !bytes.Equal(rec.GetKey(), want[idx].Key) { return fmt.Errorf("key mismatch") }
+if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
+    return fmt.Errorf("Prev() mismatch at index %d: got K=%q, want K=%q", idx, rec.GetKey(), want[idx].K)
+}
         }
     }
     return nil
