@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -219,6 +220,203 @@ func TestSkipList_Remove(t *testing.T) {
 			assertOrderedList(t, list.Head())
 		})
 	}
+}
+
+func TestSkipList_IteratorReverse(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("basic", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for i := 1; i <= 3; i++ {
+			list.Put(i, i)
+		}
+
+		it, ok := list.Iterator().(*slIterator[int, int])
+		assert.True(t, ok)
+
+		for it.HasNext() {
+			_, err := it.Next()
+			assert.NoError(t, err)
+		}
+
+		var rev []int
+		for it.HasPrev() {
+			v, err := it.Prev()
+			assert.NoError(t, err)
+			rev = append(rev, v)
+		}
+
+		assert.Equal(t, []int{3, 2, 1}, rev)
+	})
+
+	t.Run("after remove", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for i := 1; i <= 3; i++ {
+			list.Put(i, i)
+		}
+		assert.NoError(t, list.Remove(2))
+
+		it, ok := list.Iterator().(*slIterator[int, int])
+		assert.True(t, ok)
+		for it.HasNext() {
+			_, err := it.Next()
+			assert.NoError(t, err)
+		}
+		var rev []int
+		for it.HasPrev() {
+			v, err := it.Prev()
+			assert.NoError(t, err)
+			rev = append(rev, v)
+		}
+		assert.Equal(t, []int{3, 1}, rev)
+	})
+}
+
+func TestSkipList_IteratorMixed(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 3; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.Iterator().(*slIterator[int, int])
+	assert.True(t, ok)
+
+	// Move forward one step then backward again. Prev returns the same
+	// element that Next produced.
+	assert.True(t, it.HasNext())
+	v, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	assert.True(t, it.HasPrev())
+	v, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	// Next after Prev yields the same element again.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	// Advance once more to move past the first element.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+}
+
+func TestSkipList_IteratorConcurrentMutations(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for _, v := range []int{1, 3, 5, 7} {
+		list.Put(v, v)
+	}
+
+	it, ok := list.Iterator().(*slIterator[int, int])
+	assert.True(t, ok)
+
+	v, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, v)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		list.Put(2, 2)
+		_ = list.Remove(5)
+	}()
+	wg.Wait()
+
+	forward := []int{1}
+	for it.HasNext() {
+		v, err := it.Next()
+		assert.NoError(t, err)
+		forward = append(forward, v)
+	}
+	assert.Equal(t, []int{1, 2, 3, 7}, forward)
+
+	var backward []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		backward = append(backward, v)
+	}
+	assert.Equal(t, []int{7, 3, 2, 1}, backward)
+	assertOrderedList(t, list.Head())
+}
+
+func TestSkipList_IRangeReverse(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	for it.HasNext() {
+		_, err := it.Next()
+		assert.NoError(t, err)
+	}
+
+	var rev []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		rev = append(rev, v)
+	}
+
+	assert.Equal(t, []int{4, 3, 2}, rev)
+}
+
+func TestSkipList_IRangeMixed(t *testing.T) {
+	cfg := testConfig()
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	assert.True(t, it.HasNext())
+	v, err := it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+
+	assert.True(t, it.HasPrev())
+	v, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+
+	// Resume forward iteration
+	// Next after Prev returns the same element again.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, v)
+
+	// Further Next calls resume forward iteration.
+	assert.True(t, it.HasNext())
+	v, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, 3, v)
 }
 
 func TestSkipList_Clear(t *testing.T) {

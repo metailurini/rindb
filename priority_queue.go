@@ -43,3 +43,6 @@ func (pq *PriorityQueue[T]) PushItem(item T) { heap.Push(pq, item) }
 
 // PopItem pops the highest priority item from the queue.
 func (pq *PriorityQueue[T]) PopItem() T { return heap.Pop(pq).(T) }
+
+// PeekItem returns, but does not remove, the highest priority item from the queue.
+func (pq PriorityQueue[T]) PeekItem() T { return pq.items[0] }

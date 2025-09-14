@@ -119,6 +119,10 @@ for it.HasNext() {
     rec, _ := it.Next()
     fmt.Printf("%s => %s\n", rec.GetKey(), rec.GetValue())
 }
+for it.HasPrev() {
+    rec, _ := it.Prev()
+    fmt.Printf("rev %s => %s\n", rec.GetKey(), rec.GetValue())
+}
 it.Close()
 ```
 
