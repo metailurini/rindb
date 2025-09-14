@@ -52,12 +52,16 @@ func TestSemaphoreFDLimiter_Acquire(t *testing.T) {
 	tests := []struct {
 		name    string
 		ctx     func() context.Context
+		setup   func(t *testing.T, l *SemaphoreFDLimiter)
+		cleanup func(t *testing.T, l *SemaphoreFDLimiter)
 		wantErr error
 	}{
 		{
-			name:    "success",
-			ctx:     func() context.Context { return context.Background() },
-			wantErr: nil,
+			name: "success",
+			ctx:  func() context.Context { return context.Background() },
+			cleanup: func(t *testing.T, l *SemaphoreFDLimiter) {
+				l.Release()
+			},
 		},
 		{
 			name: "canceled",
@@ -65,6 +69,12 @@ func TestSemaphoreFDLimiter_Acquire(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
 				return ctx
+			},
+			setup: func(t *testing.T, l *SemaphoreFDLimiter) {
+				require.NoError(t, l.Acquire(context.Background()))
+			},
+			cleanup: func(t *testing.T, l *SemaphoreFDLimiter) {
+				l.Release()
 			},
 			wantErr: context.Canceled,
 		},
@@ -74,12 +84,17 @@ func TestSemaphoreFDLimiter_Acquire(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			limiter := NewSemaphoreFDLimiter(1)
+			if tt.setup != nil {
+				tt.setup(t, limiter)
+			}
 			err := limiter.Acquire(tt.ctx())
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			} else {
 				require.NoError(t, err)
-				limiter.Release()
+			}
+			if tt.cleanup != nil {
+				tt.cleanup(t, limiter)
 			}
 		})
 	}
