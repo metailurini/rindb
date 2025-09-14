@@ -6,24 +6,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFilePathHelpers(t *testing.T) {
-	t.Run("walPath", func(t *testing.T) {
-		require.Equal(t, "000001"+walExt, walPath(1))
-	})
-	t.Run("sstPath", func(t *testing.T) {
-		require.Equal(t, "000002"+sstExt, sstPath(2))
-	})
-	t.Run("manifestPath", func(t *testing.T) {
-		require.Equal(t, "MANIFEST-000003", manifestPath(3))
-	})
-	t.Run("fileNum", func(t *testing.T) {
-		n, err := fileNum("/path/000123" + sstExt)
-		require.NoError(t, err)
-		require.Equal(t, uint64(123), n)
-	})
-	t.Run("manifestNum", func(t *testing.T) {
-		mn, err := manifestNum("MANIFEST-000007")
-		require.NoError(t, err)
-		require.Equal(t, 7, mn)
-	})
+func TestFilePaths_Helpers(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   func(t *testing.T)
+	}{
+		{
+			name: "walPath",
+			fn: func(t *testing.T) {
+				require.Equal(t, "000001"+walExt, walPath(1))
+			},
+		},
+		{
+			name: "sstPath",
+			fn: func(t *testing.T) {
+				require.Equal(t, "000002"+sstExt, sstPath(2))
+			},
+		},
+		{
+			name: "manifestPath",
+			fn: func(t *testing.T) {
+				require.Equal(t, "MANIFEST-000003", manifestPath(3))
+			},
+		},
+		{
+			name: "fileNum",
+			fn: func(t *testing.T) {
+				n, err := fileNum("/path/000123" + sstExt)
+				require.NoError(t, err)
+				require.Equal(t, uint64(123), n)
+			},
+		},
+		{
+			name: "manifestNum",
+			fn: func(t *testing.T) {
+				mn, err := manifestNum("MANIFEST-000007")
+				require.NoError(t, err)
+				require.Equal(t, 7, mn)
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, tt.fn)
+	}
 }
