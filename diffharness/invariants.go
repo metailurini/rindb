@@ -58,10 +58,10 @@ func checkMonotonicReads(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg)
 		return err
 	}
 	if mok1 != sok1 || !bytes.Equal(mv1, sv1) {
-		return fmt.Errorf("monotonic: s1 mismatch")
+		return fmt.Errorf("monotonic: s1 mismatch: key=%q s1=%d my=(ok=%v val=%q) ref=(ok=%v val=%q)", k, s1, mok1, mv1, sok1, sv1)
 	}
 	if mok2 != sok2 || !bytes.Equal(mv2, sv2) {
-		return fmt.Errorf("monotonic: s2 mismatch")
+		return fmt.Errorf("monotonic: s2 mismatch: key=%q s2=%d my=(ok=%v val=%q) ref=(ok=%v val=%q)", k, s2, mok2, mv2, sok2, sv2)
 	}
 	return nil
 }
@@ -79,7 +79,7 @@ func checkRangeConcat(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) er
 	for bytes.Compare(mid, lo) <= 0 || bytes.Compare(mid, hi) >= 0 {
 		mid = randKey(r, cfg.KeyLen)
 	}
-	snap := pickSnapshot(r, h.Seq, h.Snapshots)
+	snap := pickSnapshot(r, h.Seq, h.Snapshots, cfg.SnapshotReuseEvery)
 	left, err := h.My.Range(ctx, lo, mid, snap, cfg.RangeMax)
 	if err != nil {
 		return err
@@ -96,14 +96,14 @@ func checkRangeConcat(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) er
 		}
 		concat := append(append([]KV{}, left...), right...)
 		if err := compareKVLists(concat, full); err != nil {
-			return fmt.Errorf("range concat: %w", err)
+			return fmt.Errorf("range concat mismatch: lo=%q mid=%q hi=%q snap=%d: %w", lo, mid, hi, snap, err)
 		}
 		f2, err := h.Ref.RangeWithSeq(lo, hi, snap, limit)
 		if err != nil {
 			return err
 		}
 		if err := compareKVLists(full, f2); err != nil {
-			return fmt.Errorf("range full mismatch: %w", err)
+			return fmt.Errorf("range full mismatch: lo=%q hi=%q snap=%d: %w", lo, hi, snap, err)
 		}
 	}
 	l2, err := h.Ref.RangeWithSeq(lo, mid, snap, cfg.RangeMax)
@@ -111,14 +111,14 @@ func checkRangeConcat(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) er
 		return err
 	}
 	if err := compareKVLists(left, l2); err != nil {
-		return fmt.Errorf("range left mismatch: %w", err)
+		return fmt.Errorf("range left mismatch: lo=%q mid=%q snap=%d: %w", lo, mid, snap, err)
 	}
 	r2, err := h.Ref.RangeWithSeq(mid, hi, snap, cfg.RangeMax)
 	if err != nil {
 		return err
 	}
 	if err := compareKVLists(right, r2); err != nil {
-		return fmt.Errorf("range right mismatch: %w", err)
+		return fmt.Errorf("range right mismatch: mid=%q hi=%q snap=%d: %w", mid, hi, snap, err)
 	}
 	return nil
 }

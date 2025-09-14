@@ -2,6 +2,8 @@ package diffharness
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 )
 
@@ -34,10 +36,28 @@ func (ml MultiLogger) Log(op Op, seq uint64, phase Phase, i int) error {
 	return nil
 }
 
+// Close closes all underlying loggers that implement io.Closer.
+func (ml MultiLogger) Close() error {
+	var errs []error
+	for _, l := range ml {
+		if c, ok := l.(io.Closer); ok {
+			if err := c.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
 // HookSet bundles optional crash and telemetry hooks.
 type HookSet struct {
-	Crash     func(ops int) error
-	Telemetry func(seq uint64, ops int)
+	Crash          func(ops int) error
+	Telemetry      func(seq uint64, ops int)
+	CrashEvery     int
+	TelemetryEvery int
 }
 
 // WithCrash sets the crash hook.
@@ -75,10 +95,7 @@ func (l *jsonLogger) Log(op Op, seq uint64, phase Phase, i int) error {
 		Op    Op     `json:"op"`
 		Phase Phase  `json:"phase"`
 	}{i, seq, op, phase}
-	if err := l.enc.Encode(entry); err != nil {
-		return err
-	}
-	return l.f.Sync()
+	return l.enc.Encode(entry)
 }
 
 // Close closes the underlying file.

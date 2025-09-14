@@ -40,10 +40,10 @@ func (h *Harness) Step(ctx context.Context, op Operation) (bool, error) {
 		h.Seq++
 	}
 	h.ops++
-	if h.hooks.Telemetry != nil {
+	if h.hooks.Telemetry != nil && h.hooks.TelemetryEvery > 0 && h.ops%h.hooks.TelemetryEvery == 0 {
 		h.hooks.Telemetry(h.Seq, h.ops)
 	}
-	if h.hooks.Crash != nil {
+	if h.hooks.Crash != nil && h.hooks.CrashEvery > 0 && h.ops%h.hooks.CrashEvery == 0 {
 		if err := h.hooks.Crash(h.ops); err != nil {
 			return committed, err
 		}
@@ -79,7 +79,7 @@ func (h *Harness) releaseSnapshots(ctx context.Context, logErrors bool) error {
 
 func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 	h.Snapshots = append(h.Snapshots, h.Seq)
-	kt := KeyTracker{}
+	kt := NewKeyTracker(cfg.MaxKnownKeys)
 	ro := RandOps{cfg: cfg}
 	for i := 0; n < 0 || i < n; i++ {
 		op := ro.Next(r, &kt, h.Seq, h.Snapshots)
@@ -119,6 +119,8 @@ func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 
 // Run executes n randomized operations. If n < 0, it runs indefinitely.
 func (h *Harness) Run(ctx context.Context, cfg Cfg, n int) error {
+	h.hooks.CrashEvery = cfg.CrashEvery
+	h.hooks.TelemetryEvery = cfg.TelemetryEvery
 	r := rand.New(rand.NewSource(h.Seed))
 	return h.run(ctx, r, cfg, n)
 }
