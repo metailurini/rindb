@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,6 +196,33 @@ func TestHarnessRunChecksInvariants(t *testing.T) {
 	}
 	ctx := context.Background()
 	require.NoError(t, h.Run(ctx, cfg, 50))
+}
+
+func TestHarnessWithInvariants(t *testing.T) {
+	dir := t.TempDir()
+	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ref.Close() })
+
+	myOracle, err := OpenSQLiteOracle(filepath.Join(dir, "my.db"))
+	require.NoError(t, err)
+	eng := &sqliteEngine{o: myOracle}
+
+	logPath := filepath.Join(dir, "log.jsonl")
+	h, err := NewHarness(eng, ref, 1, logPath)
+	require.NoError(t, err)
+	eng.seq = &h.Seq
+	t.Cleanup(func() { _ = h.Close(); _ = eng.Close() })
+
+	called := 0
+	h.WithInvariants([]Invariant{func(ctx context.Context, _ *Harness, _ *rand.Rand, _ Cfg) error {
+		called++
+		return nil
+	}})
+
+	cfg := Cfg{KeyLen: 10, ValLenMax: 20, Weights: map[OpKind]int{OpPut: 1}}
+	require.NoError(t, h.Run(context.Background(), cfg, 1))
+	require.Equal(t, 1, called)
 }
 
 func TestHarnessCrashAndTelemetryHooks(t *testing.T) {

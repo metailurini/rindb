@@ -45,8 +45,9 @@ type Harness struct {
 
 	ops int
 
-	logger PhaseLogger
-	hooks  HookSet
+	logger     PhaseLogger
+	hooks      HookSet
+	invariants []Invariant
 }
 
 // Cfg controls random operation generation.
