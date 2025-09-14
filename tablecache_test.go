@@ -73,13 +73,32 @@ func TestTableCache_HitMiss(t *testing.T) {
 func TestTableCache_TryGetStats(t *testing.T) {
 	cases := []struct {
 		name       string
-		tryKey     tableKey
-		wantOK     bool
+		tryKeys    []tableKey
+		wantOKs    []bool
 		wantMisses int64
 		wantHits   int64
 	}{
-		{"hit", tableKey{FileNum: 1}, true, 1, 1},
-		{"miss", tableKey{FileNum: 2}, false, 2, 1},
+		{
+			name:       "hit",
+			tryKeys:    []tableKey{{FileNum: 1}},
+			wantOKs:    []bool{true},
+			wantMisses: 1,
+			wantHits:   1,
+		},
+		{
+			name:       "miss",
+			tryKeys:    []tableKey{{FileNum: 2}},
+			wantOKs:    []bool{false},
+			wantMisses: 2,
+			wantHits:   0,
+		},
+		{
+			name:       "hit then miss",
+			tryKeys:    []tableKey{{FileNum: 1}, {FileNum: 2}},
+			wantOKs:    []bool{true, false},
+			wantMisses: 2,
+			wantHits:   1,
+		},
 	}
 
 	for _, tt := range cases {
@@ -88,22 +107,20 @@ func TestTableCache_TryGetStats(t *testing.T) {
 			ctx := context.Background()
 			cache := newTestCache(t, tableCacheOptions{})
 
+			// Common setup: one item in cache.
+			// This results in 1 miss, 0 hits.
 			k1 := tableKey{FileNum: 1}
 			h, err := cache.get(ctx, k1)
 			require.NoError(t, err)
 			h.unref()
 
-			if tt.wantOK {
-				h, ok := cache.tryGet(ctx, tt.tryKey)
-				require.True(t, ok)
-				h.unref()
-			} else {
-				h, ok := cache.tryGet(ctx, k1)
-				require.True(t, ok)
-				h.unref()
-
-				_, ok = cache.tryGet(ctx, tt.tryKey)
-				require.False(t, ok)
+			require.Len(t, tt.tryKeys, len(tt.wantOKs))
+			for i, key := range tt.tryKeys {
+				h, ok := cache.tryGet(ctx, key)
+				require.Equal(t, tt.wantOKs[i], ok, "tryGet for key %v", key)
+				if ok {
+					h.unref()
+				}
 			}
 
 			st := cache.stats()
