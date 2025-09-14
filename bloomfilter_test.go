@@ -110,7 +110,7 @@ func TestBloomFilter_Options(t *testing.T) {
 				assert.Equal(t, tt.wantK, b.config.k)
 			}
 			if tt.checkFP {
-				assert.LessOrEqual(t, b.FalsePositive(), .1, "False positive rate too hight")
+                                assert.LessOrEqual(t, b.FalsePositive(), .1, "False positive rate too high")
 			}
 		})
 	}
