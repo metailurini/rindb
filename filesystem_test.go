@@ -12,7 +12,7 @@ import (
 )
 
 //nolint:funlen
-func TestFileSystem(t *testing.T) {
+func TestFileSystem_BasicOperations(t *testing.T) {
 	t.Run("Check file must be opened before doing other actions", func(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
@@ -125,83 +125,105 @@ func TestFileSystem_Clean_Errors(t *testing.T) {
 
 //nolint:funlen
 func TestFileSystem_CursorPos(t *testing.T) {
-	t.Run("Get first position", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1, nil)
-		defer closer()
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, fs *FileSystem)
+		want  int64
+	}{
+		{
+			name:  "beginning",
+			setup: func(t *testing.T, fs *FileSystem) {},
+			want:  0,
+		},
+		{
+			name: "middle",
+			setup: func(t *testing.T, fs *FileSystem) {
+				_, err := fs.Write([]byte("hello"))
+				require.NoError(t, err)
+				require.NoError(t, fs.Sync())
+				_, err = fs.Seek(-3, io.SeekEnd)
+				require.NoError(t, err)
+			},
+			want: 2,
+		},
+		{
+			name: "end",
+			setup: func(t *testing.T, fs *FileSystem) {
+				_, err := fs.Write([]byte("hello"))
+				require.NoError(t, err)
+				require.NoError(t, fs.Sync())
+				_, err = io.ReadAll(fs)
+				require.NoError(t, err)
+			},
+			want: 5,
+		},
+	}
 
-		fs := fss[0]
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			fss, closer := initTempFileSystems(t, 1, nil)
+			defer closer()
 
-		position, err := fs.CursorPos()
-		assert.NoError(t, err)
-		assert.Zero(t, position)
-	})
+			fs := fss[0]
+			tt.setup(t, fs)
 
-	t.Run("Get mid position", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1, nil)
-		defer closer()
-
-		fs := fss[0]
-
-		_, err := fs.Write([]byte("hello"))
-		assert.NoError(t, err)
-
-		err = fs.Sync()
-		assert.NoError(t, err)
-
-		_, err = fs.Seek(-3, io.SeekEnd)
-		assert.NoError(t, err)
-
-		position, err := fs.CursorPos()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(2), position)
-	})
-
-	t.Run("Get end position", func(t *testing.T) {
-		fss, closer := initTempFileSystems(t, 1, nil)
-		defer closer()
-
-		fs := fss[0]
-
-		_, err := fs.Write([]byte("hello"))
-		assert.NoError(t, err)
-
-		err = fs.Sync()
-		assert.NoError(t, err)
-
-		_, err = io.ReadAll(fs)
-		assert.NoError(t, err)
-
-		position, err := fs.CursorPos()
-		assert.NoError(t, err)
-		assert.Equal(t, int64(5), position)
-	})
+			pos, err := fs.CursorPos()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, pos)
+		})
+	}
 }
 
-func TestOpenExistingFS(t *testing.T) {
-	t.Run("missing file returns error and remains absent", func(t *testing.T) {
-		ctx := context.Background()
-		dir := t.TempDir()
-		filePath := filepath.Join(dir, "missing.sst")
+func TestOpenExistingFS_FilePresence(t *testing.T) {
+	cases := []struct {
+		name        string
+		prepare     func(t *testing.T, path string)
+		assertErr   require.ErrorAssertionFunc
+		expectExist bool
+	}{
+		{
+			name:        "missing file returns error and remains absent",
+			prepare:     func(t *testing.T, path string) {},
+			assertErr:   require.Error,
+			expectExist: false,
+		},
+		{
+			name: "opens existing file",
+			prepare: func(t *testing.T, path string) {
+				f, err := os.Create(path)
+				require.NoError(t, err)
+				require.NoError(t, f.Close())
+			},
+			assertErr:   require.NoError,
+			expectExist: true,
+		},
+	}
 
-		fs, err := OpenExistingFS(ctx, filePath)
-		assert.Error(t, err)
-		assert.Nil(t, fs)
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			filePath := filepath.Join(dir, "test.sst")
 
-		_, statErr := os.Stat(filePath)
-		assert.True(t, os.IsNotExist(statErr))
-	})
+			tt.prepare(t, filePath)
 
-	t.Run("opens existing file", func(t *testing.T) {
-		ctx := context.Background()
-		dir := t.TempDir()
-		filePath := filepath.Join(dir, "existing.sst")
-		f, err := os.Create(filePath)
-		assert.NoError(t, err)
-		assert.NoError(t, f.Close())
+			fs, err := OpenExistingFS(ctx, filePath)
+			tt.assertErr(t, err)
+			if tt.expectExist {
+				require.NotNil(t, fs)
+				require.NoError(t, fs.Close())
+			} else {
+				require.Nil(t, fs)
+			}
 
-		fs, err := OpenExistingFS(ctx, filePath)
-		assert.NoError(t, err)
-		assert.NotNil(t, fs)
-		assert.NoError(t, fs.Close())
-	})
+			_, statErr := os.Stat(filePath)
+			if tt.expectExist {
+				assert.NoError(t, statErr)
+			} else {
+				assert.True(t, os.IsNotExist(statErr))
+			}
+		})
+	}
 }
