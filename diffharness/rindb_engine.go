@@ -13,6 +13,9 @@ type RinDBEngine struct {
 	snaps map[uint64]*rindb.Snapshot
 }
 
+var _ Engine = (*RinDBEngine)(nil)
+var _ IteratorEngine = (*RinDBEngine)(nil)
+
 // NewRinDBEngine wraps a RinDB instance as an Engine.
 func NewRinDBEngine(db *rindb.Rindb) *RinDBEngine {
 	return &RinDBEngine{db: db, snaps: make(map[uint64]*rindb.Snapshot)}
@@ -59,6 +62,11 @@ func (e *RinDBEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64,
 		res = append(res, KV{K: append([]byte(nil), []byte(rec.GetKey())...), V: append([]byte(nil), []byte(rec.GetValue())...)})
 	}
 	return res, nil
+}
+
+// IterRange exposes the raw RangeIterator without additional filtering.
+func (e *RinDBEngine) IterRange(ctx context.Context, lo, hi []byte, snap uint64) (*rindb.RangeIterator, error) {
+	return e.db.IRange(ctx, rindb.Bytes(lo), rindb.Bytes(hi), snap)
 }
 
 func (e *RinDBEngine) NewSnapshot(ctx context.Context) (uint64, error) {

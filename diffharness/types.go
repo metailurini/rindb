@@ -56,6 +56,7 @@ type Cfg struct {
 	ValLenMin int
 	ValLenMax int
 	RangeMax  int
+	IterWalk  int // max elements to walk when testing iterators
 	Weights   map[OpKind]int
 
 	CrashEvery         int
