@@ -3,7 +3,6 @@ package diffharness
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,44 +12,27 @@ import (
 
 // NewHarness creates a harness with the given engines and log file path.
 func NewHarness(my Engine, ref *SQLiteOracle, seed int64, logPath string) (*Harness, error) {
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	l, err := newJSONLogger(logPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Harness{My: my, Ref: ref, Seed: seed, log: f, enc: json.NewEncoder(f)}, nil
+	return &Harness{My: my, Ref: ref, Seed: seed, logger: l}, nil
 }
 
 // Close closes underlying resources.
 func (h *Harness) Close() error {
 	_ = h.releaseSnapshots(context.Background(), true)
-	return h.log.Close()
+	if c, ok := h.logger.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 // randomness helpers moved to generator.go
 
-// SetCrashHook registers a callback invoked after CrashEvery operations.
-// The callback should close and reopen both engines to simulate recovery.
-func (h *Harness) SetCrashHook(fn func() error) { h.crash = fn }
-
-// SetTelemetryHook registers a callback executed every TelemetryEvery ops.
-// It receives the current sequence and op count.
-func (h *Harness) SetTelemetryHook(fn func(seq uint64, ops int)) { h.telemetry = fn }
-
-// Step applies a single operation, logging it before execution.
+// Step applies a single operation and invokes hooks.
 func (h *Harness) Step(ctx context.Context, op Operation) (bool, error) {
-	i := h.ops
-	logger := phaseLoggerFunc(func(o Op, seq uint64, p Phase) error {
-		if err := h.enc.Encode(struct {
-			I     int    `json:"i"`
-			Seq   uint64 `json:"seq"`
-			Op    Op     `json:"op"`
-			Phase Phase  `json:"phase"`
-		}{i, seq, o, p}); err != nil {
-			return err
-		}
-		return h.log.Sync()
-	})
-	committed, err := op.Apply(ctx, h, logger)
+	committed, err := op.Apply(ctx, h, h.logger)
 	if err != nil {
 		return false, err
 	}
@@ -58,6 +40,14 @@ func (h *Harness) Step(ctx context.Context, op Operation) (bool, error) {
 		h.Seq++
 	}
 	h.ops++
+	if committed && h.hooks.Telemetry != nil {
+		h.hooks.Telemetry(h.Seq, h.ops)
+	}
+	if h.hooks.Crash != nil {
+		if err := h.hooks.Crash(); err != nil {
+			return committed, err
+		}
+	}
 	return committed, nil
 }
 
@@ -108,14 +98,6 @@ func (h *Harness) run(ctx context.Context, r *rand.Rand, cfg Cfg, n int) error {
 		if err := h.checkInvariants(ctx, r, cfg); err != nil {
 			return h.fail(h.ops, Op{Kind: OpInvariantCheck}, err)
 		}
-		if cfg.TelemetryEvery > 0 && h.telemetry != nil && h.ops%cfg.TelemetryEvery == 0 {
-			h.telemetry(h.Seq, h.ops)
-		}
-		if cfg.CrashEvery > 0 && h.crash != nil && h.ops%cfg.CrashEvery == 0 {
-			if err := h.crash(); err != nil {
-				return err
-			}
-		}
 		if len(h.Snapshots) > 1 && r.Intn(10) == 0 {
 			idx := 1 + r.Intn(len(h.Snapshots)-1)
 			seq := h.Snapshots[idx]
@@ -143,7 +125,6 @@ func (h *Harness) Run(ctx context.Context, cfg Cfg, n int) error {
 func (h *Harness) RunForever(ctx context.Context, cfg Cfg) error { return h.Run(ctx, cfg, -1) }
 
 func (h *Harness) fail(i int, op Op, cause error) error {
-	_ = h.log.Sync()
 	return fmt.Errorf("fuzz fail at i=%d seq=%d kind=%d: %w", i, h.Seq, op.Kind, cause)
 }
 
