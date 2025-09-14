@@ -43,3 +43,5 @@ func TestRecord_Encode(t *testing.T) {
     }
 }
 ```
+
+> **Note:** The `tt := tt` line is a standard Go idiom to capture the range variable for each subtest. This is required for Go versions older than 1.22 to prevent issues with closures in loops.
