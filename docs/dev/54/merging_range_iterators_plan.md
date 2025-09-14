@@ -2,9 +2,9 @@
 
 This document expands step 4 of the reverse range scanning plan, detailing how multiple iterators can be merged while supporting backward traversal.
 
-1. The `fwd` (min-heap) is seeded with the first record from each source iterator. The `rev` (max-heap) starts empty.
+1. The `fwd` (min-heap) is seeded with the first record from each source iterator. The `rev` (max-heap ordered by key then sequence descending) starts empty.
 2. On `Next()`, the iterator pops the lowest-ordered item from `fwd`. This item is pushed into `rev` to build a history for backward traversal. The source iterator that provided the item is advanced, and its next item is pushed back into `fwd`.
-3. On `Prev()`, the iterator pops the highest-ordered item from `rev` (the most recently visited item). This item is pushed back into `fwd` so it can be visited again in a subsequent `Next()` call.
+3. Because `Next()` yields records in sorted order, the most recently visited record always has the highest key/sequence. `Prev()` pops the top of `rev`, rewinds the record's source iterator by one step, and pushes the record back into `fwd` so it can be returned again by a subsequent `Next()` call.
 4. Tombstone filtering and sequence-number suppression are handled by a higher-level iterator (`RangeIterator`) before records reach the `MergingIterator`.
 
 ```go
@@ -36,8 +36,8 @@ func (m *MergingIterator) HasPrev() bool {
 
 func (m *MergingIterator) Prev() (Record, error) {
     cur := m.rev.PopItem()
+    _, _ = cur.iter.Prev() // rewind underlying iterator
     m.fwd.PushItem(cur)
-    // After moving back, the 'current' item is the new top of the rev heap.
     if m.rev.Len() > 0 {
         m.cur = m.rev.PeekItem()
     } else {

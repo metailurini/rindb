@@ -172,12 +172,14 @@ func (mi *memtableIRange) HasPrev() bool {
 
 // Prev implements Iterator[Record].
 func (mi *memtableIRange) Prev() (Record, error) {
-	if !mi.HasPrev() {
-		var empty Record
-		if mi.err != nil {
-			return empty, mi.err
+	if !mi.preparedPrev {
+		if !mi.HasPrev() {
+			var empty Record
+			if mi.err != nil {
+				return empty, mi.err
+			}
+			return empty, EOI
 		}
-		return empty, EOI
 	}
 	mi.preparedPrev = false
 	mi.preparedNext = false
