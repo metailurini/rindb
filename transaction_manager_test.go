@@ -59,6 +59,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		{
 			name: "copy open error",
 			setup: func(t *testing.T) (*FileSystem, func()) {
+				t.Helper()
 				fs := newTempFS(t)
 				require.NoError(t, fs.Close())
 				origOpen := osOpen
@@ -68,6 +69,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 			},
 			wantErr: wantOpenFail,
 			post: func(t *testing.T, fs *FileSystem) {
+				t.Helper()
 				entries, err := os.ReadDir(filepath.Dir(fs.Path()))
 				require.NoError(t, err)
 				require.Len(t, entries, 1)
@@ -76,6 +78,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		{
 			name: "copy error",
 			setup: func(t *testing.T) (*FileSystem, func()) {
+				t.Helper()
 				fs := newTempFS(t)
 				origCopy := ioCopy
 				ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, wantCopyFail }
@@ -84,6 +87,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 			},
 			wantErr: wantCopyFail,
 			post: func(t *testing.T, fs *FileSystem) {
+				t.Helper()
 				entries, err := os.ReadDir(filepath.Dir(fs.Path()))
 				require.NoError(t, err)
 				require.Len(t, entries, 1)
@@ -92,6 +96,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		{
 			name: "close error",
 			setup: func(t *testing.T) (*FileSystem, func()) {
+				t.Helper()
 				fs := newTempFS(t)
 				require.NoError(t, fs.file.Close())
 				return fs, nil
@@ -100,6 +105,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		{
 			name: "shadow fs open error",
 			setup: func(t *testing.T) (*FileSystem, func()) {
+				t.Helper()
 				fs := newTempFS(t)
 				dir := filepath.Dir(fs.Path())
 				require.NoError(t, fs.Close())
@@ -110,6 +116,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		{
 			name: "src close error",
 			setup: func(t *testing.T) (*FileSystem, func()) {
+				t.Helper()
 				fs := newTempFS(t)
 				tmp, err := os.CreateTemp("", "src")
 				require.NoError(t, err)
