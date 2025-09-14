@@ -33,6 +33,8 @@ func TestOffsetReader_Read(t *testing.T) {
 		{
 			name:    "read error leaves offset unchanged",
 			bufSize: 5,
+			wantN:   0,
+			wantOff: 0,
 			wantErr: ErrFileNotOpened,
 			setupFunc: func(fs *FileSystem) {
 				require.NoError(t, fs.Close())
