@@ -16,6 +16,17 @@ import (
 	"github.com/metailurini/rindb/diffharness"
 )
 
+type runConfig struct {
+	seed           int64
+	n              int
+	logPath        string
+	iterWalk       int
+	crashEvery     int
+	telemetryEvery int
+	jaeger         string
+	opts           []rindb.Option
+}
+
 func main() {
 	go func() {
 		err := http.ListenAndServe("0.0.0.0:6060", nil)
@@ -63,7 +74,17 @@ func main() {
 				if runDir != "" {
 					runDir = filepath.Join(runDir, c.label)
 				}
-				if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *iterWalk, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+				cfg := runConfig{
+					seed:           *seed,
+					n:              *n,
+					logPath:        *logPath + "-" + c.label,
+					iterWalk:       *iterWalk,
+					crashEvery:     *crashEvery,
+					telemetryEvery: *telemetryEvery,
+					jaeger:         *jaeger,
+					opts:           c.opts,
+				}
+				if err := runOne(ctx, runDir, cfg); err != nil {
 					errCh <- fmt.Errorf("%s run failed: %w", c.label, err)
 				}
 			}()
@@ -78,18 +99,30 @@ func main() {
 		return
 	}
 
+	baseCfg := runConfig{
+		seed:           *seed,
+		n:              *n,
+		logPath:        *logPath,
+		iterWalk:       *iterWalk,
+		crashEvery:     *crashEvery,
+		telemetryEvery: *telemetryEvery,
+		jaeger:         *jaeger,
+	}
 	for _, c := range configs {
 		runDir := *dir
 		if runDir != "" {
 			runDir = filepath.Join(runDir, c.label)
 		}
-		if err := runOne(ctx, runDir, *seed, *n, *logPath+"-"+c.label, *iterWalk, *crashEvery, *telemetryEvery, *jaeger, c.opts); err != nil {
+		cfg := baseCfg
+		cfg.logPath = baseCfg.logPath + "-" + c.label
+		cfg.opts = c.opts
+		if err := runOne(ctx, runDir, cfg); err != nil {
 			log.Fatalf("%s run failed: %v", c.label, err)
 		}
 	}
 }
 
-func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, iterWalk, crashEvery, telemetryEvery int, jaeger string, opts []rindb.Option) error {
+func runOne(ctx context.Context, dir string, runCfg runConfig) error {
 	cleanup := false
 	existed := false
 	if dir == "" {
@@ -112,6 +145,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	if cleanup {
 		defer os.RemoveAll(dir)
 	}
+	logPath := runCfg.logPath
 	if dir != "" {
 		logPath = filepath.Join(dir, logPath)
 	}
@@ -123,14 +157,14 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 		rindb.WithLogger(rindb.NewStdLogger(log.Default())),
 		rindb.WithLogLevel(rindb.LogLevelDebug),
 	}
-	if jaeger != "" {
+	if runCfg.jaeger != "" {
 		baseOpts = append(baseOpts,
 			rindb.WithEnableTelemetry(true),
-			rindb.WithExporterEndpoint(jaeger),
+			rindb.WithExporterEndpoint(runCfg.jaeger),
 			rindb.WithExporterInsecure(true),
 		)
 	}
-	db, err := rindb.InitRinDB(ctx, append(baseOpts, opts...)...)
+	db, err := rindb.InitRinDB(ctx, append(baseOpts, runCfg.opts...)...)
 	if err != nil {
 		return err
 	}
@@ -147,7 +181,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 			}
 		}
 	}
-	h, err := diffharness.NewHarness(eng, ref, seed, logPath)
+	h, err := diffharness.NewHarness(eng, ref, runCfg.seed, logPath)
 	if err != nil {
 		return err
 	}
@@ -163,7 +197,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 		ValLenMin: 10,
 		ValLenMax: 100,
 		RangeMax:  64,
-		IterWalk:  iterWalk,
+		IterWalk:  runCfg.iterWalk,
 		Weights: map[diffharness.OpKind]int{
 			diffharness.OpPut:   5,
 			diffharness.OpDel:   1,
@@ -171,13 +205,13 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 			diffharness.OpRange: 1,
 			diffharness.OpSnap:  1,
 		},
-		CrashEvery:         crashEvery,
-		TelemetryEvery:     telemetryEvery,
+		CrashEvery:         runCfg.crashEvery,
+		TelemetryEvery:     runCfg.telemetryEvery,
 		MaxKnownKeys:       100,
 		SnapshotReuseEvery: 10,
 	}
 
-	if crashEvery > 0 {
+	if runCfg.crashEvery > 0 {
 		h.WithCrash(func(ops int) error {
 			if err := eng.Close(); err != nil {
 				return err
@@ -185,7 +219,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 			if err := ref.Close(); err != nil {
 				return err
 			}
-			db, err := rindb.InitRinDB(ctx, append(baseOpts, opts...)...)
+			db, err := rindb.InitRinDB(ctx, append(baseOpts, runCfg.opts...)...)
 			if err != nil {
 				return err
 			}
@@ -202,7 +236,7 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 		})
 	}
 
-	if telemetryEvery > 0 {
+	if runCfg.telemetryEvery > 0 {
 		start := time.Now()
 		lastOps := 0
 		h.WithTelemetry(func(seq uint64, ops int) {
@@ -214,8 +248,8 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 		})
 	}
 
-	if n < 0 {
+	if runCfg.n < 0 {
 		return h.RunForever(ctx, cfg)
 	}
-	return h.Run(ctx, cfg, n)
+	return h.Run(ctx, cfg, runCfg.n)
 }
