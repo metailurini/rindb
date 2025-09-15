@@ -240,7 +240,7 @@ func (c *tableCache) get(ctx context.Context, k tableKey) (*tableCacheEntry, err
 		if c.opt.Verify != nil {
 			if err := c.opt.Verify(t); err != nil {
 				if cerr := c.opt.Close(t); cerr != nil {
-					warn(ctx, "failed to close table after verify error: %v", cerr)
+					_ = cerr // close error ignored
 				}
 				return nil, ErrCorruption
 			}

@@ -118,8 +118,6 @@ func NewConfig(opts ...Option) Config {
 		opt(&cfg)
 	}
 	cfg.Validate()
-	packageLogger = cfg.logger
-	packageLogLevel = cfg.logLevel
 	return cfg
 }
 
@@ -245,6 +243,10 @@ func (c Config) Validate() {
 	if c.logLevel < LogLevelDebug || c.logLevel > LogLevelError {
 		panic("invalid logLevel")
 	}
+}
+
+func (c Config) scopedLogger() scopedLogger {
+	return newScopedLogger(c.logger, c.logLevel)
 }
 
 func WithConfig(cfg Config) Option {

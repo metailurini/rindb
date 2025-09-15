@@ -38,7 +38,7 @@ func NewSSTableBuilder(ctx context.Context, cfg Config, fs *FileSystem, expected
 	if err := fs.Clean(); err != nil {
 		return nil, fmt.Errorf("failed to clean file system: %w", err)
 	}
-	tm := newTransactionManager()
+	tm := newTransactionManager(cfg.scopedLogger())
 	tx, err := tm.begin(ctx, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -121,7 +121,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 	defer func() {
 		if err != nil {
 			if cleanErr := b.fs.Clean(); cleanErr != nil {
-				warn(ctx, "failed to clean file system after error: %v", cleanErr)
+				b.config.scopedLogger().warn(ctx, "failed to clean file system after error: %v", cleanErr)
 			}
 			sst = SStable{}
 			meta = fileMeta{}
@@ -168,7 +168,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 	}
 
 	b.built = true
-	sst = SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom, dataEnd: indexOffset, iterMaxHistory: b.config.sstableIterMaxHistory}
+	sst = SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom, dataEnd: indexOffset, iterMaxHistory: b.config.sstableIterMaxHistory, log: b.config.scopedLogger()}
 	num, nerr := fileNum(b.fs.Path())
 	if nerr != nil {
 		err = fmt.Errorf("invalid sstable path %s: %w", b.fs.Path(), nerr)

@@ -28,7 +28,7 @@ func TestTransactionManager_BeginCopiesExistingData(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fs.Sync())
 
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 	require.NotNil(t, txn)
@@ -137,7 +137,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 			if cleanup != nil {
 				defer cleanup()
 			}
-			tm := newTransactionManager()
+			tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 			txn, err := tm.begin(ctx, fs)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -154,7 +154,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 
 func TestTransactionManager_WriteAndCommit(t *testing.T) {
 	fs := newTempFS(t)
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
@@ -169,7 +169,7 @@ func TestTransactionManager_WriteAndCommit(t *testing.T) {
 
 func TestTransactionManager_WritePartial(t *testing.T) {
 	fs := newTempFS(t)
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
@@ -202,7 +202,7 @@ func TestTransactionManager_RollbackRestoresExistingData(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, fs.Sync())
 
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
@@ -217,7 +217,7 @@ func TestTransactionManager_RollbackRestoresExistingData(t *testing.T) {
 
 func TestTransactionManager_WriteAfterCommit(t *testing.T) {
 	fs := newTempFS(t)
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
@@ -230,7 +230,7 @@ func TestTransactionManager_WriteAfterCommit(t *testing.T) {
 }
 
 func TestTransactionManager_ConcurrentBegin(t *testing.T) {
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	const n = 10
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -254,7 +254,7 @@ func TestTransactionManager_ConcurrentBegin(t *testing.T) {
 }
 
 func TestTransactionManager_ConcurrentWrite(t *testing.T) {
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	fs := newTempFS(t)
 	tx, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
@@ -281,7 +281,7 @@ func TestTransactionManager_CommitRollbackConcurrency(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	require.NoError(t, w.Clean(ctx, math.MaxUint64))
 
-	tm := newTransactionManager()
+	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 
 	txCommit, err := tm.begin(ctx, w.FileSystem)
 	require.NoError(t, err)
@@ -387,7 +387,7 @@ func TestTransactionManager_CommitErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fs := newTempFS(t)
-			tm := newTransactionManager()
+			tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 			txn, err := tm.begin(ctx, fs)
 			require.NoError(t, err)
 			cleanup, wantErr := tt.setup(txn)
@@ -434,7 +434,7 @@ func TestTransactionManager_RollbackErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fs := newTempFS(t)
-			tm := newTransactionManager()
+			tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 			txn, err := tm.begin(ctx, fs)
 			require.NoError(t, err)
 			cleanup, wantErr := tt.setup(txn)

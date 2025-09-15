@@ -29,6 +29,47 @@ const (
 	LogLevelError
 )
 
+// scopedLogger couples a Logger with a minimum severity threshold.
+//
+// It is used to provide per-instance logging without relying on package-level
+// globals. Each database component can hold its own scopedLogger and emit
+// messages according to its configured level.
+type scopedLogger struct {
+	Logger
+	level LogLevel
+}
+
+func newScopedLogger(l Logger, level LogLevel) scopedLogger {
+	if l == nil {
+		l = nopLogger{}
+	}
+	return scopedLogger{Logger: l, level: level}
+}
+
+func (l scopedLogger) debug(ctx context.Context, msg string, args ...any) {
+	if LogLevelDebug >= l.level {
+		l.Logger.Debug(ctx, msg, args...)
+	}
+}
+
+func (l scopedLogger) info(ctx context.Context, msg string, args ...any) {
+	if LogLevelInfo >= l.level {
+		l.Logger.Info(ctx, msg, args...)
+	}
+}
+
+func (l scopedLogger) warn(ctx context.Context, msg string, args ...any) {
+	if LogLevelWarn >= l.level {
+		l.Logger.Warn(ctx, msg, args...)
+	}
+}
+
+func (l scopedLogger) errorf(ctx context.Context, msg string, args ...any) {
+	if LogLevelError >= l.level {
+		l.Logger.Error(ctx, msg, args...)
+	}
+}
+
 type stdLogger struct{ l *log.Logger }
 
 // NewStdLogger wraps a standard library logger to satisfy Logger. A nil
@@ -68,32 +109,3 @@ func (nopLogger) Debug(context.Context, string, ...any) {}
 func (nopLogger) Info(context.Context, string, ...any)  {}
 func (nopLogger) Warn(context.Context, string, ...any)  {}
 func (nopLogger) Error(context.Context, string, ...any) {}
-
-var (
-	packageLogger   Logger   = nopLogger{}
-	packageLogLevel LogLevel = LogLevelWarn
-)
-
-func debug(ctx context.Context, msg string, args ...any) {
-	if LogLevelDebug >= packageLogLevel {
-		packageLogger.Debug(ctx, msg, args...)
-	}
-}
-
-func info(ctx context.Context, msg string, args ...any) {
-	if LogLevelInfo >= packageLogLevel {
-		packageLogger.Info(ctx, msg, args...)
-	}
-}
-
-func warn(ctx context.Context, msg string, args ...any) {
-	if LogLevelWarn >= packageLogLevel {
-		packageLogger.Warn(ctx, msg, args...)
-	}
-}
-
-func errorf(ctx context.Context, msg string, args ...any) {
-	if LogLevelError >= packageLogLevel {
-		packageLogger.Error(ctx, msg, args...)
-	}
-}

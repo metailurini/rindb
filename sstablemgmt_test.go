@@ -590,7 +590,6 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		level1Paths := make([]string, numFiles)
 		var totalSize int64
 
-		info(ctx, "Creating SSTables for Level 1 (target > 2MB total)...")
 		for i := 0; i < numFiles; i++ {
 			// Use ts.CreateSSTable which uses the manager's config and FS creation
 			kvs := make(map[string]string)
@@ -605,22 +604,16 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 			fi, statErr := os.Stat(sstable.Path())
 			assert.NoError(t, statErr)
 			totalSize += fi.Size()
-			info(ctx, "Created Level 1 SSTable %s, size: %d bytes", sstable.Path(), fi.Size())
 		}
 
 		// Calculate the threshold used in this test
 		level1ThresholdBytes := int64(cfg.baseCompactionSizeMB) * int64(math.Pow(float64(cfg.levelSizeMultiplier), 1.0)) * 1024 * 1024
-		info(ctx, "Total size of Level 1 files: %d bytes (%.2f MB). Threshold: %d bytes (%.2f MB)",
-			totalSize, float64(totalSize)/(1024*1024),
-			level1ThresholdBytes, float64(level1ThresholdBytes)/(1024*1024))
 
 		assert.Greater(t, totalSize, level1ThresholdBytes, "Total size should exceed the lowered threshold")
 		assert.Equal(t, numFiles, len(ts.Manager.versionSet.Levels[1]))
 
-		info(ctx, "Calling Compact()...")
 		err := ts.Manager.Compact(ctx)
 		assert.NoError(t, err)
-		info(ctx, "Compact() finished.")
 
 		assert.Equal(t, 0, len(ts.Manager.versionSet.Levels[1]))
 		if assert.GreaterOrEqual(t, len(ts.Manager.versionSet.Levels), 3) {
@@ -636,7 +629,6 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		meta := ts.Manager.versionSet.Levels[2][0]
 		mergedInfo, err := os.Stat(path.Join(ts.Manager.config.databaseDir, sstPath(meta.Number)))
 		assert.NoError(t, err)
-		info(ctx, "Merged Level 2 SSTable size: %d bytes", mergedInfo.Size())
 		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
 }

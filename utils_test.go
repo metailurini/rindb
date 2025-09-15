@@ -338,15 +338,15 @@ func assertFileNotExists(t *testing.T, path string) {
 
 // debugSkipList prints the contents of a SkipList for debugging.
 func debugSkipList[K Comparable, V any](list *SkipList[K, V]) {
-	debug(context.Background(), "--header--: %v", list.headNote)
+	fmt.Printf("--header--: %v\n", list.headNote)
 	r := list.headNote.Next()
 	for r != nil {
-		debug(context.Background(), "[%v<>%v] ", r.Key, r.Value)
+		fmt.Printf("[%v<>%v] ", r.Key, r.Value)
 		for _, v := range r.forwards {
 			if v == nil {
 				continue
 			}
-			debug(context.Background(), "[%v<>%v] ", v.Key, v.Value)
+			fmt.Printf("[%v<>%v] ", v.Key, v.Value)
 		}
 		fmt.Println()
 		r = r.Next()
