@@ -23,23 +23,20 @@ func (r *recordingLogger) Error(ctx context.Context, msg string, args ...any) {
 
 func TestLogLevelFiltering(t *testing.T) {
 	rl := &recordingLogger{}
-	_ = NewConfig(WithLogger(rl), WithLogLevel(LogLevelInfo))
+	log := newScopedLogger(rl, LogLevelInfo)
 
-	debug(context.Background(), "d")
-	info(context.Background(), "i")
-	warn(context.Background(), "w")
+	log.debug(context.Background(), "d")
+	log.info(context.Background(), "i")
+	log.warn(context.Background(), "w")
 
 	if len(rl.logs) != 2 || rl.logs[0] != "info:i" || rl.logs[1] != "warn:w" {
 		t.Fatalf("unexpected logs: %v", rl.logs)
 	}
 
 	rl.logs = nil
-	_ = NewConfig(WithLogger(rl), WithLogLevel(LogLevelDebug))
-	debug(context.Background(), "d2")
+	log = newScopedLogger(rl, LogLevelDebug)
+	log.debug(context.Background(), "d2")
 	if len(rl.logs) != 1 || rl.logs[0] != "debug:d2" {
 		t.Fatalf("expected debug log, got %v", rl.logs)
 	}
-
-	// reset global logger to defaults
-	_ = NewConfig()
 }

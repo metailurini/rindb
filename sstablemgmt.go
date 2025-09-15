@@ -46,6 +46,7 @@ type ssTableManager struct {
 	versionSet *versionSet
 	manifest   manifestWriter
 	config     Config
+	log        scopedLogger
 	mu         sync.RWMutex
 
 	// minSnapshotSeq is the smallest sequence number of any active
@@ -198,6 +199,7 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 		versionSet:        vs,
 		manifest:          mw,
 		config:            config,
+		log:               config.scopedLogger(),
 		stopIOLoadSampler: make(chan struct{}),
 		now:               time.Now,
 		minSnapshotSeq:    math.MaxUint64,
@@ -347,7 +349,7 @@ func (h *ssTableManager) addSSTable(ctx context.Context, meta fileMeta, lastSeq 
 	}
 	h.config.fileNumberAllocator.apply(edit)
 	h.cacheAndPinSSTable(ctx, meta.Number)
-	info(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
+	h.log.info(ctx, "Registered new SSTable %s at level %d", path.Join(h.config.databaseDir, sstPath(meta.Number)), meta.Level)
 	return nil
 }
 
@@ -367,7 +369,7 @@ func (h *ssTableManager) Close(ctx context.Context) {
 		h.ioSamplerWG.Wait()
 	}
 	if err := h.cache.close(ctx, 5*time.Second); err != nil {
-		warn(ctx, "Error closing table cache: %v", err)
+		h.log.warn(ctx, "Error closing table cache: %v", err)
 	}
 }
 
@@ -391,7 +393,7 @@ func (h *ssTableManager) shouldCompact(ctx context.Context, levelNumb int, files
 
 	multiplier := h.config.levelSizeMultiplier
 	if multiplier < 1 {
-		warn(ctx, "levelSizeMultiplier is %d, using 1 instead", multiplier)
+		h.log.warn(ctx, "levelSizeMultiplier is %d, using 1 instead", multiplier)
 		multiplier = 1
 	}
 	threshold := int64(h.config.baseCompactionSizeMB) * int64(math.Pow(float64(multiplier), float64(levelNumb))) * 1024 * 1024
@@ -410,7 +412,7 @@ func (h *ssTableManager) Compact(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	info(ctx, "Starting compaction check across %d levels", len(h.versionSet.Levels))
+	h.log.info(ctx, "Starting compaction check across %d levels", len(h.versionSet.Levels))
 
 	for lvl, files := range h.versionSet.Levels {
 		if !h.shouldCompact(ctx, lvl, files) {
@@ -514,12 +516,12 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	if err != nil || merged == nil {
 		_ = newFS.Close()
 		if rmErr := os.Remove(newFS.Path()); rmErr != nil && err == nil {
-			errorf(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
+			h.log.errorf(ctx, "Error removing file %s: %v", newFS.Path(), rmErr)
 		}
 		return err
 	}
 	if err := merged.Close(); err != nil {
-		warn(ctx, "Error closing merged sstable %s: %v", newFS.Path(), err)
+		h.log.warn(ctx, "Error closing merged sstable %s: %v", newFS.Path(), err)
 	}
 
 	var (
@@ -556,7 +558,7 @@ func (h *ssTableManager) mergeIntoLevel(ctx context.Context, dst int, inputs []f
 	}
 
 	if err := removeFiles(h.config.databaseDir, dels); err != nil {
-		errorf(ctx, "Error removing files: %v", err)
+		h.log.errorf(ctx, "Error removing files: %v", err)
 		return err
 	}
 	return nil
@@ -577,7 +579,7 @@ func (h *ssTableManager) cacheAndPinSSTable(ctx context.Context, fileNum uint64)
 		h.cache.pinKey(k)
 		entry.unref()
 	} else {
-		warn(ctx, "Failed to cache new SSTable %d: %v", fileNum, err)
+		h.log.warn(ctx, "Failed to cache new SSTable %d: %v", fileNum, err)
 	}
 }
 
@@ -613,7 +615,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 						if errors.Is(err, os.ErrNotExist) {
 							return nil, err
 						}
-						warn(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
+						h.log.warn(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
 						return nil, fmt.Errorf("failed to stat SSTable %d: %w", f.Number, err)
 					}
 					if info.Size() > 0 {
@@ -631,7 +633,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 					if errors.Is(err, os.ErrNotExist) {
 						return nil, err
 					}
-					warn(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
+					h.log.warn(ctx, "Failed to stat SSTable %d: %v", f.Number, err)
 					return nil, fmt.Errorf("failed to stat SSTable %d: %w", f.Number, err)
 				}
 				if info.Size() > 0 {
@@ -652,7 +654,7 @@ func (h *ssTableManager) GetRelevantSSTables(ctx context.Context, startKey, endK
 			if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrObsolete) || errors.Is(err, ErrCorruption) {
 				return nil, err
 			}
-			warn(ctx, "Failed to open SSTable %d: %v", num, err)
+			h.log.warn(ctx, "Failed to open SSTable %d: %v", num, err)
 			return nil, fmt.Errorf("failed to open SSTable %d: %w", num, err)
 		}
 		entries = append(entries, entry)

@@ -37,9 +37,11 @@ type SStable struct {
 	Bloom          *BloomFilter
 	dataEnd        int64
 	iterMaxHistory int
+	log            scopedLogger
 }
 
 func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
+	log := config.scopedLogger()
 	tailOffset, err := getSSTableTailOffset(fs)
 	if err != nil {
 		return SStable{}, err
@@ -49,23 +51,23 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		return SStable{}, fmt.Errorf("failed to read footer from %s: %w", fs.Path(), err)
 	}
 	if f.indexSize == 0 {
-		errorf(ctx, "index size is zero in %s", fs.Path())
+		log.errorf(ctx, "index size is zero in %s", fs.Path())
 		return SStable{}, ErrMalFormedSSTable
 	}
 	if f.indexOffset > uint64(tailOffset) || f.indexSize > uint64(tailOffset) {
-		errorf(ctx, "invalid footer values in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		log.errorf(ctx, "invalid footer values in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
 		return SStable{}, ErrMalFormedSSTable
 	}
 	if f.indexOffset+f.indexSize > uint64(tailOffset) || f.indexOffset+f.indexSize < f.indexOffset {
-		errorf(ctx, "index block out of bounds in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		log.errorf(ctx, "index block out of bounds in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
 		return SStable{}, ErrMalFormedSSTable
 	}
 	if f.indexOffset+f.indexSize < uint64(tailOffset) {
-		errorf(ctx, "index block does not align with footer in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
+		log.errorf(ctx, "index block does not align with footer in %s: offset=%d size=%d tail=%d", fs.Path(), f.indexOffset, f.indexSize, tailOffset)
 		return SStable{}, ErrMalFormedSSTable
 	}
 	if f.indexOffset > uint64(math.MaxInt64) || f.indexSize > uint64(math.MaxInt64) {
-		errorf(ctx, "index offset or size too large in %s: offset=%d size=%d", fs.Path(), f.indexOffset, f.indexSize)
+		log.errorf(ctx, "index offset or size too large in %s: offset=%d size=%d", fs.Path(), f.indexOffset, f.indexSize)
 		return SStable{}, ErrMalFormedSSTable
 	}
 	sparseIndex, err := loadSparseIndex(fs, int64(f.indexOffset), int64(f.indexSize))
@@ -83,8 +85,8 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		bloom.Insert(ko.key)
 	}
 
-	info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset), iterMaxHistory: config.sstableIterMaxHistory}, nil
+	log.info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
+	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset), iterMaxHistory: config.sstableIterMaxHistory, log: log}, nil
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -134,11 +136,11 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		record, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				errorf(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
+				s.log.errorf(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
 				return nil, fmt.Errorf("unexpected EOF after reading at offset %d: %w", offset, ErrMalFormedSSTable)
 			}
 			if errors.Is(err, ErrChecksumMismatch) {
-				errorf(ctx, "Checksum mismatch at offset %d in %s", reader.Offset(), s.Path())
+				s.log.errorf(ctx, "Checksum mismatch at offset %d in %s", reader.Offset(), s.Path())
 				return nil, fmt.Errorf("checksum mismatch at offset %d: %w", reader.Offset(), err)
 			}
 			// if errors.Is(err, ErrFileNotOpened) {
@@ -148,7 +150,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 			// 	reader = newOffsetReader(s.FileSystem, reader.Offset())
 			// 	continue
 			// }
-			errorf(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
+			s.log.errorf(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
 		bytesRead += CalOnDiskSize(record)
@@ -282,7 +284,7 @@ func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SS
 	}()
 
 	if mem.data.Len() == 0 {
-		errorf(ctx, "Flushing empty memtable! It's a bug!")
+		config.scopedLogger().errorf(ctx, "Flushing empty memtable! It's a bug!")
 		panic("empty memtable!")
 	}
 
@@ -305,7 +307,7 @@ func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SS
 		return SStable{}, fileMeta{}, err
 	}
 	meta.Level = 0
-	info(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
+	config.scopedLogger().info(ctx, "Flushed memtable to SSTable at %s with %d entries", fs.Path(), mem.data.Len())
 
 	// after flushing memtable to file system successfully.
 	// memtable is supposed to be purged

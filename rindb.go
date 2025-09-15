@@ -26,6 +26,7 @@ type Rindb struct {
 	versionSet        *versionSet
 	manifest          manifestWriter
 	config            Config
+	log               scopedLogger
 	shutdownTelemetry func(context.Context) error
 	mu                sync.RWMutex   // Mutex for thread-safe access
 	wg                sync.WaitGroup // WaitGroup to track background goroutines
@@ -80,8 +81,9 @@ type Stats struct {
 // 4. Initialize SSTable storage manager
 func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 	cfg := NewConfig(opts...)
+	log := cfg.scopedLogger()
 
-	shutdownTelemetry, err := OtelInit(ctx, cfg.enableTelemetry, cfg.exporterEndpoint, cfg.exporterInsecure, cfg.telemetrySamplingRate)
+	shutdownTelemetry, err := OtelInit(ctx, cfg.enableTelemetry, cfg.exporterEndpoint, cfg.exporterInsecure, cfg.telemetrySamplingRate, cfg.logger, cfg.logLevel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize telemetry: %w", err)
 	}
@@ -138,7 +140,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to initialize SSTable manager: %w", err)
 	}
 
-	info(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
+	log.info(ctx, "Initialized RinDB with database directory %s", cfg.databaseDir)
 	rin := &Rindb{
 		WAL:               wal,
 		Memtable:          memtable,
@@ -146,6 +148,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		versionSet:        vs,
 		manifest:          mw,
 		config:            cfg,
+		log:               log,
 		shutdownTelemetry: shutdownTelemetry,
 		sequenceNumber:    maxSeqNum,
 	}
@@ -334,28 +337,28 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 		if uint(memSize) >= r.config.maxMemtableSize {
 			flushCount.Add(ctx, 1)
 			r.flushCount.Add(1)
-			info(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
+			r.log.info(ctx, "Memtable estimated size %d reached threshold %d, flushing.", memSize, r.config.maxMemtableSize)
 
 			fs, err := r.SSTableManager.newSSTableFS(ctx)
 			if err != nil {
-				errorf(ctx, "Failed to create new SSTable file system: %v", err)
+				r.log.errorf(ctx, "Failed to create new SSTable file system: %v", err)
 				return fmt.Errorf("failed to create new SSTable file system: %w", err)
 			}
 
 			_, meta, err := flush(ctx, r.config, r.Memtable, fs)
 			if err != nil {
 				_ = fs.Close()
-				errorf(ctx, "Failed to flush memtable: %v", err)
+				r.log.errorf(ctx, "Failed to flush memtable: %v", err)
 				return fmt.Errorf("failed to flush memtable: %w", err)
 			}
 
 			if err := r.SSTableManager.addSSTable(ctx, meta, r.sequenceNumber); err != nil {
 				_ = fs.Close()
-				errorf(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
+				r.log.errorf(ctx, "Failed to register new SSTable %s: %v", fs.Path(), err)
 				return fmt.Errorf("failed to register new SSTable %s: %w", fs.Path(), err)
 			}
 			if err := fs.Close(); err != nil {
-				warn(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
+				r.log.warn(ctx, "Failed to close FileSystem %s: %v", fs.Path(), err)
 			}
 
 			r.Memtable.Clear()
@@ -366,34 +369,34 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 			}
 
 			if err := r.WAL.Clean(ctx, walThreshold); err != nil {
-				errorf(ctx, "Failed to clean WAL after memtable flush: %v", err)
+				r.log.errorf(ctx, "Failed to clean WAL after memtable flush: %v", err)
 				return fmt.Errorf("failed to clean WAL: %w", err)
 			}
 
 			r.SSTableManager.setMinSnapshotSeq(snapMin)
 			flushSeq := r.sequenceNumber
-			info(ctx, "Triggering background compaction check.")
+			r.log.info(ctx, "Triggering background compaction check.")
 			r.wg.Add(1)
 			compactionCtx := trace.ContextWithSpan(context.Background(), trace.SpanFromContext(ctx))
 
 			go func(ctx context.Context, flushSeq uint64) {
 				defer r.wg.Done()
-				info(ctx, "Background compaction goroutine started.")
+				r.log.info(ctx, "Background compaction goroutine started.")
 				if err := r.SSTableManager.Compact(ctx); err != nil {
-					errorf(ctx, "Background compaction failed: %v", err)
+					r.log.errorf(ctx, "Background compaction failed: %v", err)
 				} else {
-					info(ctx, "Background compaction goroutine finished.")
+					r.log.info(ctx, "Background compaction goroutine finished.")
 				}
 
 				r.mu.Lock()
 				defer r.mu.Unlock()
 
 				if err := r.maybeRotateManifest(ctx); err != nil {
-					errorf(ctx, "Manifest rotation failed: %v", err)
+					r.log.errorf(ctx, "Manifest rotation failed: %v", err)
 				}
 
 				if err := r.cleanupObsoleteLocked(ctx, flushSeq); err != nil {
-					errorf(ctx, "Post-compaction cleanup failed: %v", err)
+					r.log.errorf(ctx, "Post-compaction cleanup failed: %v", err)
 				}
 			}(compactionCtx, flushSeq)
 		}
@@ -464,11 +467,11 @@ func (r *Rindb) Close() error {
 	r.mu.Unlock() // Unlock while waiting for goroutines
 
 	// Wait for any background operations (like compaction) to complete
-	info(ctx, "Waiting for background operations to finish...")
+	r.log.info(ctx, "Waiting for background operations to finish...")
 	waitStart := time.Now()
 	r.wg.Wait()
 	closeBackgroundWaitDuration.Record(ctx, float64(time.Since(waitStart).Milliseconds()))
-	info(ctx, "Background operations finished.")
+	r.log.info(ctx, "Background operations finished.")
 
 	// Re-acquire lock to safely close resources
 	r.mu.Lock()
@@ -477,30 +480,30 @@ func (r *Rindb) Close() error {
 	// Close the WAL
 	if err := r.WAL.Close(); err != nil {
 		// Log the error but attempt to close SSTableManager anyway
-		errorf(ctx, "Error closing WAL: %v", err)
+		r.log.errorf(ctx, "Error closing WAL: %v", err)
 		// Optionally return the WAL error immediately, or collect errors
 		// return fmt.Errorf("error closing WAL: %w", err)
 	} else {
-		info(ctx, "WAL closed successfully.")
+		r.log.info(ctx, "WAL closed successfully.")
 	}
 
 	// Close the SSTableManager
 	// Assuming SSTableManager.Close() handles potential errors internally or returns them
 	r.SSTableManager.Close(ctx) // SSTableManager.Close currently doesn't return an error
-	info(ctx, "SSTableManager closed.")
+	r.log.info(ctx, "SSTableManager closed.")
 
 	if r.manifest != nil {
 		if err := r.manifest.Close(); err != nil {
-			errorf(ctx, "Error closing manifest: %v", err)
+			r.log.errorf(ctx, "Error closing manifest: %v", err)
 		}
 	}
 
 	if err := r.shutdownTelemetry(ctx); err != nil {
-		errorf(ctx, "Error shutting down telemetry: %v", err)
+		r.log.errorf(ctx, "Error shutting down telemetry: %v", err)
 	} else {
-		info(ctx, "Telemetry shutdown completed.")
+		r.log.info(ctx, "Telemetry shutdown completed.")
 	}
 
-	info(ctx, "RinDB closed successfully")
+	r.log.info(ctx, "RinDB closed successfully")
 	return nil
 }

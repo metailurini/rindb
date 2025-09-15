@@ -27,12 +27,14 @@ var (
 type transactionManager struct {
 	mu         sync.Mutex
 	activeTxns map[*transaction]struct{}
+	log        scopedLogger
 }
 
 // newTransactionManager creates a new transactionManager.
-func newTransactionManager() *transactionManager {
+func newTransactionManager(log scopedLogger) *transactionManager {
 	return &transactionManager{
 		activeTxns: make(map[*transaction]struct{}),
+		log:        log,
 	}
 }
 
@@ -156,7 +158,7 @@ func (t *transaction) commit(ctx context.Context) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	info(ctx, "Transaction committed successfully")
+	t.manager.log.info(ctx, "Transaction committed successfully")
 	return nil
 }
 
@@ -181,7 +183,7 @@ func (t *transaction) rollback(ctx context.Context) error {
 	t.manager.mu.Lock()
 	delete(t.manager.activeTxns, t)
 	t.manager.mu.Unlock()
-	info(ctx, "Transaction rolled back successfully")
+	t.manager.log.info(ctx, "Transaction rolled back successfully")
 	return nil
 }
 

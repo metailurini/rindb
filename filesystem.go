@@ -56,7 +56,6 @@ func (fs *FileSystem) Open(ctx context.Context) error {
 	defer fs.mu.Unlock()
 
 	if fs.file != nil {
-		warn(ctx, "File %s is already opened. Consider close and re-open again", fs.Path())
 		return nil
 	}
 
@@ -75,7 +74,6 @@ func (fs *FileSystem) OpenExisting(ctx context.Context) error {
 	defer fs.mu.Unlock()
 
 	if fs.file != nil {
-		warn(ctx, "File %s is already opened. Consider close and re-open again", fs.Path())
 		return nil
 	}
 
