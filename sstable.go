@@ -19,7 +19,10 @@ var (
 )
 
 const (
-	footerSize  = 48
+	footerSize = 48
+
+	// 201867972885 is the magic number for the SSTable file format
+	// formula: https://go.dev/play/p/Sewh1S3nTcL
 	magicNumber = uint64(201867972885)
 )
 
