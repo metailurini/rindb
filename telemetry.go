@@ -1,7 +1,7 @@
 package rindb
 
 import (
-	"log"
+	"context"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -63,7 +63,7 @@ var (
 
 func must[T any](v T, err error) T {
 	if err != nil {
-		log.Printf("telemetry init: %v", err)
+		errorf(context.Background(), "telemetry init: %v", err)
 		panic(err)
 	}
 	return v
