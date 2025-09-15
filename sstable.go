@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"sort"
@@ -287,7 +286,7 @@ func flush(ctx context.Context, config Config, mem memtable, fs *FileSystem) (SS
 
 	if mem.data.Len() == 0 {
 		errorf(ctx, "Flushing empty memtable! It's a bug!")
-		log.Panic("empty memtable!")
+		panic("empty memtable!")
 	}
 
 	builder, err := NewSSTableBuilder(ctx, config, fs, int(mem.data.Len()))

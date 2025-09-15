@@ -119,6 +119,8 @@ func runOne(ctx context.Context, dir string, seed int64, n int, logPath string, 
 	baseOpts := []rindb.Option{
 		rindb.WithDatabaseDir(dbDir),
 		rindb.WithCacheBytes(32 << 20), // 32MiB table cache budget
+		rindb.WithLogger(rindb.NewStdLogger(log.Default())),
+		rindb.WithLogLevel(rindb.LogLevelDebug),
 	}
 	if jaeger != "" {
 		baseOpts = append(baseOpts,

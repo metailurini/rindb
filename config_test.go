@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -236,6 +237,24 @@ func TestConfig_NewWithOptions(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "WithLogger",
+			opts: []Option{WithLogger(simpleLogger{})},
+			verify: func(t *testing.T, cfg Config) {
+				if _, ok := cfg.logger.(simpleLogger); !ok {
+					t.Errorf("logger type = %T, want simpleLogger", cfg.logger)
+				}
+			},
+		},
+		{
+			name: "WithLogLevel",
+			opts: []Option{WithLogLevel(LogLevelError)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.logLevel != LogLevelError {
+					t.Errorf("logLevel = %v, want %v", cfg.logLevel, LogLevelError)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -245,6 +264,13 @@ func TestConfig_NewWithOptions(t *testing.T) {
 		})
 	}
 }
+
+type simpleLogger struct{}
+
+func (simpleLogger) Debug(context.Context, string, ...any) {}
+func (simpleLogger) Info(context.Context, string, ...any)  {}
+func (simpleLogger) Warn(context.Context, string, ...any)  {}
+func (simpleLogger) Error(context.Context, string, ...any) {}
 
 func TestConfig_ValidatePanics(t *testing.T) {
 	base := DefaultConfig()
