@@ -247,6 +247,15 @@ func TestConfig_NewWithOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "WithLoggerNil",
+			opts: []Option{WithLogger(nil)},
+			verify: func(t *testing.T, cfg Config) {
+				if _, ok := cfg.logger.(nopLogger); !ok {
+					t.Errorf("logger type = %T, want nopLogger", cfg.logger)
+				}
+			},
+		},
+		{
 			name: "WithLogLevel",
 			opts: []Option{WithLogLevel(LogLevelError)},
 			verify: func(t *testing.T, cfg Config) {
