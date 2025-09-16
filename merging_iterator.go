@@ -169,7 +169,10 @@ func (m *MergingIterator) preparePrev() {
 	case err == nil:
 		m.fwd.PushItem(curItem)
 	case errors.Is(err, EOI):
-		// Return the record without surfacing EOI.
+		// The iterator cannot step further back but still remains positioned on the
+		// current record. Requeue it so that subsequent Next calls can surface it
+		// again when rewinding from the beginning.
+		m.fwd.PushItem(curItem)
 	default:
 		m.err = err
 	}
