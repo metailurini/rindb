@@ -166,12 +166,10 @@ func (m *MergingIterator) preparePrev() {
 	curItem := m.rev.PopItem()
 	_, err := curItem.iter.Prev()
 	switch {
-	case err == nil:
-		m.fwd.PushItem(curItem)
-	case errors.Is(err, EOI):
-		// The iterator cannot step further back but still remains positioned on the
-		// current record. Requeue it so that subsequent Next calls can surface it
-		// again when rewinding from the beginning.
+	case err == nil || errors.Is(err, EOI):
+		// If Prev() succeeds, the underlying iterator moved back. If it returns EOI,
+		// it's at the beginning. In both cases, the current item should be
+		// requeued so that subsequent Next calls can surface it again.
 		m.fwd.PushItem(curItem)
 	default:
 		m.err = err
