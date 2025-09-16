@@ -250,3 +250,70 @@ func TestMergingIterator_ErrorPropagation(t *testing.T) {
 		})
 	}
 }
+
+func TestMergingIterator_PrepareNextNoopWhenPrepared(t *testing.T) {
+	iter := &errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1}
+	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil)
+	require.NoError(t, err)
+
+	require.True(t, mi.HasNext())
+
+	prepared := mi.nextItem
+	fwdLen := mi.fwd.Len()
+	revLen := mi.rev.Len()
+
+	mi.prepareNext()
+
+	assert.True(t, mi.nextPrepared)
+	assert.Equal(t, prepared, mi.nextItem)
+	assert.Equal(t, fwdLen, mi.fwd.Len())
+	assert.Equal(t, revLen, mi.rev.Len())
+}
+
+func TestMergingIterator_HasNextAfterIteratorError(t *testing.T) {
+	iter := &errIterator{
+		records: []Record{
+			mkRec("a", "v1", 1, TypeValue),
+			mkRec("b", "v2", 1, TypeValue),
+		},
+		failIdx: 1,
+	}
+
+	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil)
+	require.NoError(t, err)
+
+	first, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("a", "v1", 1, TypeValue), first)
+
+	assert.False(t, mi.HasNext())
+
+	_, err = mi.Next()
+	assert.EqualError(t, err, "boom")
+	assert.EqualError(t, mi.err, "boom")
+}
+
+func TestMergingIterator_PrevErrorPropagation(t *testing.T) {
+	iter := &errIterator{
+		records: []Record{mkRec("a", "va", 1, TypeValue)},
+		failIdx: -1,
+	}
+
+	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil)
+	require.NoError(t, err)
+
+	require.True(t, mi.HasNext())
+	first, err := mi.Next()
+	require.NoError(t, err)
+
+	iter.failIdx = 0
+
+	assert.True(t, mi.HasPrev())
+	back, err := mi.Prev()
+	assert.Equal(t, first, back)
+	assert.EqualError(t, err, "boom")
+	assert.EqualError(t, mi.err, "boom")
+
+	mi.prepareNext()
+	assert.False(t, mi.nextPrepared)
+}
