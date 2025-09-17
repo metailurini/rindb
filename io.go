@@ -15,6 +15,25 @@ const (
 	checksumSize = 4
 )
 
+type meteredReader struct {
+	r io.Reader
+	n int
+}
+
+func newMeteredReader(r io.Reader) *meteredReader {
+	return &meteredReader{r: r}
+}
+
+func (mr *meteredReader) Read(p []byte) (int, error) {
+	n, err := mr.r.Read(p)
+	mr.n += n
+	return n, err
+}
+
+func (mr *meteredReader) BytesRead() int {
+	return mr.n
+}
+
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
 func readNumber(storage io.Reader) (uint64, error) {
@@ -25,45 +44,56 @@ func readNumber(storage io.Reader) (uint64, error) {
 	return byteOrder.Uint64(numBytes[:]), nil
 }
 
-func readRecord(storage io.Reader) (Record, error) {
-	internalKeyLen, err := readNumber(storage)
+func readRecord(storage io.Reader) (Record, int, error) {
+	reader := newMeteredReader(storage)
+
+	internalKeyLen, err := readNumber(reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read internal key length: %w", err)
+		return nil, 0, fmt.Errorf("failed to read internal key length: %w", err)
 	}
 
-	valueLen, err := readNumber(storage)
+	valueLen, err := readNumber(reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read value length: %w", err)
+		return nil, 0, fmt.Errorf("failed to read value length: %w", err)
 	}
 
 	var internalKeyBytes Bytes
 	if internalKeyLen > 0 {
 		internalKeyBytes = make(Bytes, internalKeyLen)
-		if _, err := io.ReadFull(storage, internalKeyBytes); err != nil {
-			return nil, fmt.Errorf("failed to read internal key bytes: %w", err)
+		if _, err := io.ReadFull(reader, internalKeyBytes); err != nil {
+			return nil, 0, fmt.Errorf("failed to read internal key bytes: %w", err)
 		}
 	}
 
 	userKey, seq, typ, err := DecodeInternalKey(internalKeyBytes)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	var valueBytes Bytes
 	if valueLen > 0 {
 		valueBytes = make(Bytes, valueLen)
-		if _, err := io.ReadFull(storage, valueBytes); err != nil {
-			return nil, fmt.Errorf("failed to read value bytes: %w", err)
+		if _, err := io.ReadFull(reader, valueBytes); err != nil {
+			return nil, 0, fmt.Errorf("failed to read value bytes: %w", err)
 		}
 	}
 
 	var checksumBytes [checksumSize]byte
-	if _, err := io.ReadFull(storage, checksumBytes[:]); err != nil {
-		return nil, fmt.Errorf("failed to read checksum: %w", err)
+	if _, err := io.ReadFull(reader, checksumBytes[:]); err != nil {
+		return nil, 0, fmt.Errorf("failed to read checksum: %w", err)
 	}
 	expected := byteOrder.Uint32(checksumBytes[:])
 	if actual := checksum(internalKeyBytes, valueBytes); actual != expected {
-		return nil, ErrChecksumMismatch
+		return nil, 0, ErrChecksumMismatch
+	}
+
+	trailer, err := readNumber(reader)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read record size trailer: %w", err)
+	}
+	size := reader.BytesRead()
+	if trailer != uint64(size) {
+		return nil, 0, fmt.Errorf("record size mismatch: got %d expect %d", trailer, size)
 	}
 
 	return RecordImpl{
@@ -71,7 +101,7 @@ func readRecord(storage io.Reader) (Record, error) {
 		Value:          valueBytes,
 		SequenceNumber: seq,
 		Type:           typ,
-	}, nil
+	}, size, nil
 }
 
 func writeNumber(tx *transaction, number uint64) error {
@@ -109,6 +139,10 @@ func writeRecord(tx *transaction, record Record) error {
 	byteOrder.PutUint32(checksumBytes[:], checksum)
 	if _, err := tx.write(checksumBytes[:]); err != nil {
 		return fmt.Errorf("failed to write checksum: %w", err)
+	}
+
+	if err := writeNumber(tx, uint64(CalOnDiskSize(record))); err != nil {
+		return fmt.Errorf("failed to write record size trailer: %w", err)
 	}
 
 	return nil
