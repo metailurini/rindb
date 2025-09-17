@@ -118,7 +118,7 @@ func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
 
 func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {
 	t.Run("single-key-latest-version-only", func(t *testing.T) {
-		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(256), rindb.WithSSTableIterMaxHistory(8))
+		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(256))
 		t.Cleanup(cleanup)
 		ctx := context.Background()
 
@@ -146,7 +146,7 @@ func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {
 	})
 
 	t.Run("multi-key-span", func(t *testing.T) {
-		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(300), rindb.WithSSTableIterMaxHistory(8))
+		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(300))
 		t.Cleanup(cleanup)
 		ctx := context.Background()
 
