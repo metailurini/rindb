@@ -28,6 +28,8 @@ func (r *RangeIterator) Prev() (Record, error) {
 
 2. **Adjust RangeIterator state transitions for bidirectional stability** *(Complexity: 6/10 — Dedicated plan file: not required)*
    - Refactor `preparePrev`, `Prev`, and the forward/backward toggles so that `lastKey` persists until the opposite direction yields a different user key, guarding against duplicate exposure.
+   - Track the record just surfaced by `Next()` in a `crossingAnchor` slot so the backward path can consume it without re-exposing older versions.
+   - Introduce a helper (sketched below as `preparePrevCrossing`) that preloads the `prev` slot when crossing from forward iteration, effectively mirroring `prepareNext`'s direction-change handling.
    - Mirror the `prepareNext` logic: when switching direction, seed `lastKey` from the record being returned instead of clearing the flag prematurely.
 
    ```go
@@ -46,13 +48,31 @@ func (r *RangeIterator) Prev() (Record, error) {
    }
    ```
 
+   ```go
+   func (r *RangeIterator) preparePrevCrossing() bool {
+       if !r.crossingAnchorSet {
+           r.preparePrev()
+           return r.prevPrepared
+       }
+
+       // The anchor holds the record most recently emitted by Next(); place it into the prev slot so the
+       // following call to preparePrev can skip over it while keeping lastKey intact.
+       r.prev = r.crossingAnchor
+       r.prevPrepared = true
+       r.crossingAnchorSet = false
+
+       r.preparePrev()
+       return r.prevPrepared
+   }
+   ```
+
 3. **Broaden coverage and validate iterator invariants** *(Complexity: 3/10 — Dedicated plan file: not required)*
    - Add alternating-direction test cases (including multi-key spans) to `integration/range_iterator_next_prev_test.go` to confirm deduplication consistency through complex sequences.
    - Run `make test` and `make test-integration-smoke` to ensure no regressions; capture results in the eventual PR.
 
    ```go
    func TestRangeIterator_AlternatingSequences(t *testing.T) {
-       seq := []op{{next: "a:2"}, {prev: "a:2"}, {prevEOI: true}, {next: "b:1"}}
+       seq := []op{{next: "a:2"}, {prev: "a:2"}, {prevEOI: true}, {next: "a:2"}}
        assertIteration(t, iter, seq)
    }
    ```
