@@ -96,11 +96,6 @@ type Config struct {
 	// systems. Provide an implementation to bound FD usage.
 	fdLimiter FDLimiter
 
-	// sstableIterMaxHistory bounds the number of previous offsets retained
-	// by SSTable iterators to support Prev(). Older offsets are discarded
-	// once this limit is exceeded.
-	sstableIterMaxHistory int
-
 	// logger receives log messages. Defaults to a no-op implementation.
 	logger Logger
 
@@ -151,7 +146,6 @@ func DefaultConfig() Config {
 		cacheCorruptTTL:           5 * time.Minute,
 		cacheTombstoneTTL:         0,
 		fdLimiter:                 noopFDLimiter{},
-		sstableIterMaxHistory:     1 << 16,
 		logger:                    nopLogger{},
 		logLevel:                  LogLevelWarn,
 	}
@@ -234,9 +228,6 @@ func (c Config) Validate() {
 	if c.cacheTombstoneTTL < 0 {
 		panic("cacheTombstoneTTL must be >= 0")
 	}
-	if c.sstableIterMaxHistory < 0 {
-		panic("sstableIterMaxHistory must be >= 0")
-	}
 	if c.logger == nil {
 		panic("logger cannot be nil")
 	}
@@ -293,12 +284,6 @@ func WithCacheTombstoneTTL(d time.Duration) Option {
 // unlimited implementation.
 func WithFDLimiter(l FDLimiter) Option {
 	return func(c *Config) { c.fdLimiter = l }
-}
-
-// WithSSTableIterMaxHistory sets the maximum number of offsets retained by
-// SSTable iterators to support Prev().
-func WithSSTableIterMaxHistory(n int) Option {
-	return func(c *Config) { c.sstableIterMaxHistory = n }
 }
 
 // WithLogger sets the logger used by RinDB. A nil logger results in a no-op logger.

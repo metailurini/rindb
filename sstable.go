@@ -36,11 +36,10 @@ type (
 
 type SStable struct {
 	*FileSystem
-	SparseIndex    SparseIndex
-	Bloom          *BloomFilter
-	dataEnd        int64
-	iterMaxHistory int
-	log            scopedLogger
+	SparseIndex SparseIndex
+	Bloom       *BloomFilter
+	dataEnd     int64
+	log         scopedLogger
 }
 
 func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, error) {
@@ -89,7 +88,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 	}
 
 	log.info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
-	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset), iterMaxHistory: config.sstableIterMaxHistory, log: log}, nil
+	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset), log: log}, nil
 }
 
 func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error) {
@@ -136,7 +135,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 		if reader.Offset() >= s.dataEnd {
 			return nil, ErrKeyNotFound
 		}
-		record, err := readRecord(reader)
+		record, size, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				s.log.errorf(ctx, "Unexpected EOF after reading at offset %d in %s", offset, s.Path())
@@ -156,7 +155,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 			s.log.errorf(ctx, "Failed to read record at offset %d in %s: %v", reader.Offset(), s.Path(), err)
 			return nil, fmt.Errorf("failed to read record at offset %d: %w", reader.Offset(), err)
 		}
-		bytesRead += CalOnDiskSize(record)
+		bytesRead += size
 		cmp := record.GetKey().Compare(key)
 		if cmp == CmpLess {
 			continue

@@ -65,3 +65,46 @@ func TestOffsetReader_Read(t *testing.T) {
 		})
 	}
 }
+
+func TestOffsetReader_PrevOffset(t *testing.T) {
+	t.Run("rewinds using trailer", func(t *testing.T) {
+		data := make([]byte, 24)
+		byteOrder.PutUint64(data[len(data)-mdByteSize:], uint64(len(data)))
+
+		fss, closer := initTempFileSystems(t, 1, [][]byte{data})
+		defer closer()
+
+		fs := fss[0]
+		r := newOffsetReader(fs, int64(len(data)))
+
+		start, err := r.PrevOffset()
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), start)
+	})
+
+	t.Run("offset zero returns eof", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, [][]byte{nil})
+		defer closer()
+
+		fs := fss[0]
+		r := newOffsetReader(fs, 0)
+
+		start, err := r.PrevOffset()
+		assert.ErrorIs(t, err, io.EOF)
+		assert.Equal(t, int64(0), start)
+	})
+
+	t.Run("invalid trailer", func(t *testing.T) {
+		data := make([]byte, 24)
+		byteOrder.PutUint64(data[len(data)-mdByteSize:], uint64(len(data))*2)
+
+		fss, closer := initTempFileSystems(t, 1, [][]byte{data})
+		defer closer()
+
+		fs := fss[0]
+		r := newOffsetReader(fs, int64(len(data)))
+
+		_, err := r.PrevOffset()
+		require.Error(t, err)
+	})
+}

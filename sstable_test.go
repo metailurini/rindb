@@ -60,7 +60,7 @@ func TestSSTable_BasicOperations(t *testing.T) {
 		ret := int64(0)
 		idx := 0
 		for ret < int64(f.indexOffset) {
-			record, err := readRecord(reader)
+			record, _, err := readRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, data[idx].key, record.GetKey())
 			assert.Equal(t, data[idx].value, record.GetValue())
@@ -114,7 +114,7 @@ func TestSSTable_BasicOperations(t *testing.T) {
 		for idx := len(sparseIndex) - 1; idx > -1; idx-- {
 			keyOffset := sparseIndex[idx]
 			reader := newOffsetReader(sstable.FileSystem, keyOffset.offset)
-			record, err := readRecord(reader)
+			record, _, err := readRecord(reader)
 			assert.NoError(t, err)
 			assert.Equal(t, keyOffset.key, record.GetKey())
 		}
@@ -602,7 +602,7 @@ func TestSStableChecksumMismatch(t *testing.T) {
 	assert.NoError(t, err)
 	require.NotZero(t, meta.Number)
 
-	offset := int64(CalOnDiskSize(rec)) - checksumSize
+	offset := int64(CalOnDiskSize(rec)) - checksumSize - mdByteSize
 	_, err = fs.WriteAt([]byte{0}, offset)
 	assert.NoError(t, err)
 
