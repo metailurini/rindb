@@ -71,13 +71,15 @@ func TestRecord_WriteRead(t *testing.T) {
 			defer cleanup()
 			path := tx.log.Path()
 
-			err := writeRecord(tx, newRecord(tt.key, tt.value, 0))
+			rec := newRecord(tt.key, tt.value, 0)
+			err := writeRecord(tx, rec)
 			assert.NoError(t, err)
 
 			data, err := os.ReadFile(path)
 			assert.NoError(t, err)
-			record, err := readRecord(bytes.NewReader(data))
+			record, size, err := readRecord(bytes.NewReader(data))
 			assert.NoError(t, err)
+			assert.Equal(t, CalOnDiskSize(rec), size)
 			assert.Equal(t, tt.key, record.GetKey())
 			assert.Equal(t, tt.value, record.GetValue())
 		})
@@ -171,13 +173,51 @@ func TestReadRecord_Errors(t *testing.T) {
 			},
 			errIs: ErrChecksumMismatch,
 		},
+		{
+			name: "Error reading size trailer",
+			setup: func() io.Reader {
+				var buf bytes.Buffer
+				ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
+				value := Bytes("value")
+				writeNumberBuf(&buf, uint64(len(ikey)))
+				writeNumberBuf(&buf, uint64(len(value)))
+				buf.Write(ikey)
+				buf.Write(value)
+				var checksumBytes [checksumSize]byte
+				chk := checksum(ikey, value)
+				byteOrder.PutUint32(checksumBytes[:], chk)
+				buf.Write(checksumBytes[:])
+				return &buf
+			},
+			errContains: []string{"failed to read record size trailer"},
+			errIs:       io.EOF,
+		},
+		{
+			name: "Record size mismatch",
+			setup: func() io.Reader {
+				var buf bytes.Buffer
+				ikey := EncodeInternalKey(Bytes("key"), 0, TypeValue)
+				value := Bytes("value")
+				writeNumberBuf(&buf, uint64(len(ikey)))
+				writeNumberBuf(&buf, uint64(len(value)))
+				buf.Write(ikey)
+				buf.Write(value)
+				var checksumBytes [checksumSize]byte
+				chk := checksum(ikey, value)
+				byteOrder.PutUint32(checksumBytes[:], chk)
+				buf.Write(checksumBytes[:])
+				writeNumberBuf(&buf, 1)
+				return &buf
+			},
+			errContains: []string{"record size mismatch"},
+		},
 	}
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			r := tt.setup()
-			_, err := readRecord(r)
+			_, _, err := readRecord(r)
 			for _, msg := range tt.errContains {
 				assert.ErrorContains(t, err, msg)
 			}
@@ -211,12 +251,15 @@ func BenchmarkReadRecord(b *testing.B) {
 	byteOrder.PutUint32(checksumBytes[:], chk)
 	buf.Write(checksumBytes[:])
 
+	baseLen := buf.Len()
+	writeNumberBuf(&buf, uint64(baseLen+mdByteSize))
+
 	recordBytes := buf.Bytes()
 
 	b.SetBytes(int64(len(recordBytes)))
 
 	for b.Loop() {
-		_, err := readRecord(bytes.NewReader(recordBytes))
+		_, _, err := readRecord(bytes.NewReader(recordBytes))
 		if err != nil {
 			b.Fatal(err)
 		}

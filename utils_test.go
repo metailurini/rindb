@@ -90,9 +90,6 @@ func newTestRindbSetup(t *testing.T, ctx context.Context, cfg *Config) *testRind
 		if finalCfg.skipListP == 0.0 {
 			finalCfg.skipListP = defaultCfg.skipListP
 		}
-		if finalCfg.sstableIterMaxHistory == 0 {
-			finalCfg.sstableIterMaxHistory = defaultCfg.sstableIterMaxHistory
-		}
 	}
 
 	tempDir := t.TempDir()

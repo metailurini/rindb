@@ -55,8 +55,7 @@ func runRangeIterSequence(t *testing.T, iter *rindb.RangeIterator, steps []range
 }
 
 func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
-	// Limit history to ensure Prev() hits EOI after exceeding bounds.
-	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(100), rindb.WithSSTableIterMaxHistory(1))
+	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(100))
 	t.Cleanup(cleanup)
 	ctx := context.Background()
 
@@ -95,7 +94,7 @@ func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
 	assertPrev("c")
 	assertPrev("a")
 
-	// History exceeded: cannot go back further.
+	// Beginning of iteration: cannot go back further.
 	_, err = iter.Prev()
 	require.ErrorIs(t, err, rindb.EOI)
 
@@ -111,6 +110,10 @@ func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
 	assertPrev("e")
 	assertPrev("d")
 	assertPrev("c")
+	assertPrev("a")
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, rindb.EOI)
 }
 
 func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {

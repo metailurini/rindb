@@ -168,7 +168,7 @@ func (b *SSTableBuilder) Build(ctx context.Context) (sst SStable, meta fileMeta,
 	}
 
 	b.built = true
-	sst = SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom, dataEnd: indexOffset, iterMaxHistory: b.config.sstableIterMaxHistory, log: b.config.scopedLogger()}
+	sst = SStable{FileSystem: b.fs, SparseIndex: b.index, Bloom: b.bloom, dataEnd: indexOffset, log: b.config.scopedLogger()}
 	num, nerr := fileNum(b.fs.Path())
 	if nerr != nil {
 		err = fmt.Errorf("invalid sstable path %s: %w", b.fs.Path(), nerr)

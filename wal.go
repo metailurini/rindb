@@ -83,7 +83,7 @@ func (w *wal) Load(ctx context.Context) (memtable, error) {
 	reader := newOffsetReader(w.FileSystem, 0)
 	mem := InitMemtable(w.config)
 	for {
-		record, err := readRecord(reader)
+		record, size, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break // Normal end of file
@@ -96,7 +96,7 @@ func (w *wal) Load(ctx context.Context) (memtable, error) {
 
 		mem.Put(record)
 		w.records.Add(1)
-		w.bytes.Add(uint64(CalOnDiskSize(record)))
+		w.bytes.Add(uint64(size))
 	}
 	walRecordsCounter.Add(ctx, int64(w.records.Load()))
 	walBytesCounter.Add(ctx, int64(w.bytes.Load()))
@@ -196,7 +196,7 @@ func (w *wal) Clean(ctx context.Context, minSeq uint64) error {
 	var keptBytes int64
 
 	for {
-		rec, err := readRecord(reader)
+		rec, size, err := readRecord(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -224,7 +224,7 @@ func (w *wal) Clean(ctx context.Context, minSeq uint64) error {
 			return fmt.Errorf("failed to commit WAL transaction: %w", err)
 		}
 		keptRecords++
-		keptBytes += int64(CalOnDiskSize(rec))
+		keptBytes += int64(size)
 	}
 
 	if err := tmpFS.Sync(); err != nil {

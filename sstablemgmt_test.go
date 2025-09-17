@@ -459,7 +459,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 		ts.AddSSTable(0, sst)
 
 		rec := newRecord(key, value, 1)
-		offset := int64(CalOnDiskSize(rec)) - checksumSize
+		offset := int64(CalOnDiskSize(rec)) - checksumSize - mdByteSize
 		f, err := os.OpenFile(sst.Path(), os.O_WRONLY, 0)
 		require.NoError(t, err)
 		defer func() { _ = f.Close() }()

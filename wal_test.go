@@ -75,6 +75,14 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 		actual := checksum(keyBytes, valueBytes)
 		assert.Equal(t, expected, actual)
 
+		// Read and validate the trailing size metadata
+		sizeBytes := [mdByteSize]byte{}
+		_, err = io.ReadFull(file, sizeBytes[:])
+		assert.NoError(t, err)
+		actualSize := byteOrder.Uint64(sizeBytes[:])
+		expectedSize := uint64(2*mdByteSize) + keyLen + valueLen + uint64(checksumSize) + uint64(mdByteSize)
+		assert.Equal(t, expectedSize, actualSize)
+
 		_ = seq // silence unused warning if seq not used otherwise
 	}
 }
@@ -137,7 +145,8 @@ func TestWAL_CleanErrors(t *testing.T) {
 
 		info, err := fs.file.Stat()
 		require.NoError(t, err)
-		_, err = fs.file.WriteAt([]byte{0}, info.Size()-1)
+		offset := info.Size() - int64(mdByteSize+checksumSize)
+		_, err = fs.file.WriteAt([]byte{0}, offset)
 		require.NoError(t, err)
 
 		err = w.Clean(ctx, 0)
@@ -353,7 +362,8 @@ func TestWAL_LoadChecksumMismatch(t *testing.T) {
 
 	info, err := fs.file.Stat()
 	assert.NoError(t, err)
-	_, err = fs.WriteAt([]byte{0}, info.Size()-1)
+	offset := info.Size() - int64(mdByteSize+checksumSize)
+	_, err = fs.WriteAt([]byte{0}, offset)
 	assert.NoError(t, err)
 
 	_, err = w.Load(context.Background())
