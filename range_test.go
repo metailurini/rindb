@@ -204,6 +204,22 @@ func TestRangeIteratorPrev_SuppressesOlderVersion(t *testing.T) {
 	mustPrevEOI(t, iter)
 }
 
+func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "k", value: "v2", seq: 2},
+			{key: "z", value: "vz", seq: 1},
+		},
+		[]kv{{key: "k", value: "v1", seq: 1}},
+	)
+
+	mustNextValue(t, iter, "k", "v2")
+	mustNextValue(t, iter, "z", "vz")
+
+	mustPrevValue(t, iter, "z", "vz")
+	mustPrevValue(t, iter, "k", "v2")
+}
+
 func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
 	iters := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
