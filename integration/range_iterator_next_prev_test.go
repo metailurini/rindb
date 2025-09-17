@@ -29,28 +29,28 @@ type rangeIterStep struct {
 func runRangeIterSequence(t *testing.T, iter *rindb.RangeIterator, steps []rangeIterStep) {
 	t.Helper()
 	for i, step := range steps {
+		var (
+			rec rindb.Record
+			err error
+		)
+		opName := string(step.dir)
+
 		switch step.dir {
 		case iterNext:
-			rec, err := iter.Next()
-			if step.eoi {
-				require.ErrorIs(t, err, rindb.EOI, "step %d: expected EOI on Next", i)
-				continue
-			}
-			require.NoError(t, err, "step %d: Next error", i)
-			require.Equal(t, step.key, string(rec.GetKey()), "step %d: Next key mismatch", i)
-			require.Equal(t, step.value, string(rec.GetValue()), "step %d: Next value mismatch", i)
+			rec, err = iter.Next()
 		case iterPrev:
-			rec, err := iter.Prev()
-			if step.eoi {
-				require.ErrorIs(t, err, rindb.EOI, "step %d: expected EOI on Prev", i)
-				continue
-			}
-			require.NoError(t, err, "step %d: Prev error", i)
-			require.Equal(t, step.key, string(rec.GetKey()), "step %d: Prev key mismatch", i)
-			require.Equal(t, step.value, string(rec.GetValue()), "step %d: Prev value mismatch", i)
+			rec, err = iter.Prev()
 		default:
 			t.Fatalf("unsupported iterator direction %q", step.dir)
 		}
+
+		if step.eoi {
+			require.ErrorIs(t, err, rindb.EOI, "step %d: expected EOI on %s", i, opName)
+			continue
+		}
+		require.NoError(t, err, "step %d: %s error", i, opName)
+		require.Equal(t, step.key, string(rec.GetKey()), "step %d: %s key mismatch", i, opName)
+		require.Equal(t, step.value, string(rec.GetValue()), "step %d: %s value mismatch", i, opName)
 	}
 }
 
