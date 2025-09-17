@@ -63,7 +63,7 @@ func DefaultNewWALFunc(ctx context.Context, cfg Config) (*wal, error) {
 func NewWAL(config Config, fs *FileSystem) *wal {
 	return &wal{
 		FileSystem:  fs,
-		tm:          newTransactionManager(),
+		tm:          newTransactionManager(config.scopedLogger()),
 		config:      config,
 		writeRecord: writeRecord,
 		txCommit: func(tx *transaction, ctx context.Context) error {

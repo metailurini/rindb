@@ -160,6 +160,30 @@ defer db.Close()
 
 The sample CLI accepts `--cache-bytes` and `--cache-shards` flags to tune the cache.
 
+### Logging
+
+RinDB does not emit logs unless a logger is provided. Inject a custom logger and
+set the desired verbosity:
+
+```go
+logger := rindb.NewStdLogger(log.New(os.Stdout, "", log.LstdFlags))
+db, _ := rindb.InitRinDB(ctx,
+    rindb.WithLogger(logger),
+    rindb.WithLogLevel(rindb.LogLevelDebug),
+)
+```
+
+Omitting `WithLogger` keeps the database silent. To log only warnings and errors:
+
+```go
+db, _ := rindb.InitRinDB(ctx,
+    rindb.WithLogger(logger),
+    rindb.WithLogLevel(rindb.LogLevelWarn),
+)
+```
+
+OpenTelemetry telemetry options operate independently of the logger.
+
 ### Table Cache
 
 RinDB keeps recently used SSTables open in a sharded SLRU cache. The cache size and

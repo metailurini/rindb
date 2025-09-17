@@ -17,12 +17,13 @@ import (
 // OtelInit initializes OpenTelemetry providers when enabled.
 // The returned shutdown function should be called to flush data.
 // If insecure is true, transport security is disabled for the OTLP exporters.
-func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool, samplingRate float64) (func(context.Context) error, error) {
+func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool, samplingRate float64, logger Logger, level LogLevel) (func(context.Context) error, error) {
+	log := newScopedLogger(logger, level)
 	if !enable {
-		info(ctx, "OpenTelemetry is disabled.")
+		log.info(ctx, "OpenTelemetry is disabled.")
 		return func(context.Context) error { return nil }, nil
 	}
-	info(ctx, "OpenTelemetry initialized with endpoint: %s, insecure: %t, samplingRate: %f", endpoint, insecure, samplingRate)
+	log.info(ctx, "OpenTelemetry initialized with endpoint: %s, insecure: %t, samplingRate: %f", endpoint, insecure, samplingRate)
 
 	res, err := resource.Merge(
 		resource.Default(),
@@ -65,23 +66,23 @@ func OtelInit(ctx context.Context, enable bool, endpoint string, insecure bool, 
 	otel.SetMeterProvider(mp)
 
 	shutdown := func(ctx context.Context) error {
-		info(ctx, "Shutting down OpenTelemetry trace provider...")
+		log.info(ctx, "Shutting down OpenTelemetry trace provider...")
 		tpErr := tp.Shutdown(ctx)
 		if tpErr != nil {
-			errorf(ctx, "Error shutting down trace provider: %v", tpErr)
+			log.errorf(ctx, "Error shutting down trace provider: %v", tpErr)
 		}
 
-		info(ctx, "Shutting down OpenTelemetry meter provider...")
+		log.info(ctx, "Shutting down OpenTelemetry meter provider...")
 		mpErr := mp.Shutdown(ctx)
 		if mpErr != nil {
-			errorf(ctx, "Error shutting down meter provider: %v", mpErr)
+			log.errorf(ctx, "Error shutting down meter provider: %v", mpErr)
 		}
 
 		if tpErr != nil || mpErr != nil {
 			return errors.Join(tpErr, mpErr)
 		}
 
-		info(ctx, "OpenTelemetry shutdown complete.")
+		log.info(ctx, "OpenTelemetry shutdown complete.")
 		return nil
 	}
 	return shutdown, nil

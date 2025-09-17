@@ -154,6 +154,8 @@ func runOne(ctx context.Context, dir string, runCfg runConfig) error {
 	baseOpts := []rindb.Option{
 		rindb.WithDatabaseDir(dbDir),
 		rindb.WithCacheBytes(32 << 20), // 32MiB table cache budget
+		rindb.WithLogger(rindb.NewStdLogger(log.Default())),
+		rindb.WithLogLevel(rindb.LogLevelDebug),
 	}
 	if runCfg.jaeger != "" {
 		baseOpts = append(baseOpts,

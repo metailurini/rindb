@@ -100,6 +100,12 @@ type Config struct {
 	// by SSTable iterators to support Prev(). Older offsets are discarded
 	// once this limit is exceeded.
 	sstableIterMaxHistory int
+
+	// logger receives log messages. Defaults to a no-op implementation.
+	logger Logger
+
+	// logLevel controls which messages are emitted via the logger.
+	logLevel LogLevel
 }
 
 // Option defines a functional option type for Config.
@@ -146,6 +152,8 @@ func DefaultConfig() Config {
 		cacheTombstoneTTL:         0,
 		fdLimiter:                 noopFDLimiter{},
 		sstableIterMaxHistory:     1 << 16,
+		logger:                    nopLogger{},
+		logLevel:                  LogLevelWarn,
 	}
 }
 
@@ -229,6 +237,16 @@ func (c Config) Validate() {
 	if c.sstableIterMaxHistory < 0 {
 		panic("sstableIterMaxHistory must be >= 0")
 	}
+	if c.logger == nil {
+		panic("logger cannot be nil")
+	}
+	if c.logLevel < LogLevelDebug || c.logLevel > LogLevelError {
+		panic("invalid logLevel")
+	}
+}
+
+func (c Config) scopedLogger() scopedLogger {
+	return newScopedLogger(c.logger, c.logLevel)
 }
 
 func WithConfig(cfg Config) Option {
@@ -281,6 +299,22 @@ func WithFDLimiter(l FDLimiter) Option {
 // SSTable iterators to support Prev().
 func WithSSTableIterMaxHistory(n int) Option {
 	return func(c *Config) { c.sstableIterMaxHistory = n }
+}
+
+// WithLogger sets the logger used by RinDB. A nil logger results in a no-op logger.
+func WithLogger(l Logger) Option {
+	return func(c *Config) {
+		if l == nil {
+			c.logger = nopLogger{}
+			return
+		}
+		c.logger = l
+	}
+}
+
+// WithLogLevel sets the minimum log level emitted through the logger.
+func WithLogLevel(level LogLevel) Option {
+	return func(c *Config) { c.logLevel = level }
 }
 
 // WithMaxMemtableSize sets the maximum number of entries allowed in the memtable before flushing.

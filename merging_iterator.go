@@ -13,10 +13,16 @@ type pqItem struct {
 type MergingIterator struct {
 	fwd     *PriorityQueue[pqItem]
 	rev     *PriorityQueue[pqItem]
-	cur     pqItem
-	curSet  bool
 	cleanup func()
 	err     error
+
+	// prepared next state
+	nextPrepared bool
+	nextItem     pqItem
+
+	// prepared prev state
+	prevPrepared bool
+	prevItem     pqItem
 }
 
 // NewMergingIterator constructs a MergingIterator over provided iterators.
@@ -58,7 +64,17 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 
 // HasNext implements Iterator[Record].
 func (m *MergingIterator) HasNext() bool {
-	return m.err == nil && m.fwd.Len() > 0
+	if m.nextPrepared {
+		return true
+	}
+	if m.err != nil {
+		return false
+	}
+	if m.fwd.Len() == 0 {
+		return false
+	}
+	m.prepareNext()
+	return m.nextPrepared
 }
 
 // Next implements Iterator[Record].
@@ -70,26 +86,24 @@ func (m *MergingIterator) Next() (Record, error) {
 		}
 		return empty, EOI
 	}
-	item := m.fwd.PopItem()
-	m.rev.PushItem(item)
-	m.cur = item
-	m.curSet = true
-	if item.iter.HasNext() {
-		rec, err := item.iter.Next()
-		if err != nil {
-			if !errors.Is(err, EOI) {
-				m.err = err
-			}
-		} else {
-			m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
-		}
-	}
+	item := m.nextItem
+	m.nextPrepared = false
 	return item.rec, nil
 }
 
 // HasPrev implements Iterator[Record].
 func (m *MergingIterator) HasPrev() bool {
-	return m.err == nil && m.rev.Len() > 0
+	if m.prevPrepared {
+		return true
+	}
+	if m.err != nil {
+		return false
+	}
+	if m.rev.Len() == 0 {
+		return false
+	}
+	m.preparePrev()
+	return m.prevPrepared
 }
 
 // Prev implements Iterator[Record].
@@ -101,21 +115,68 @@ func (m *MergingIterator) Prev() (Record, error) {
 		}
 		return empty, EOI
 	}
-	cur := m.rev.PopItem()
-	if _, err := cur.iter.Prev(); err != nil {
-		if !errors.Is(err, EOI) {
-			m.err = err
+	item := m.prevItem
+	m.prevPrepared = false
+	if m.err != nil {
+		return item.rec, m.err
+	}
+	return item.rec, nil
+}
+
+// prepareNext stages the next item so that HasNext is idempotent.
+func (m *MergingIterator) prepareNext() {
+	if m.nextPrepared {
+		return
+	}
+	m.prevPrepared = false
+
+	if m.err != nil || m.fwd.Len() == 0 {
+		return
+	}
+
+	item := m.fwd.PopItem()
+	m.rev.PushItem(item)
+
+	if item.iter.HasNext() {
+		rec, err := item.iter.Next()
+		if err != nil {
+			if !errors.Is(err, EOI) {
+				m.err = err
+			}
+		} else {
+			m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
 		}
 	}
-	m.fwd.PushItem(cur)
-	if m.rev.Len() > 0 {
-		prev := m.rev.PeekItem()
-		m.cur = prev
-		m.curSet = true
-	} else {
-		m.curSet = false
+
+	m.nextItem = item
+	m.nextPrepared = true
+}
+
+// preparePrev stages the previous item so that HasPrev is idempotent.
+func (m *MergingIterator) preparePrev() {
+	if m.prevPrepared {
+		return
 	}
-	return cur.rec, nil
+	m.nextPrepared = false
+
+	if m.err != nil || m.rev.Len() == 0 {
+		return
+	}
+
+	curItem := m.rev.PopItem()
+	_, err := curItem.iter.Prev()
+	switch {
+	case err == nil || errors.Is(err, EOI):
+		// If Prev() succeeds, the underlying iterator moved back. If it returns EOI,
+		// it's at the beginning. In both cases, the current item should be
+		// requeued so that subsequent Next calls can surface it again.
+		m.fwd.PushItem(curItem)
+	default:
+		m.err = err
+	}
+
+	m.prevItem = curItem
+	m.prevPrepared = true
 }
 
 // Close releases any resources held by the iterator. It is safe to call

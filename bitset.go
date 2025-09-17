@@ -1,9 +1,5 @@
 package rindb
 
-import (
-	"log"
-)
-
 const (
 	bitSize = 64
 )
@@ -31,7 +27,6 @@ func (b Bitset) Set(index uint32) {
 func (b Bitset) Test(index uint32) bool {
 	word, bit := index/bitSize, index%bitSize
 	if index >= b.size {
-		log.Printf("Index %d out of bounds for Bitset of size %d", index, b.size)
 		return false
 	}
 	return (b.set[word] & (1 << bit)) != 0
