@@ -193,6 +193,17 @@ func TestRangeIteratorPrevBeforeNext(t *testing.T) {
 	assert.ErrorIs(t, err, EOI)
 }
 
+func TestRangeIteratorPrev_SuppressesOlderVersion(t *testing.T) {
+	iter := buildRangeIter(t,
+		[]kv{{key: "k", value: "v3", seq: 3}},
+		[]kv{{key: "k", value: "v2", seq: 2}},
+	)
+
+	mustNextValue(t, iter, "k", "v3")
+	mustPrevValue(t, iter, "k", "v3")
+	mustPrevEOI(t, iter)
+}
+
 func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
 	iters := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
@@ -339,4 +350,57 @@ func TestRangeIterator_Prepare(t *testing.T) {
 			}
 		})
 	}
+}
+
+type kv struct {
+	key   string
+	value string
+	seq   uint64
+	typ   RecordType
+}
+
+func buildRangeIter(t *testing.T, sources ...[]kv) *RangeIterator {
+	t.Helper()
+
+	var iterators []Iterator[Record]
+	for _, src := range sources {
+		records := make([]Record, 0, len(src))
+		for _, entry := range src {
+			typ := entry.typ
+			if typ == 0 {
+				typ = TypeValue
+			}
+			records = append(records, rec(entry.key, entry.value, entry.seq, typ))
+		}
+		iterators = append(iterators, &errIterator{records: records, failIdx: -1})
+	}
+
+	mi, err := NewMergingIterator(iterators, nil)
+	require.NoError(t, err)
+	return NewRangeIterator(mi)
+}
+
+func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
+	t.Helper()
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, key, string(rec.GetKey()))
+	require.Equal(t, value, string(rec.GetValue()))
+}
+
+func mustPrevValue(t *testing.T, iter *RangeIterator, key, value string) {
+	t.Helper()
+
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, key, string(rec.GetKey()))
+	require.Equal(t, value, string(rec.GetValue()))
+}
+
+func mustPrevEOI(t *testing.T, iter *RangeIterator) {
+	t.Helper()
+
+	_, err := iter.Prev()
+	require.ErrorIs(t, err, EOI)
 }
