@@ -39,6 +39,43 @@ func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
 	assert.Equal(t, Bytes("v2"), val)
 }
 
+func TestSnapshot_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(1<<20))
+	defer cleanup()
+
+	key := Bytes("primary")
+	require.NoError(t, rin.Put(ctx, key, Bytes("v1")))
+
+	snap, err := rin.NewSnapshot(ctx)
+	require.NoError(t, err)
+
+	require.NoError(t, rin.Put(ctx, key, Bytes("v2")))
+
+	newerSnap, err := rin.NewSnapshot(ctx)
+	require.NoError(t, err)
+
+	require.NoError(t, newerSnap.Release(ctx))
+
+	current, err := rin.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("v2"), current)
+
+	snapVal, err := snap.Get(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), snapVal)
+
+	iter, err := snap.IRange(ctx, key, key)
+	require.NoError(t, err)
+	require.True(t, iter.HasNext(), "expected snapshot-visible version to remain after cleanup")
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("v1"), rec.GetValue())
+	require.NoError(t, iter.Close())
+
+	require.NoError(t, snap.Release(ctx))
+}
+
 func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
 	ctx := context.Background()
 	const maxSize = uint(128)

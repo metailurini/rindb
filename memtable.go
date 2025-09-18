@@ -193,8 +193,9 @@ func (m *memtable) Cleanup(minSeq uint64) {
 		vlen int
 	}
 	var (
-		obs     []obsolete
-		lastKey Bytes
+		obs      []obsolete
+		lastKey  Bytes
+		snapKept bool
 	)
 	it := m.data.Iterator()
 	for it.HasNext() {
@@ -205,9 +206,15 @@ func (m *memtable) Cleanup(minSeq uint64) {
 		key := rec.GetKey()
 		if !bytes.Equal(lastKey, key) {
 			lastKey = key.Clone()
+			snapKept = rec.GetSequenceNumber() <= minSeq
 			continue // keep latest version for this key
 		}
-		if rec.GetSequenceNumber() < minSeq {
+		seq := rec.GetSequenceNumber()
+		if !snapKept && seq <= minSeq {
+			snapKept = true
+			continue
+		}
+		if seq < minSeq {
 			ik := InternalKey{UserKey: key, Seq: rec.GetSequenceNumber(), Type: rec.GetType()}
 			obs = append(obs, obsolete{key: ik, vlen: len(rec.GetValue())})
 		}
