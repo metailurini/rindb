@@ -215,9 +215,11 @@ func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
 
 	mustNextValue(t, iter, "k", "v2")
 	mustNextValue(t, iter, "z", "vz")
+	mustNextEOI(t, iter)
 
 	mustPrevValue(t, iter, "z", "vz")
 	mustPrevValue(t, iter, "k", "v2")
+	mustPrevEOI(t, iter)
 }
 
 func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
@@ -403,6 +405,13 @@ func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
 	require.NoError(t, err)
 	require.Equal(t, key, string(rec.GetKey()))
 	require.Equal(t, value, string(rec.GetValue()))
+}
+
+func mustNextEOI(t *testing.T, iter *RangeIterator) {
+	t.Helper()
+
+	_, err := iter.Next()
+	require.ErrorIs(t, err, EOI)
 }
 
 func mustPrevValue(t *testing.T, iter *RangeIterator, key, value string) {
