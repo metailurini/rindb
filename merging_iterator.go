@@ -28,6 +28,24 @@ type MergingIterator struct {
 // NewMergingIterator constructs a MergingIterator over provided iterators.
 // The optional cleanup function is called when Close is invoked.
 func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingIterator, error) {
+	// lessFwd defines the comparison logic for the forward priority queue.
+	// It determines the order in which records are retrieved when iterating forward.
+	//
+	// The primary sorting key is the record's Key, in ascending order.
+	// If two records have the same Key, their sequence numbers are used as a
+	// secondary sorting key, in descending order (higher sequence number first).
+	//
+	// This ensures that when iterating forward, we prioritize:
+	// 1. Records with smaller keys first.
+	// 2. For the same key, newer records (higher sequence numbers) first.
+	//
+	// Example scenarios for lessFwd(a, b):
+	// - a = {key: "apple", seq: 10}, b = {key: "banana", seq: 5}
+	//   Comparison: a.key ("apple") < b.key ("banana"). Result: true (a is "less").
+	// - a = {key: "apple", seq: 10}, b = {key: "apple", seq: 5}
+	//   Comparison: a.key == b.key. Then a.seq (10) > b.seq (5). Result: true (a is "less").
+	// - a = {key: "apple", seq: 5}, b = {key: "apple", seq: 10}
+	//   Comparison: a.key == b.key. Then a.seq (5) is not > b.seq (10). Result: false (a is NOT "less").
 	lessFwd := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
@@ -35,6 +53,25 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 		}
 		return cmp == CmpLess
 	}
+
+	// lessRev defines the comparison logic for the reverse priority queue.
+	// It determines the order in which records are retrieved when iterating backward.
+	//
+	// The primary sorting key is the record's Key, in descending order.
+	// If two records have the same Key, their sequence numbers are used as a
+	// secondary sorting key, in descending order (higher sequence number first).
+	//
+	// This ensures that when iterating backward, we prioritize:
+	// 1. Records with larger keys first.
+	// 2. For the same key, newer records (higher sequence numbers) first.
+	//
+	// Example scenarios for lessRev(a, b):
+	// - a = {key: "banana", seq: 5}, b = {key: "apple", seq: 10}
+	//   Comparison: a.key ("banana") > b.key ("apple"). Result: true (a is "less").
+	// - a = {key: "apple", seq: 10}, b = {key: "apple", seq: 5}
+	//   Comparison: a.key == b.key. Then a.seq (10) > b.seq (5). Result: true (a is "less").
+	// - a = {key: "apple", seq: 5}, b = {key: "apple", seq: 10}
+	//   Comparison: a.key == b.key. Then a.seq (5) is not > b.seq (10). Result: false (a is NOT "less").
 	lessRev := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
