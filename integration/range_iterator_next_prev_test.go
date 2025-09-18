@@ -197,4 +197,58 @@ func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {
 			{dir: iterNext, eoi: true},
 		})
 	})
+
+	t.Run("alternating-next-prev-with-duplicate-keys", func(t *testing.T) {
+		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(256))
+		t.Cleanup(cleanup)
+		ctx := context.Background()
+
+		const key = "testkey"
+		valueV1 := "valueV1"
+		valueV2 := "valueV2"
+		valueV3 := "valueV3"
+
+		// Put in reverse order of sequence number to simulate different versions
+		// being added over time. The latest version will have the highest sequence number.
+		require.NoError(t, db.Put(ctx, rindb.Bytes(key), rindb.Bytes(valueV1))) // seq 1
+		require.NoError(t, db.Put(ctx, rindb.Bytes(key), rindb.Bytes(valueV2))) // seq 2
+		require.NoError(t, db.Put(ctx, rindb.Bytes(key), rindb.Bytes(valueV3))) // seq 3
+
+		iter, err := db.IRange(ctx, rindb.Bytes(key), rindb.Bytes(key))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+		runRangeIterSequence(t, iter, []rangeIterStep{
+			{dir: iterNext, key: key, value: valueV3}, // Current: V3
+			{dir: iterPrev, key: key, value: valueV3}, // Should return V3 (last yielded)
+			{dir: iterNext, key: key, value: valueV3}, // Current: V3
+			{dir: iterNext, eoi: true},                // No more next
+			{dir: iterPrev, key: key, value: valueV3}, // Should return V3
+			{dir: iterPrev, eoi: true},                // No more prev
+		})
+
+		// Re-initialize iterator to test a different sequence
+		iter, err = db.IRange(ctx, rindb.Bytes(key), rindb.Bytes(key))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+		runRangeIterSequence(t, iter, []rangeIterStep{
+			{dir: iterNext, key: key, value: valueV3}, // Current: V3
+			{dir: iterNext, eoi: true},                // No more next
+			{dir: iterPrev, key: key, value: valueV3}, // Should return V3
+			{dir: iterPrev, eoi: true},                // No more prev
+		})
+
+		// Re-initialize iterator to test the problematic sequence
+		iter, err = db.IRange(ctx, rindb.Bytes(key), rindb.Bytes(key))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+		runRangeIterSequence(t, iter, []rangeIterStep{
+			{dir: iterNext, key: key, value: valueV3}, // Yields V3. rev: [V3]
+			{dir: iterNext, eoi: true},                // No more next.
+			{dir: iterPrev, key: key, value: valueV3}, // Prev should return V3. rev: []
+			{dir: iterPrev, eoi: true},                // No more prev.
+		})
+	})
 }
