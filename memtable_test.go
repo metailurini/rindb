@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemtable_BasicOperations(t *testing.T) {
@@ -283,20 +284,23 @@ func TestMemtable_Cleanup(t *testing.T) {
 	cfg := testConfig()
 	entryOverhead := slNodeOverhead + internalKeySuffixLen
 
-	t.Run("RemovesObsoleteRecordsAndUpdatesSize", func(t *testing.T) {
+	t.Run("RetainsSnapshotVisibleRecordAndRemovesOlderVersions", func(t *testing.T) {
 		mem := InitMemtable(cfg)
 
 		key1 := Bytes("key1")
 		key2 := Bytes("key2")
 
 		testData := []struct {
-			rec      Record
-			obsolete bool
+			rec  Record
+			keep bool
 		}{
-			{rec: newRecord(key1, Bytes("v1"), 1), obsolete: true},
-			{rec: newRecord(key1, Bytes("v2"), 6), obsolete: false},
-			{rec: newRecord(key2, nil, 3), obsolete: true},
-			{rec: newRecord(key2, Bytes("v3"), 7), obsolete: false},
+			{rec: newRecord(key1, Bytes("v3"), 9), keep: true},
+			{rec: newRecord(key1, Bytes("v2"), 6), keep: true},
+			{rec: newRecord(key1, Bytes("v1"), 4), keep: true},
+			{rec: newRecord(key1, Bytes("v0"), 1), keep: false},
+			{rec: newRecord(key2, nil, 8), keep: true},
+			{rec: newRecord(key2, nil, 5), keep: true},
+			{rec: newRecord(key2, Bytes("legacy"), 2), keep: false},
 		}
 
 		var expectedTotal, expectedAfterCleanup int
@@ -304,7 +308,7 @@ func TestMemtable_Cleanup(t *testing.T) {
 			mem.Put(td.rec)
 			entrySize := len(td.rec.GetKey()) + len(td.rec.GetValue()) + entryOverhead
 			expectedTotal += entrySize
-			if !td.obsolete {
+			if td.keep {
 				expectedAfterCleanup += entrySize
 			}
 		}
@@ -316,14 +320,26 @@ func TestMemtable_Cleanup(t *testing.T) {
 
 		v, err := mem.Get(key1)
 		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v2"), v)
+		assert.Equal(t, Bytes("v3"), v)
+
+		v, err = mem.GetAt(key1, 5)
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v1"), v)
 
 		_, err = mem.GetAt(key1, 1)
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 
-		v, err = mem.Get(key2)
-		assert.NoError(t, err)
-		assert.Equal(t, Bytes("v3"), v)
+		_, err = mem.Get(key2)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+
+		_, err = mem.GetAt(key2, 5)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+
+		_, err = mem.GetAt(key2, 7)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+
+		_, err = mem.GetAt(key2, 2)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
 	})
 
 	t.Run("KeepsLatestRecord", func(t *testing.T) {
@@ -337,6 +353,41 @@ func TestMemtable_Cleanup(t *testing.T) {
 		v, err := mem.Get(key)
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("v2"), v)
+	})
+}
+
+func TestMemtable_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
+	cfg := testConfig()
+	snapshotSeq := uint64(2)
+
+	newMem := func() memtable {
+		mem := InitMemtable(cfg)
+		mem.Put(newRecord(Bytes("primary"), Bytes("v1"), 1))
+		mem.Put(newRecord(Bytes("bump"), Bytes("noop"), snapshotSeq))
+		mem.Put(newRecord(Bytes("primary"), Bytes("v2"), 3))
+		return mem
+	}
+
+	t.Run("GetAt retains snapshot-visible version", func(t *testing.T) {
+		mem := newMem()
+
+		mem.Cleanup(snapshotSeq)
+
+		v, err := mem.GetAt(Bytes("primary"), snapshotSeq)
+		require.NoError(t, err)
+		assert.Equal(t, Bytes("v1"), v)
+	})
+
+	t.Run("IRange retains snapshot-visible version", func(t *testing.T) {
+		mem := newMem()
+
+		mem.Cleanup(snapshotSeq)
+
+		iter := mem.IRange(Bytes("primary"), Bytes("primary"), snapshotSeq)
+		require.True(t, iter.HasNext(), "expected snapshot-visible version to remain after cleanup")
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		assert.Equal(t, Bytes("v1"), rec.GetValue())
 	})
 }
 
