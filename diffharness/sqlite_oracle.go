@@ -104,7 +104,7 @@ func (o *SQLiteOracle) GetWithSeq(k []byte, snapshot uint64) ([]byte, bool, erro
 	return v, true, nil
 }
 
-// RangeWithSeq returns all key/value pairs within [lo, hi) at the provided
+// RangeWithSeq returns all key/value pairs within [lo, hi] at the provided
 // snapshot sequence, up to the specified limit. Keys deleted at the snapshot
 // are omitted.
 func (o *SQLiteOracle) RangeWithSeq(lo, hi []byte, snapshot uint64, limit int) ([]KV, error) {
@@ -114,7 +114,7 @@ FROM kv
 JOIN (
         SELECT k, MAX(seq) AS mseq
         FROM kv
-        WHERE k >= ? AND k < ? AND seq <= ?
+        WHERE k >= ? AND k <= ? AND seq <= ?
         GROUP BY k
 ) latest ON kv.k = latest.k AND kv.seq = latest.mseq
 WHERE kv.del = 0
