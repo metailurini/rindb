@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.1](https://github.com/metailurini/rindb/compare/v0.14.0...v0.14.1) (2025-09-20)
+
+
+### Bug Fixes
+
+* Prevent duplicate surfacing of records at direction change ([6e9d8b0](https://github.com/metailurini/rindb/commit/6e9d8b014946f234ad9fc6dbc08bba7a30fddadc))
+* simplify crossing anchor helpers ([461d3d5](https://github.com/metailurini/rindb/commit/461d3d5d3c008154360d493792c2386e12340aa7))
+
 ## [0.14.0](https://github.com/metailurini/rindb/compare/v0.13.0...v0.14.0) (2025-09-20)
 
 
