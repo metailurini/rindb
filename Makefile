@@ -1,7 +1,7 @@
 export GOTOOLCHAIN ?= go1.25.0
 GO = go
 UNAME_S := $(shell uname -s)
-PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd$$' -e '/cmd/' -e '/diffharness' -e '/tool')
+PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd' -e '/diffharness' -e '/tool')
 
 check:
 	@$(MAKE) check-spanname
@@ -26,11 +26,11 @@ clean-testdata:
 # === Unit tests ===
 test: clean-testdata
 	@echo "Running tests..."
-	@$(GO) test -v ./...
+	@$(GO) test -parallel=10 -v ./...
 
 test-coverage: clean-testdata
 	@echo "Running tests with coverage..."
-	@$(GO) test -v -coverprofile=coverage.txt $(PKGS)
+	@$(GO) test -parallel=10 -v -coverprofile=coverage.txt $(PKGS)
 
 # === Integration tests ===
 test-integration-smoke: clean-testdata
