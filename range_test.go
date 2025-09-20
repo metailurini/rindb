@@ -79,7 +79,7 @@ func TestRangeIterator_Next(t *testing.T) {
 	}
 }
 
-func TestRangeIterator(t *testing.T) {
+func TestRangeIterator_FilterTombstonesAndDuplicates(t *testing.T) {
 
 	t.Parallel()
 	type iterSpec struct {
@@ -144,7 +144,7 @@ func TestRangeIterator(t *testing.T) {
 	}
 }
 
-func TestRangeIteratorReverse(t *testing.T) {
+func TestRangeIterator_ReverseIteration(t *testing.T) {
 	t.Parallel()
 	type iterSpec struct {
 		records []Record
@@ -186,7 +186,7 @@ func TestRangeIteratorReverse(t *testing.T) {
 	assert.Equal(t, []exp{{"c", "vc"}, {"b", "vb"}, {"a", "va"}}, backward)
 }
 
-func TestRangeIteratorPrevBeforeNext(t *testing.T) {
+func TestRangeIterator_PrevBeforeNext(t *testing.T) {
 	t.Parallel()
 	it := &errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1}
 	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
@@ -228,7 +228,7 @@ func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
 	mustPrevEOI(t, iter)
 }
 
-func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
+func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	t.Parallel()
 	iters := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
@@ -266,7 +266,7 @@ func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
 	}
 }
 
-func TestRangeIteratorEmpty(t *testing.T) {
+func TestRangeIterator_EmptyIterator(t *testing.T) {
 	t.Parallel()
 	mi, err := NewMergingIterator([]Iterator[Record]{}, nil)
 	assert.NoError(t, err)

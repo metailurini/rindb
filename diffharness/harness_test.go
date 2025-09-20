@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHarnessLogsAndSnapshots(t *testing.T) {
+func TestHarness_LogsAndSnapshots(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, "db")
@@ -142,7 +142,7 @@ func (e *sqliteEngine) Begin(ctx context.Context) error    { return e.o.Begin(ct
 func (e *sqliteEngine) Commit(ctx context.Context) error   { return e.o.Commit(ctx) }
 func (e *sqliteEngine) Rollback(ctx context.Context) error { return e.o.Rollback(ctx) }
 
-func TestHistoricalReads(t *testing.T) {
+func TestHarness_HistoricalReads(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -180,7 +180,7 @@ func TestHistoricalReads(t *testing.T) {
 	require.Equal(t, []byte("v2"), v)
 }
 
-func TestRangeHistoricalSnapshot(t *testing.T) {
+func TestHarness_RangeHistoricalSnapshot(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -220,7 +220,7 @@ func TestRangeHistoricalSnapshot(t *testing.T) {
 	require.Equal(t, exp, res)
 }
 
-func TestHarnessRunChecksInvariants(t *testing.T) {
+func TestHarness_RunChecksInvariants(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -253,7 +253,7 @@ func TestHarnessRunChecksInvariants(t *testing.T) {
 	require.NoError(t, h.Run(ctx, cfg, 50))
 }
 
-func TestHarnessWithInvariants(t *testing.T) {
+func TestHarness_WithInvariants(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -281,7 +281,7 @@ func TestHarnessWithInvariants(t *testing.T) {
 	require.Equal(t, 1, called)
 }
 
-func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
+func TestHarness_CrashAndTelemetryHooks(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -352,7 +352,7 @@ func TestHarnessCrashAndTelemetryHooks(t *testing.T) {
 	require.Greater(t, telem, 0)
 }
 
-func TestReplayRecoversAfterCrash(t *testing.T) {
+func TestHarness_ReplayRecoversAfterCrash(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
@@ -404,7 +404,7 @@ func TestReplayRecoversAfterCrash(t *testing.T) {
 	}
 }
 
-func TestHarnessCloseWithoutSnapshots(t *testing.T) {
+func TestHarness_CloseWithoutSnapshots(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -423,7 +423,7 @@ func TestHarnessCloseWithoutSnapshots(t *testing.T) {
 	require.NotPanics(t, func() { _ = h.Close() })
 }
 
-func TestHookOrderAndNilSafety(t *testing.T) {
+func TestHarness_HookOrderAndNilSafety(t *testing.T) {
 	t.Parallel()
 	h := &Harness{logger: nopLogger}
 	h.hooks.TelemetryEvery = 1

@@ -28,7 +28,7 @@ func (d dummyEngine) NewSnapshot(context.Context) (uint64, error)   { return 0, 
 func (d dummyEngine) ReleaseSnapshot(context.Context, uint64) error { return nil }
 func (d dummyEngine) Close() error                                  { return nil }
 
-func TestPutOpLoggingAndError(t *testing.T) {
+func TestPutOp_LoggingAndError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cases := []struct {
@@ -60,7 +60,7 @@ func TestPutOpLoggingAndError(t *testing.T) {
 	}
 }
 
-func TestGetOpMismatch(t *testing.T) {
+func TestGetOp_Mismatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -78,7 +78,7 @@ func TestGetOpMismatch(t *testing.T) {
 	require.ErrorAs(t, err, &mm)
 }
 
-func TestPutOpDefaultNoCommit(t *testing.T) {
+func TestPutOp_DefaultNoCommit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	h := &Harness{My: dummyEngine{}}
@@ -89,7 +89,7 @@ func TestPutOpDefaultNoCommit(t *testing.T) {
 	require.False(t, committed)
 }
 
-func TestDelOpDefaultNoCommit(t *testing.T) {
+func TestDelOp_DefaultNoCommit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	h := &Harness{My: dummyEngine{}}

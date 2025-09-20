@@ -130,7 +130,7 @@ func TestTableCache_TryGetStats(t *testing.T) {
 	}
 }
 
-func TestTableCacheEviction(t *testing.T) {
+func TestTableCache_EvictionRemovesUnpinnedEntries(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
@@ -151,7 +151,7 @@ func TestTableCacheEviction(t *testing.T) {
 	require.True(t, ok, "k2 should remain in cache")
 }
 
-func TestTableCachePinning(t *testing.T) {
+func TestTableCache_PinningKeepsEntriesResident(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
@@ -173,7 +173,7 @@ func TestTableCachePinning(t *testing.T) {
 	require.False(t, ok, "unpinned k2 should be evicted")
 }
 
-func TestTableCacheCorruptionQuarantine(t *testing.T) {
+func TestTableCache_CorruptionQuarantinePreventsReopen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
@@ -196,7 +196,7 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 	require.EqualValues(t, 1, opens.Load(), "should not reopen during quarantine")
 }
 
-func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
+func TestTableCache_GetCanceledWhileSingleflightReturnsCanceledError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	openStart := make(chan struct{})
@@ -249,7 +249,7 @@ func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
 	require.EqualValues(t, 1, opens.Load())
 }
 
-func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
+func TestTableCache_CloseDrainsBusyEntriesBeforeReturning(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
@@ -288,7 +288,7 @@ func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
 	require.EqualValues(t, 2, st.Closes)
 }
 
-func TestTableCachePinnedOverCapacity(t *testing.T) {
+func TestTableCache_PinnedOverCapacityEvictsUnpinned(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
@@ -326,7 +326,7 @@ func TestTableCachePinnedOverCapacity(t *testing.T) {
 	require.EqualValues(t, 1, st.Closes)
 }
 
-func TestTableCacheDelete(t *testing.T) {
+func TestTableCache_DeleteRemovesEntryAndClosesHandle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
@@ -365,7 +365,7 @@ func TestTableCacheDelete(t *testing.T) {
 	require.EqualValues(t, 1, opens.Load(), "open should not be called again")
 }
 
-func TestTableCacheClose(t *testing.T) {
+func TestTableCache_CloseBehavior(t *testing.T) {
 	t.Parallel()
 	t.Run("drain", func(t *testing.T) {
 		ctx := context.Background()
@@ -437,7 +437,7 @@ func TestTableCacheClose(t *testing.T) {
 	})
 }
 
-func TestTableCacheCloseUnrefRace(t *testing.T) {
+func TestTableCache_CloseUnrefRaceHandlesConcurrentUnref(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
@@ -468,7 +468,7 @@ func TestTableCacheCloseUnrefRace(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-func TestTableCacheTombstoneExpiry(t *testing.T) {
+func TestTableCache_TombstoneExpiryAllowsReopening(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
@@ -500,7 +500,7 @@ func TestTableCacheTombstoneExpiry(t *testing.T) {
 	require.EqualValues(t, 2, opens.Load())
 }
 
-func TestTableCacheDeleteClearsCorruptQuarantine(t *testing.T) {
+func TestTableCache_DeleteClearsCorruptQuarantineAndTombstone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
@@ -541,7 +541,7 @@ func TestTableCacheDeleteClearsCorruptQuarantine(t *testing.T) {
 	require.EqualValues(t, 2, opens.Load())
 }
 
-func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
+func TestTableCache_MeasureAndByteAccountingUpdatesStats(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	actuals := []int64{0, 5, -7}
@@ -567,7 +567,7 @@ func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
 	require.EqualValues(t, 7, cache.totalBytes.Load())
 }
 
-func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
+func TestTableCache_DeleteUpdatesByteAccountingCorrectly(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 10})
@@ -592,7 +592,7 @@ func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
 	require.EqualValues(t, 1, cache.totalBytes.Load())
 }
 
-func TestTableCacheEvictOversizedEntry(t *testing.T) {
+func TestTableCache_EvictOversizedEntryWhenTooLarge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{
@@ -616,7 +616,7 @@ func TestTableCacheEvictOversizedEntry(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestTableCacheMultiShardByteAccounting(t *testing.T) {
+func TestTableCache_MultiShardByteAccountingDistributesCapacity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 8, Shards: 4})
@@ -648,7 +648,7 @@ func TestTableCacheMultiShardByteAccounting(t *testing.T) {
 	require.EqualValues(t, 4, cache.totalBytes.Load())
 }
 
-func TestTableCachePinnedByteAccounting(t *testing.T) {
+func TestTableCache_PinnedByteAccountingReflectsPinnedEntries(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
@@ -687,7 +687,7 @@ func TestTableCachePinnedByteAccounting(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestTableCacheUnpinTriggersEviction(t *testing.T) {
+func TestTableCache_UnpinTriggersEvictionWhenOverCapacity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
@@ -722,7 +722,7 @@ func TestTableCacheUnpinTriggersEviction(t *testing.T) {
 	require.True(t, ok, "still pinned key stays")
 }
 
-func TestTableCacheStopAdmissionDuringInstall(t *testing.T) {
+func TestTableCache_StopAdmissionDuringInstallReturnsClosedError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var closes atomic.Int32
@@ -762,7 +762,7 @@ func TestTableCacheStopAdmissionDuringInstall(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestTableCacheTombstoneDuringInstall(t *testing.T) {
+func TestTableCache_TombstoneDuringInstallReturnsObsoleteError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var closes atomic.Int32
@@ -831,7 +831,7 @@ func installEntryForTest(t *testing.T, ctx context.Context, cache *tableCache, k
 	return existing
 }
 
-func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
+func TestTableCache_ExistingEntryClosesDuplicateHandle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	var closes atomic.Int32

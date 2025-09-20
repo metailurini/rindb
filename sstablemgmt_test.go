@@ -115,7 +115,7 @@ func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 	assert.Equal(t, Bytes("targetVal"), result)
 }
 
-func TestInitSSTableManagerRepairMode(t *testing.T) {
+func TestInitSSTableManager_RepairMode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()

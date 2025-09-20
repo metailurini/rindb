@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSSTableIteratorReverse(t *testing.T) {
+func TestSSTableIterator_ReverseIteration(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -46,7 +46,7 @@ func TestSSTableIteratorReverse(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, rev)
 }
 
-func TestSSTableIteratorMixed(t *testing.T) {
+func TestSSTableIterator_MixedDirectionIteration(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -96,7 +96,7 @@ func TestSSTableIteratorMixed(t *testing.T) {
 	assert.False(t, it.HasPrev())
 }
 
-func TestSSTableIRangeReverse(t *testing.T) {
+func TestSSTableIRange_ReverseIteration(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -133,7 +133,7 @@ func TestSSTableIRangeReverse(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, rev)
 }
 
-func TestSSTableIteratorPrevFullTraversal(t *testing.T) {
+func TestSSTableIterator_PrevFullTraversal(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -174,7 +174,7 @@ func TestSSTableIteratorPrevFullTraversal(t *testing.T) {
 	assert.False(t, it.HasPrev())
 }
 
-func TestSSTableIRangePrevFullTraversal(t *testing.T) {
+func TestSSTableIRange_PrevFullTraversal(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -213,7 +213,7 @@ func TestSSTableIRangePrevFullTraversal(t *testing.T) {
 	assert.False(t, it.HasPrev())
 }
 
-func TestSSTableIteratorPrevOffsetError(t *testing.T) {
+func TestSSTableIterator_PrevOffsetErrorPropagation(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -246,7 +246,7 @@ func TestSSTableIteratorPrevOffsetError(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid record size trailer")
 }
 
-func TestSSTableIteratorPrevReadEOF(t *testing.T) {
+func TestSSTableIterator_PrevReadEOFError(t *testing.T) {
 	t.Parallel()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -265,7 +265,7 @@ func TestSSTableIteratorPrevReadEOF(t *testing.T) {
 	require.ErrorIs(t, err, EOI)
 }
 
-func TestSSTableIRangePrepareError(t *testing.T) {
+func TestSSTableIRange_PrepareErrorPropagation(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -298,7 +298,7 @@ func TestSSTableIRangePrepareError(t *testing.T) {
 	require.ErrorIs(t, err, ErrChecksumMismatch)
 }
 
-func TestSSTableIRangePrevOffsetEOF(t *testing.T) {
+func TestSSTableIRange_PrevOffsetEOFError(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	ctx := context.Background()
@@ -330,7 +330,7 @@ func TestSSTableIRangePrevOffsetEOF(t *testing.T) {
 	require.ErrorIs(t, err, EOI)
 }
 
-func TestSSTableIRangePrevReadEOF(t *testing.T) {
+func TestSSTableIRange_PrevReadEOFError(t *testing.T) {
 	t.Parallel()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()

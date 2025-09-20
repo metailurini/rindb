@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSQLiteOracleBasicOps(t *testing.T) {
+func TestSQLiteOracle_BasicOperations(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "oracle.db")

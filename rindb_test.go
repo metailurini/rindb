@@ -48,7 +48,7 @@ func TestRindb_Put(t *testing.T) {
 	}
 }
 
-func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
+func TestRinDB_NoDeadlockConcurrentPutAndCompaction(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithLevel0CompactionThreshold(1), WithMaxMemtableSize(20))
@@ -440,7 +440,7 @@ func TestRindb_Close(t *testing.T) {
 }
 
 // TestConcurrentGetPut ensures concurrent Get and Put operations do not panic.
-func TestConcurrentGetPut(t *testing.T) {
+func TestRinDB_ConcurrentGetPut(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	opts := append(testOptions(t), WithMaxMemtableSize(1<<20))
