@@ -22,11 +22,6 @@ func newTempFS(t *testing.T) *FileSystem {
 	return fs
 }
 
-func newTestTransactionManager(t *testing.T) *transactionManager {
-	t.Helper()
-	return newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
-}
-
 func TestTransactionManager_BeginCopiesExistingData(t *testing.T) {
 	t.Parallel()
 
