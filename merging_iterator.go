@@ -84,14 +84,18 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 	for _, it := range iterators {
 		if it.HasNext() {
 			rec, err := it.Next()
-			if err != nil {
-				if !errors.Is(err, EOI) {
-					if cleanup != nil {
-						cleanup()
-					}
-					return nil, err
-				}
+			switch {
+			case err == nil:
+				// No error, continue processing
+			case errors.Is(err, EOI):
+				// End of iteration, skip to next iterator
 				continue
+			default:
+				// Actual error occurred
+				if cleanup != nil {
+					cleanup()
+				}
+				return nil, err
 			}
 			fwd.PushItem(pqItem{rec: rec, iter: it})
 		}
@@ -176,12 +180,13 @@ func (m *MergingIterator) prepareNext() {
 
 	if item.iter.HasNext() {
 		rec, err := item.iter.Next()
-		if err != nil {
-			if !errors.Is(err, EOI) {
-				m.err = err
-			}
-		} else {
+		switch {
+		case err == nil:
 			m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
+		case errors.Is(err, EOI):
+			// End of iteration for this underlying iterator, do nothing.
+		default:
+			m.err = err
 		}
 	}
 
