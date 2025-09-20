@@ -170,13 +170,13 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 			}
 			all = append(all, KV{K: rec.GetKey(), V: rec.GetValue()})
 		}
-		fmt.Println("expected keys:")
+		fmt.Print(" - expected keys: ")
 		for _, kv := range want {
 			fmt.Printf("key: %s - ", kv.K)
 		}
 		fmt.Println()
 
-		fmt.Println("\ngot keys:")
+		fmt.Print(" - got keys:      ")
 		for _, kv := range all {
 			fmt.Printf("key: %s - ", kv.K)
 		}
