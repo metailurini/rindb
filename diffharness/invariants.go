@@ -154,23 +154,6 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 
 	idx, eoi := 0, 0
 
-	fmt.Printf("checkRangeIterNextPrev: want list: %+s\n", want)
-	got := []KV{}
-	if git, err := eng.IterRange(ctx, lo, hi, snap); err == nil {
-		defer git.Close()
-		for {
-			rec, err := git.Next()
-			if errors.Is(err, rindb.EOI) {
-				break
-			}
-			if err != nil {
-				break
-			}
-			got = append(got, KV{K: rec.GetKey(), V: rec.GetValue()})
-		}
-	}
-	fmt.Printf("checkRangeIterNextPrev: got list: %+s\n", got)
-
 	for step := 0; step < cfg.IterWalk && eoi < 2; step++ {
 		if r.Intn(2) == 0 {
 			rec, err := it.Next()
@@ -185,10 +168,8 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 				return err
 			}
 			if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
-				fmt.Printf("checkRangeIterNextPrev: Next mismatch at %d, expected key %q got %q\n", idx, want[idx].K, rec.GetKey())
 				return fmt.Errorf("Next mismatch at %d, expected %q got %q", idx, want[idx].K, rec.GetKey())
 			}
-			fmt.Printf("checkRangeIterNextPrev: Next successful, want key %q got %q\n", want[idx].K, rec.GetKey())
 			idx++
 			eoi = 0
 		} else {
@@ -205,10 +186,8 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 			}
 			idx--
 			if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
-				fmt.Printf("checkRangeIterNextPrev: Prev mismatch at %d, expected key %q got %q\n", idx, want[idx].K, rec.GetKey())
 				return fmt.Errorf("Prev mismatch at %d, expected %q got %q", idx, want[idx].K, rec.GetKey())
 			}
-			fmt.Printf("checkRangeIterNextPrev: Prev successful, want key %q got %q\n", want[idx].K, rec.GetKey())
 			eoi = 0
 		}
 	}
