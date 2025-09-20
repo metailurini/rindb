@@ -72,7 +72,12 @@ func (s *sstableIterator) Next() (Record, error) {
 	}
 	reader := newOffsetReader(s.FileSystem, s.offset)
 	record, _, err := readRecord(reader)
-	if err != nil {
+	switch {
+	case err == nil:
+		// No error, continue processing
+	case errors.Is(err, EOI), errors.Is(err, io.EOF):
+		return nil, EOI
+	default:
 		return nil, err
 	}
 	s.offset = reader.Offset()
@@ -91,15 +96,22 @@ func (s *sstableIterator) Prev() (Record, error) {
 	}
 	reader := newOffsetReader(s.FileSystem, s.offset)
 	start, err := reader.PrevOffset()
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, EOI
-		}
+	switch {
+	case err == nil:
+		// No error, continue processing
+	case errors.Is(err, io.EOF):
+		return nil, EOI
+	default:
 		return nil, err
 	}
 	reader.offset = start
 	record, _, err := readRecord(reader)
-	if err != nil {
+	switch {
+	case err == nil:
+		// No error, continue processing
+	case errors.Is(err, EOI), errors.Is(err, io.EOF):
+		return nil, EOI
+	default:
 		return nil, err
 	}
 	s.offset = start
@@ -132,12 +144,14 @@ func (sri *sstableIRange) prepare() {
 		cur := sri.offset
 		reader := newOffsetReader(sri.s.FileSystem, cur)
 		rec, _, err := readRecord(reader)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				sri.err = EOI
-			} else {
-				sri.err = err
-			}
+		switch {
+		case err == nil:
+			// No error, continue processing
+		case errors.Is(err, io.EOF):
+			sri.err = EOI
+			return
+		default:
+			sri.err = err
 			return
 		}
 		sri.offset = reader.Offset()
@@ -196,16 +210,24 @@ func (sri *sstableIRange) Prev() (Record, error) {
 	}
 	reader := newOffsetReader(sri.s.FileSystem, sri.cursor)
 	start, err := reader.PrevOffset()
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			var empty Record
-			return empty, EOI
-		}
+	switch {
+	case err == nil:
+		// No error, continue processing
+	case errors.Is(err, io.EOF):
+		var empty Record
+		return empty, EOI
+	default:
 		return nil, err
 	}
 	reader.offset = start
 	rec, _, err := readRecord(reader)
-	if err != nil {
+	switch {
+	case err == nil:
+		// No error, continue processing
+	case errors.Is(err, EOI), errors.Is(err, io.EOF):
+		var empty Record
+		return empty, EOI
+	default:
 		return nil, err
 	}
 	sri.offset = start
