@@ -105,12 +105,6 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 
 	maxSeq := getMaxSeq(seq...)
 
-	if !s.IsOpened() {
-		if err := s.Open(ctx); err != nil {
-			return nil, fmt.Errorf("failed to open sstable %s: %w", s.Path(), err)
-		}
-	}
-
 	if !s.Bloom.Lookup(key) {
 		return nil, ErrKeyNotFound
 	}
