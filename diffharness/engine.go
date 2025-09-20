@@ -3,7 +3,7 @@ package diffharness
 import (
 	"context"
 
-	rindb "github.com/metailurini/rindb"
+	"github.com/metailurini/rindb"
 )
 
 // KV represents a key/value pair used by range operations.

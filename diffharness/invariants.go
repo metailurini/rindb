@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	rindb "github.com/metailurini/rindb"
+	"github.com/metailurini/rindb"
 )
 
 // Invariant checks harness state after each operation.

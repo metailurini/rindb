@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 
-	rindb "github.com/metailurini/rindb"
+	"github.com/metailurini/rindb"
 )
 
 // RinDBEngine adapts RinDB to the diffharness Engine interface.
