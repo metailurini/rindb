@@ -1,7 +1,6 @@
 package diffharness
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/metailurini/rindb"
@@ -55,9 +54,6 @@ func (e *RinDBEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64,
 		rec, err := it.Next()
 		if err != nil {
 			return nil, err
-		}
-		if bytes.Compare([]byte(rec.GetKey()), hi) >= 0 {
-			break
 		}
 		res = append(res, KV{K: append([]byte(nil), []byte(rec.GetKey())...), V: append([]byte(nil), []byte(rec.GetValue())...)})
 	}
