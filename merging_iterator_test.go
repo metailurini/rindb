@@ -55,7 +55,7 @@ func mkRec(k, v string, seq uint64, typ RecordType) Record {
 	return RecordImpl{Key: Bytes(k), Value: nv, SequenceNumber: seq, Type: typ}
 }
 
-func TestMergingIterator(t *testing.T) {
+func TestMergingIterator_IncludesDuplicatesAndTombstones(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name  string
@@ -141,7 +141,7 @@ func TestMergingIterator_MergesRecords(t *testing.T) {
 	}
 }
 
-func TestMergingIteratorPrev(t *testing.T) {
+func TestMergingIterator_PrevMovesBackward(t *testing.T) {
 	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue), mkRec("c", "vc", 1, TypeValue)}, failIdx: -1},
@@ -167,7 +167,7 @@ func TestMergingIteratorPrev(t *testing.T) {
 	assert.Equal(t, r2, nextRec)
 }
 
-func TestMergingIteratorPrevBeforeNext(t *testing.T) {
+func TestMergingIterator_PrevBeforeNextReturnsEOI(t *testing.T) {
 	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
@@ -186,7 +186,7 @@ func TestMergingIteratorPrevBeforeNext(t *testing.T) {
 	assert.Equal(t, 0, mi.rev.Len())
 }
 
-func TestMergingIteratorAlternating(t *testing.T) {
+func TestMergingIterator_AlternatingNextPrev(t *testing.T) {
 	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
@@ -221,6 +221,49 @@ func TestMergingIteratorAlternating(t *testing.T) {
 	assert.Equal(t, r2, nextRec)
 	assert.Equal(t, 1, mi.fwd.Len())
 	assert.Equal(t, 2, mi.rev.Len())
+}
+
+func TestMergingIterator_PrevTwiceThenForwardMovesCorrectly(t *testing.T) {
+	t.Parallel()
+	iterators := []Iterator[Record]{&errIterator{records: []Record{
+		mkRec("a", "va", 1, TypeValue),
+		mkRec("b", "vb", 1, TypeValue),
+		mkRec("c", "vc", 1, TypeValue),
+	}, failIdx: -1}}
+
+	mi, err := NewMergingIterator(iterators, nil)
+	require.NoError(t, err)
+
+	// Consume two elements so that both appear in the reverse queue.
+	first, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("a", "va", 1, TypeValue), first)
+
+	second, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("b", "vb", 1, TypeValue), second)
+
+	// Walk backwards twice to the beginning.
+	back1, err := mi.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, second, back1)
+
+	back2, err := mi.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, first, back2)
+
+	// Moving forward should yield each element exactly once in order.
+	again1, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, first, again1)
+
+	again2, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, second, again2)
+
+	again3, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("c", "vc", 1, TypeValue), again3)
 }
 
 func TestMergingIterator_ErrorPropagation(t *testing.T) {
