@@ -272,6 +272,26 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ---
 
+### Iterator Engine & Harness Reliability
+
+**Goal**: Solidify iterator behavior and expand diff harness tooling.
+
+- **Tasks**:
+  - [x] Introduce an iterator engine interface to centralize iteration control.
+  - [x] Add an iterator walk flag to the diff harness for expanded validation coverage.
+  - [x] Make `HasNext` / `HasPrev` idempotent when prefetching.
+  - [x] Tighten iterator boundary handling and state management across SSTable and merging iterators.
+
+- **Deliverables**:
+  - Unified iterator engine abstraction with improved ergonomics.
+  - Stronger diff harness diagnostics through walk flag support.
+  - Reliable forward/backward iteration with consistent error handling.
+
+- **Version**: `v0.14.0`
+  - **Rationale**: Iterator engine and harness upgrades materially improve correctness and developer productivity, warranting a new minor release.
+
+---
+
 ### Production Readiness
 
 **Goal**: Ensure reliability and completeness for real-world use.
@@ -328,7 +348,8 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ## Version Summary
 
-- **`v0.13.0`**: Current (reverse range scans; testing conventions; spanname vet; iterator refinements).
+- **`v0.14.0`**: Current (iterator engine interface; diff harness walk flag; idempotent iterator navigation; iterator reliability fixes).
+- **`v0.13.0`**: Reverse range scans; testing conventions; spanname vet; iterator rewind refinements.
 - **`v0.12.1` / `v0.12.0`**: Deterministic diffharness replay plus hardening.
 - **`v0.11.0`**: SQLite oracle fuzzing; read-path safety fixes.
 - **`v0.10.0`**: Footer/index metadata encoding and validation.
