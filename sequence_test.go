@@ -10,6 +10,7 @@ import (
 // TestSequence_GetMaxSequenceNumber verifies that the helper returns the
 // larger sequence between the manifest and WAL and provides the loaded memtable.
 func TestSequence_GetMaxSequenceNumber(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		walRecords      []Record
@@ -41,7 +42,7 @@ func TestSequence_GetMaxSequenceNumber(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			cfg := testConfig()
+			cfg := testConfig(t)
 			cfg.databaseDir = t.TempDir()
 
 			wal, err := DefaultNewWALFunc(ctx, cfg)

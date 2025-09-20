@@ -13,6 +13,7 @@ import (
 
 //nolint:funlen
 func TestFileSystem_BasicOperations(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		test func(t *testing.T)
@@ -95,6 +96,7 @@ func TestFileSystem_BasicOperations(t *testing.T) {
 }
 
 func TestFileSystem_Errors(t *testing.T) {
+	t.Parallel()
 	t.Run("OpenFS with invalid path (directory)", func(t *testing.T) {
 		tempDir, err := os.MkdirTemp(os.TempDir(), "testdir-*")
 		assert.NoError(t, err)
@@ -108,6 +110,7 @@ func TestFileSystem_Errors(t *testing.T) {
 }
 
 func TestFileSystem_Clean_Errors(t *testing.T) {
+	t.Parallel()
 	t.Run("Clean fails due to permissions error during reopen/truncate", func(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1, [][]byte{[]byte("initial data")})
 		defer closer()
@@ -141,6 +144,7 @@ func TestFileSystem_Clean_Errors(t *testing.T) {
 
 //nolint:funlen
 func TestFileSystem_CursorPos(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		setup func(t *testing.T, fs *FileSystem)
@@ -191,6 +195,7 @@ func TestFileSystem_CursorPos(t *testing.T) {
 }
 
 func TestOpenExistingFS_FilePresence(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		prepare     func(t *testing.T, path string)

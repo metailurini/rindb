@@ -25,9 +25,11 @@ func isTempoEndpointResolvable() bool {
 	return true
 }
 
-func testOptions() []Option {
+func testOptions(t *testing.T) []Option {
+	t.Helper()
+
 	opts := []Option{
-		WithDatabaseDir("testdata"),
+		WithDatabaseDir(t.TempDir()),
 	}
 
 	// Conditionally enable telemetry based on Tempo endpoint resolvability.
@@ -42,8 +44,9 @@ func testOptions() []Option {
 	return opts
 }
 
-func testConfig() Config {
-	return NewConfig(testOptions()...)
+func testConfig(t *testing.T) Config {
+	t.Helper()
+	return NewConfig(testOptions(t)...)
 }
 
 // testRindbSetup encapsulates setup and cleanup logic for rindb tests.

@@ -11,6 +11,7 @@ import (
 )
 
 func TestCheckRangeIterNextPrev(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))

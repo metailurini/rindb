@@ -7,6 +7,7 @@ import (
 )
 
 func TestFilepaths_Generation(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		got      string
@@ -24,6 +25,7 @@ func TestFilepaths_Generation(t *testing.T) {
 }
 
 func TestFilepaths_NumParsing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		path      string
@@ -72,6 +74,7 @@ func TestFilepaths_NumParsing(t *testing.T) {
 }
 
 func TestFilepaths_ManifestNumParsing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		path      string

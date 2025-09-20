@@ -19,14 +19,16 @@ import (
 // TestRindb_Init tests the initialization of the Rindb database using the helper.
 func TestRindb_Init(t *testing.T) {
 	// Use the helper, which includes initialization and cleanup
-	_, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	t.Parallel()
+	_, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 	// The assertion is implicitly handled by initRinDBWithCleanup
 }
 
 // TestRindb_Put tests the Put operation of Rindb.
 func TestRindb_Put(t *testing.T) {
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	t.Parallel()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 
 	cases := []struct {
@@ -47,6 +49,7 @@ func TestRindb_Put(t *testing.T) {
 }
 
 func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithLevel0CompactionThreshold(1), WithMaxMemtableSize(20))
 	defer cleanup()
@@ -78,8 +81,9 @@ func TestNoDeadlockConcurrentPutAndCompaction(t *testing.T) {
 
 // TestRindb_Get tests the Get operation of Rindb.
 func TestRindb_Get(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 	key := Bytes("key")
 	err := rin.Put(ctx, key, Bytes("value"))
@@ -90,6 +94,7 @@ func TestRindb_Get(t *testing.T) {
 }
 
 func TestRindb_GetSequence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()
@@ -105,8 +110,9 @@ func TestRindb_GetSequence(t *testing.T) {
 }
 
 func TestRindb_IRange(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	ts := newTestRindbSetup(t, ctx, &cfg)
 	defer ts.Cleanup()
 
@@ -237,8 +243,9 @@ func TestRindb_IRange(t *testing.T) {
 }
 
 func TestRindb_IRangeDirections(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 
 	assert.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
@@ -295,8 +302,9 @@ func TestRindb_IRangeDirections(t *testing.T) {
 
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 	key := Bytes("rm-key")
 	err := rin.Put(ctx, key, Bytes("value"))
@@ -310,8 +318,9 @@ func TestRindb_Remove(t *testing.T) {
 
 // TestRindb_FlushMemtable tests flushing the memtable to an SSTable.
 func TestRindb_FlushMemtable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 	err := rin.Put(ctx, Bytes("key"), Bytes("value"))
 	assert.NoError(t, err)
@@ -338,8 +347,9 @@ func TestRindb_FlushMemtable(t *testing.T) {
 
 // TestRindb_GetPrecedence tests that Get prioritizes Memtable over SSTables.
 func TestRindb_GetPrecedence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 	// SSTableManager is now part of rin
 	fs, err := rin.SSTableManager.newSSTableFS(ctx)
@@ -368,8 +378,9 @@ func TestRindb_GetPrecedence(t *testing.T) {
 
 // TestRindb_ConcurrentCRUD tests concurrent CRUD operations on Rindb.
 func TestRindb_ConcurrentCRUD(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	opts := append(testOptions(), WithMaxMemtableSize(10000))
+	opts := append(testOptions(t), WithMaxMemtableSize(10000))
 	rin, cleanup := initRinDBWithCleanup(t, opts...)
 	defer cleanup()
 	var wg sync.WaitGroup
@@ -401,8 +412,9 @@ func TestRindb_ConcurrentCRUD(t *testing.T) {
 
 // TestRindb_Close tests the Close operation of Rindb using the helper.
 func TestRindb_Close(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions()...)
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	err := rin.Put(ctx, Bytes("key1"), Bytes("value1"))
 	assert.NoError(t, err)
 
@@ -429,8 +441,9 @@ func TestRindb_Close(t *testing.T) {
 
 // TestConcurrentGetPut ensures concurrent Get and Put operations do not panic.
 func TestConcurrentGetPut(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	opts := append(testOptions(), WithMaxMemtableSize(1<<20))
+	opts := append(testOptions(t), WithMaxMemtableSize(1<<20))
 	rin, cleanup := initRinDBWithCleanup(t, opts...)
 	defer cleanup()
 
@@ -454,6 +467,7 @@ func TestConcurrentGetPut(t *testing.T) {
 // TestRindb_Put_FlushMemtableOnSizeLimit tests that the memtable is flushed
 // when its estimated byte size exceeds the configured limit during a Put operation.
 func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Each memtable entry adds len(key) + len(value) bytes plus metadata
@@ -514,11 +528,12 @@ func TestRindb_Put_FlushMemtableOnSizeLimit(t *testing.T) {
 
 // TestInitRinDB_MaxSequenceNumber tests the sequence number initialization logic.
 func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
+	t.Parallel()
 	t.Run("EmptyDatabase", func(t *testing.T) {
 		databaseDir := t.TempDir()
 		defer func() { _ = os.RemoveAll(databaseDir) }()
 
-		opts := testOptions()
+		opts := testOptions(t)
 		opts = append(opts, WithDatabaseDir(databaseDir))
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
@@ -544,7 +559,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("k2"), Bytes("v2"), 20)))
 		assert.NoError(t, wal.Append(ctx, newRecord(Bytes("k3"), Bytes("v3"), 30)))
 
-		opts := testOptions()
+		opts := testOptions(t)
 		opts = append(opts, WithDatabaseDir(databaseDir))
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
 		defer cleanup()
@@ -557,7 +572,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		defer func() { _ = os.RemoveAll(databaseDir) }()
 
 		ctx := context.Background()
-		opts := testOptions()
+		opts := testOptions(t)
 		opts = append(opts, WithDatabaseDir(databaseDir))
 		defer func() { _ = os.RemoveAll(databaseDir) }()
 		rin, cleanup := initRinDBWithCleanup(t, opts...)
@@ -598,7 +613,7 @@ func TestInitRinDB_MaxSequenceNumber(t *testing.T) {
 		defer func() { _ = os.RemoveAll(databaseDir) }()
 
 		ctx := context.Background()
-		opts := testOptions()
+		opts := testOptions(t)
 		opts = append(opts, WithDatabaseDir(databaseDir))
 		defer func() { _ = os.RemoveAll(databaseDir) }()
 		rin, cleanup := initRinDBWithCleanup(t, opts...)

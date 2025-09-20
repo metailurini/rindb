@@ -7,6 +7,7 @@ import (
 )
 
 func TestBloomFilter_BasicOperations(t *testing.T) {
+	t.Parallel()
 	wordPresent := []string{
 		"abound", "abounds", "abundance", "abundant", "accessible",
 		"bloom", "blossom", "bolster", "bonny", "bonus", "bonuses",
@@ -52,6 +53,7 @@ func TestBloomFilter_BasicOperations(t *testing.T) {
 }
 
 func TestBloomFilter_Options(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		opts    []BloomFilterOpt

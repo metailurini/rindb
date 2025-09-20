@@ -10,6 +10,7 @@ import (
 )
 
 func TestRinDBEngine_IterRange(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	db, err := rindb.InitRinDB(ctx, rindb.WithDatabaseDir(dir))

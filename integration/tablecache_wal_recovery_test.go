@@ -12,6 +12,7 @@ import (
 )
 
 func TestTableCache_MissAfterWALRecovery(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	opts := []rindb.Option{

@@ -9,6 +9,7 @@ import (
 )
 
 func TestRindb_Stats(t *testing.T) {
+	t.Parallel()
 	t.Run("NoFlush", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, nil)
@@ -59,7 +60,7 @@ func TestRindb_Stats(t *testing.T) {
 
 	t.Run("Flush", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		cfg.maxMemtableSize = 1
 		ts := newTestRindbSetup(t, ctx, &cfg)
 		defer ts.Cleanup()
@@ -101,8 +102,9 @@ func TestRindb_Stats(t *testing.T) {
 }
 
 func TestRindb_TableCacheStats(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	cfg.cacheBytes = 1024
 	cfg.cacheShards = 4
 	ts := newTestRindbSetup(t, ctx, &cfg)

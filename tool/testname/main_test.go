@@ -9,6 +9,7 @@ import (
 )
 
 func TestCheckDir_FindsMisnamed(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	src := `package a
 import "testing"
@@ -23,6 +24,7 @@ func Testbad(t *testing.T) {}
 }
 
 func TestCheckDir_AllGood(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	src := `package a
 import "testing"
@@ -36,6 +38,7 @@ func TestAlpha_Beta(t *testing.T) {}
 }
 
 func TestCheckDir_IgnoresNonTestFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	src := `package a
 import "testing"

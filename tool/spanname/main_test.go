@@ -30,6 +30,7 @@ func runAnalyzer(t *testing.T, src string) []analysis.Diagnostic {
 }
 
 func TestAnalyzer(t *testing.T) {
+	t.Parallel()
 	src := `package a
 import "context"
 var tracer struct{ Start func(context.Context, string) }

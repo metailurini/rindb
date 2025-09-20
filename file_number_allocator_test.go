@@ -7,6 +7,7 @@ import (
 )
 
 func TestFileNumberAllocator_Apply(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		start    uint64

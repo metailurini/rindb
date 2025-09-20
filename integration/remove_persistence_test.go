@@ -12,6 +12,7 @@ import (
 )
 
 func TestRemove_PersistsTombstone(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	const maxMemtableSize = uint(64)

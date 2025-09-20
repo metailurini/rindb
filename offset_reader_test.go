@@ -9,6 +9,7 @@ import (
 )
 
 func TestOffsetReader_Read(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		bufSize   int
@@ -67,6 +68,7 @@ func TestOffsetReader_Read(t *testing.T) {
 }
 
 func TestOffsetReader_PrevOffset(t *testing.T) {
+	t.Parallel()
 	t.Run("rewinds using trailer", func(t *testing.T) {
 		data := make([]byte, 24)
 		byteOrder.PutUint64(data[len(data)-mdByteSize:], uint64(len(data)))

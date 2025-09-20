@@ -10,6 +10,7 @@ import (
 
 // TestConfig_Default verifies that DefaultConfig returns the expected default values.
 func TestConfig_Default(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 
 	tests := []struct {
@@ -48,6 +49,7 @@ func TestConfig_Default(t *testing.T) {
 
 // TestConfig_NewWithOptions tests that NewConfig applies options correctly.
 func TestConfig_NewWithOptions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		opts   []Option
@@ -282,6 +284,7 @@ func (simpleLogger) Warn(context.Context, string, ...any)  {}
 func (simpleLogger) Error(context.Context, string, ...any) {}
 
 func TestConfig_ValidatePanics(t *testing.T) {
+	t.Parallel()
 	base := DefaultConfig()
 	tests := []struct {
 		name   string

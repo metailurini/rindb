@@ -8,7 +8,8 @@ import (
 )
 
 func TestMemtable_BasicOperations(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	pairs := generateKeyValuePairs(1000, 10, 20)
 	mem := populateMemtable(cfg, pairs...)
 
@@ -23,7 +24,8 @@ func TestMemtable_BasicOperations(t *testing.T) {
 }
 
 func TestMemtable_MaxSequenceNumber(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	cases := []struct {
 		name    string
@@ -140,7 +142,8 @@ func TestMemtable_MaxSequenceNumber(t *testing.T) {
 }
 
 func TestMemtable_ByteSize(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	entryOverhead := slNodeOverhead + internalKeySuffixLen
 
 	t.Run("Empty", func(t *testing.T) {
@@ -223,7 +226,8 @@ func TestMemtable_ByteSize(t *testing.T) {
 }
 
 func TestMemtable_Tombstone(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	pairs := generateKeyValuePairs(1000, 10, 20)
 	mem := populateMemtable(cfg, pairs...)
 
@@ -253,7 +257,8 @@ func TestMemtable_Tombstone(t *testing.T) {
 }
 
 func TestMemtable_GetAtAndCleanup(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	key := Bytes("k")
 	mem.Put(newRecord(key, Bytes("v1"), 1))
@@ -281,7 +286,8 @@ func TestMemtable_GetAtAndCleanup(t *testing.T) {
 }
 
 func TestMemtable_Cleanup(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	entryOverhead := slNodeOverhead + internalKeySuffixLen
 
 	t.Run("RetainsSnapshotVisibleRecordAndRemovesOlderVersions", func(t *testing.T) {
@@ -357,7 +363,8 @@ func TestMemtable_Cleanup(t *testing.T) {
 }
 
 func TestMemtable_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	snapshotSeq := uint64(2)
 
 	newMem := func() memtable {
@@ -392,6 +399,7 @@ func TestMemtable_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
 }
 
 func TestBytes_Clone(t *testing.T) {
+	t.Parallel()
 	t.Run("NonEmptyBytes", func(t *testing.T) {
 		original := Bytes("hello world")
 		cloned := original.Clone()
@@ -426,7 +434,8 @@ func TestBytes_Clone(t *testing.T) {
 }
 
 func TestMemtableIRange_Prepare(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("k"), Bytes("v7"), 7))
 	mem.Put(newRecord(Bytes("k"), Bytes("v5"), 5))
@@ -454,7 +463,8 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 }
 
 func TestMemtableIRange_HasNextNext(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("a"), Bytes("va3"), 3))
 	mem.Put(newRecord(Bytes("b"), Bytes("vb5"), 5))
@@ -489,7 +499,8 @@ func TestMemtableIRange_HasNextNext(t *testing.T) {
 }
 
 func TestMemtableIRange_Reverse(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
 	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
@@ -512,7 +523,8 @@ func TestMemtableIRange_Reverse(t *testing.T) {
 }
 
 func TestMemtableIRange_PrevBeforeNext(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
 
@@ -523,7 +535,8 @@ func TestMemtableIRange_PrevBeforeNext(t *testing.T) {
 }
 
 func TestMemtableIRange_Alternating(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
 	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
@@ -552,7 +565,8 @@ func TestMemtableIRange_Alternating(t *testing.T) {
 }
 
 func TestMemtableIRange_Empty(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 
 	it := mem.IRange(Bytes("x"), Bytes("z"), 1)

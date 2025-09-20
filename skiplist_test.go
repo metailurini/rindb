@@ -9,7 +9,8 @@ import (
 )
 
 func TestSkipList_Init(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	t.Run("Init with invalid key type", func(t *testing.T) {
 		list, err := InitSkipList[struct{ int }, int](cfg)
 		assert.ErrorIs(t, err, ErrUnsupportedType)
@@ -70,7 +71,8 @@ func TestSkipList_Init(t *testing.T) {
 
 //nolint:funlen
 func TestSkipList_Put(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	t.Run("Assert all added values", func(t *testing.T) {
 		list, err := InitSkipList[string, int](cfg)
 		assert.NoError(t, err)
@@ -145,7 +147,8 @@ func TestSkipList_Put(t *testing.T) {
 }
 
 func TestSkipList_Get(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	list, err := InitSkipList[string, int](cfg)
 	assert.NoError(t, err)
 
@@ -164,7 +167,8 @@ func TestSkipList_Get(t *testing.T) {
 }
 
 func TestSkipList_Remove(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	list, err := InitSkipList[string, int](cfg)
 	assert.NoError(t, err)
 
@@ -223,7 +227,8 @@ func TestSkipList_Remove(t *testing.T) {
 }
 
 func TestSkipList_IteratorReverse(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	t.Run("basic", func(t *testing.T) {
 		list, err := InitSkipList[int, int](cfg)
@@ -277,7 +282,8 @@ func TestSkipList_IteratorReverse(t *testing.T) {
 }
 
 func TestSkipList_IteratorMixed(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	list, err := InitSkipList[int, int](cfg)
 	assert.NoError(t, err)
 
@@ -314,7 +320,8 @@ func TestSkipList_IteratorMixed(t *testing.T) {
 }
 
 func TestSkipList_IteratorConcurrentMutations(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	list, err := InitSkipList[int, int](cfg)
 	assert.NoError(t, err)
 
@@ -357,7 +364,8 @@ func TestSkipList_IteratorConcurrentMutations(t *testing.T) {
 }
 
 func TestSkipList_IRangeReverse(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	list, err := InitSkipList[int, int](cfg)
 	assert.NoError(t, err)
 
@@ -384,7 +392,8 @@ func TestSkipList_IRangeReverse(t *testing.T) {
 }
 
 func TestSkipList_IRangeMixed(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	list, err := InitSkipList[int, int](cfg)
 	assert.NoError(t, err)
 
@@ -420,7 +429,8 @@ func TestSkipList_IRangeMixed(t *testing.T) {
 }
 
 func TestSkipList_Clear(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	t.Run("Clear list properly", func(t *testing.T) {
 		list, err := InitSkipList[string, int](cfg)
 		assert.NoError(t, err)
@@ -474,7 +484,8 @@ func keyShouldNotExists[K, V Comparable](t *testing.T, key K, list *SkipList[K, 
 }
 
 func TestSkipList_IRange(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	t.Run("Empty list", func(t *testing.T) {
 		list, err := InitSkipList[int, int](cfg)
@@ -694,7 +705,8 @@ func TestSkipList_IRange(t *testing.T) {
 }
 
 func TestSkipList_FindGreaterOrEqual(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	t.Run("Empty list", func(t *testing.T) {
 		list, err := InitSkipList[int, int](cfg)

@@ -13,7 +13,8 @@ import (
 
 // TestSSTable_BasicOperations tests the SStable functionality.
 func TestSSTable_BasicOperations(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	t.Run("FlushEmptyMemtable", func(t *testing.T) {
 		defer func() {
 			r := recover()
@@ -198,7 +199,7 @@ func TestSSTable_BasicOperations(t *testing.T) {
 		assert.Nil(t, record)
 	})
 	t.Run("IRange", func(t *testing.T) {
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
@@ -348,8 +349,9 @@ func TestSSTable_BasicOperations(t *testing.T) {
 // when they are absent from the sparse index by scanning from the nearest
 // preceding entry.
 func TestSStable_GetValueSparseIndexFallback(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -424,6 +426,7 @@ func TestSStable_GetValueSparseIndexFallback(t *testing.T) {
 
 // TestSparseIndex_GetOffset tests the GetOffset method of SparseIndex.
 func TestSparseIndex_GetOffset(t *testing.T) {
+	t.Parallel()
 	type args struct {
 		key Bytes
 	}
@@ -546,8 +549,9 @@ func TestSparseIndex_GetOffset(t *testing.T) {
 
 // TestFlushWithTombstones tests flushing a memtable with tombstones.
 func TestFlushWithTombstones(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -569,8 +573,9 @@ func TestFlushWithTombstones(t *testing.T) {
 
 // TestBloomFilterSkipsReads tests that the Bloom filter skips unnecessary reads.
 func TestBloomFilterSkipsReads(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -590,8 +595,9 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 
 // TestSStableChecksumMismatch verifies that corrupted checksums are reported.
 func TestSStableChecksumMismatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -611,6 +617,7 @@ func TestSStableChecksumMismatch(t *testing.T) {
 }
 
 func TestFooterRoundTrip(t *testing.T) {
+	t.Parallel()
 	tx, cleanup := newFileTx(t)
 	defer cleanup()
 	want := footer{indexOffset: 10, indexSize: 20, magic: magicNumber}
@@ -622,6 +629,7 @@ func TestFooterRoundTrip(t *testing.T) {
 }
 
 func TestReadFooterErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("InvalidMagic", func(t *testing.T) {
 		tx, cleanup := newFileTx(t)
 		defer cleanup()
@@ -651,8 +659,9 @@ func TestReadFooterErrors(t *testing.T) {
 }
 
 func TestNewSSTableInvalidFooter(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	t.Run("OffsetTooLarge", func(t *testing.T) {
 		tx, cleanup := newFileTx(t)
@@ -700,8 +709,9 @@ func TestNewSSTableInvalidFooter(t *testing.T) {
 }
 
 func TestNewSSTableEmptyIndex(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	tests := []struct {
 		name string
@@ -737,6 +747,7 @@ func TestNewSSTableEmptyIndex(t *testing.T) {
 }
 
 func TestLoadSparseIndexSizeMismatch(t *testing.T) {
+	t.Parallel()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -760,8 +771,9 @@ func TestLoadSparseIndexSizeMismatch(t *testing.T) {
 // TestSSTableIRangeGetValueConsistency verifies that IRange and GetValue
 // return consistent key/value pairs across different SSTable contents.
 func TestSSTableIRangeGetValueConsistency(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	type kv struct {
 		key Bytes
@@ -931,6 +943,7 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 }
 
 func TestSSTableIRangePrepareEOF(t *testing.T) {
+	t.Parallel()
 	content := []byte{1, 2, 3, 4}
 	tests := []struct {
 		name     string
@@ -967,8 +980,9 @@ func TestSSTableIRangePrepareEOF(t *testing.T) {
 }
 
 func TestNewSSTable_IndexBlockOutOfBounds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -1002,8 +1016,9 @@ func TestNewSSTable_IndexBlockOutOfBounds(t *testing.T) {
 }
 
 func TestNewSSTable_LoadSparseIndexFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -1037,8 +1052,9 @@ func TestNewSSTable_LoadSparseIndexFailure(t *testing.T) {
 }
 
 func TestSSTable_GetValue_BeyondDataEnd(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]

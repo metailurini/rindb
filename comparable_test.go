@@ -23,6 +23,7 @@ func (c customCmpType) Compare(other any) int {
 
 //nolint:gocognit,funlen,gocyclo
 func TestComparable_Compare(t *testing.T) {
+	t.Parallel()
 	t.Run("Int", func(t *testing.T) {
 		tests := []struct {
 			a, b     int

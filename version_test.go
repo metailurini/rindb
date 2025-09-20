@@ -18,6 +18,7 @@ type coalesceTestCase[T comparable] struct {
 }
 
 func TestVersion_Edit(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		run  func(t *testing.T)
@@ -95,6 +96,7 @@ func TestVersion_Edit(t *testing.T) {
 }
 
 func TestCoalesce_NonZero(t *testing.T) {
+	t.Parallel()
 	intCases := []coalesceTestCase[int]{
 		{
 			name: "int: existing is zero, new is non-zero",

@@ -12,6 +12,7 @@ import (
 )
 
 func TestManifest_Operations(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		run  func(t *testing.T)

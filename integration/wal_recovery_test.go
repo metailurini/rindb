@@ -20,6 +20,7 @@ var walRecoveryKVs = []struct{ key, val string }{
 }
 
 func TestWAL_Recovery(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("WAL_RECOVERY_TEST_DIR")
 	if dir != "" {
 		walRecoveryHelper(t, dir)

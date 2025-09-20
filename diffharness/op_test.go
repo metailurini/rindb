@@ -29,6 +29,7 @@ func (d dummyEngine) ReleaseSnapshot(context.Context, uint64) error { return nil
 func (d dummyEngine) Close() error                                  { return nil }
 
 func TestPutOpLoggingAndError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cases := []struct {
 		name       string
@@ -60,6 +61,7 @@ func TestPutOpLoggingAndError(t *testing.T) {
 }
 
 func TestGetOpMismatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	ref, err := OpenSQLiteOracle(filepath.Join(dir, "ref.db"))
@@ -77,6 +79,7 @@ func TestGetOpMismatch(t *testing.T) {
 }
 
 func TestPutOpDefaultNoCommit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	h := &Harness{My: dummyEngine{}}
 	logger := PhaseLoggerFunc(func(Op, uint64, Phase, int) error { return nil })
@@ -87,6 +90,7 @@ func TestPutOpDefaultNoCommit(t *testing.T) {
 }
 
 func TestDelOpDefaultNoCommit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	h := &Harness{My: dummyEngine{}}
 	logger := PhaseLoggerFunc(func(Op, uint64, Phase, int) error { return nil })

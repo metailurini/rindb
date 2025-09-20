@@ -22,7 +22,14 @@ func newTempFS(t *testing.T) *FileSystem {
 	return fs
 }
 
+func newTestTransactionManager(t *testing.T) *transactionManager {
+	t.Helper()
+	return newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
+}
+
 func TestTransactionManager_BeginCopiesExistingData(t *testing.T) {
+	t.Parallel()
+
 	fs := newTempFS(t)
 	_, err := fs.Write([]byte("old"))
 	require.NoError(t, err)
@@ -47,25 +54,25 @@ func TestTransactionManager_BeginCopiesExistingData(t *testing.T) {
 }
 
 func TestTransactionManager_BeginErrors(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	wantOpenFail := errors.New("open fail")
 	wantCopyFail := errors.New("copy fail")
 	tests := []struct {
 		name    string
-		setup   func(t *testing.T) (*FileSystem, func())
+		setup   func(t *testing.T, tm *transactionManager) (*FileSystem, func())
 		wantErr error
 		post    func(t *testing.T, fs *FileSystem)
 	}{
 		{
 			name: "copy open error",
-			setup: func(t *testing.T) (*FileSystem, func()) {
+			setup: func(t *testing.T, tm *transactionManager) (*FileSystem, func()) {
 				t.Helper()
 				fs := newTempFS(t)
-				require.NoError(t, fs.Close())
-				origOpen := osOpen
-				osOpen = func(string) (*os.File, error) { return nil, wantOpenFail }
-				cleanup := func() { osOpen = origOpen }
-				return fs, cleanup
+				require.NoError(t, tm.deps.fsClose(fs))
+				tm.deps.osOpen = func(string) (*os.File, error) { return nil, wantOpenFail }
+				return fs, nil
 			},
 			wantErr: wantOpenFail,
 			post: func(t *testing.T, fs *FileSystem) {
@@ -77,13 +84,11 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		},
 		{
 			name: "copy error",
-			setup: func(t *testing.T) (*FileSystem, func()) {
+			setup: func(t *testing.T, tm *transactionManager) (*FileSystem, func()) {
 				t.Helper()
 				fs := newTempFS(t)
-				origCopy := ioCopy
-				ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, wantCopyFail }
-				cleanup := func() { ioCopy = origCopy }
-				return fs, cleanup
+				tm.deps.ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, wantCopyFail }
+				return fs, nil
 			},
 			wantErr: wantCopyFail,
 			post: func(t *testing.T, fs *FileSystem) {
@@ -95,7 +100,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		},
 		{
 			name: "close error",
-			setup: func(t *testing.T) (*FileSystem, func()) {
+			setup: func(t *testing.T, tm *transactionManager) (*FileSystem, func()) {
 				t.Helper()
 				fs := newTempFS(t)
 				require.NoError(t, fs.file.Close())
@@ -104,7 +109,7 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		},
 		{
 			name: "shadow fs open error",
-			setup: func(t *testing.T) (*FileSystem, func()) {
+			setup: func(t *testing.T, tm *transactionManager) (*FileSystem, func()) {
 				t.Helper()
 				fs := newTempFS(t)
 				dir := filepath.Dir(fs.Path())
@@ -115,17 +120,15 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 		},
 		{
 			name: "src close error",
-			setup: func(t *testing.T) (*FileSystem, func()) {
+			setup: func(t *testing.T, tm *transactionManager) (*FileSystem, func()) {
 				t.Helper()
 				fs := newTempFS(t)
 				tmp, err := os.CreateTemp("", "src")
 				require.NoError(t, err)
 				require.NoError(t, tmp.Close())
-				origOpen := osOpen
-				origCopy := ioCopy
-				osOpen = func(string) (*os.File, error) { return tmp, nil }
-				ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, nil }
-				cleanup := func() { osOpen = origOpen; ioCopy = origCopy; os.Remove(tmp.Name()) }
+				tm.deps.osOpen = func(string) (*os.File, error) { return tmp, nil }
+				tm.deps.ioCopy = func(io.Writer, io.Reader) (int64, error) { return 0, nil }
+				cleanup := func() { _ = os.Remove(tmp.Name()) }
 				return fs, cleanup
 			},
 		},
@@ -133,11 +136,13 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fs, cleanup := tt.setup(t)
-			if cleanup != nil {
-				defer cleanup()
-			}
+			t.Parallel()
 			tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
+			tm.deps = defaultTxnDeps
+			fs, cleanup := tt.setup(t, tm)
+			if cleanup != nil {
+				t.Cleanup(cleanup)
+			}
 			txn, err := tm.begin(ctx, fs)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -153,6 +158,8 @@ func TestTransactionManager_BeginErrors(t *testing.T) {
 }
 
 func TestTransactionManager_WriteAndCommit(t *testing.T) {
+	t.Parallel()
+
 	fs := newTempFS(t)
 	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
@@ -168,15 +175,16 @@ func TestTransactionManager_WriteAndCommit(t *testing.T) {
 }
 
 func TestTransactionManager_WritePartial(t *testing.T) {
+	t.Parallel()
+
 	fs := newTempFS(t)
 	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
 	require.NoError(t, err)
 
-	origWrite := fsWrite
-	defer func() { fsWrite = origWrite }()
+	origWrite := tm.deps.fsWrite
 	first := true
-	fsWrite = func(fsys *FileSystem, p []byte) (int, error) {
+	tm.deps.fsWrite = func(fsys *FileSystem, p []byte) (int, error) {
 		if first {
 			first = false
 			half := len(p) / 2
@@ -184,6 +192,7 @@ func TestTransactionManager_WritePartial(t *testing.T) {
 		}
 		return origWrite(fsys, p)
 	}
+	t.Cleanup(func() { tm.deps.fsWrite = origWrite })
 
 	data := []byte("partial")
 	n, err := txn.write(data)
@@ -197,6 +206,8 @@ func TestTransactionManager_WritePartial(t *testing.T) {
 }
 
 func TestTransactionManager_RollbackRestoresExistingData(t *testing.T) {
+	t.Parallel()
+
 	fs := newTempFS(t)
 	_, err := fs.Write([]byte("base"))
 	require.NoError(t, err)
@@ -216,6 +227,8 @@ func TestTransactionManager_RollbackRestoresExistingData(t *testing.T) {
 }
 
 func TestTransactionManager_WriteAfterCommit(t *testing.T) {
+	t.Parallel()
+
 	fs := newTempFS(t)
 	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	txn, err := tm.begin(context.Background(), fs)
@@ -230,6 +243,8 @@ func TestTransactionManager_WriteAfterCommit(t *testing.T) {
 }
 
 func TestTransactionManager_ConcurrentBegin(t *testing.T) {
+	t.Parallel()
+
 	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	const n = 10
 	var wg sync.WaitGroup
@@ -254,6 +269,8 @@ func TestTransactionManager_ConcurrentBegin(t *testing.T) {
 }
 
 func TestTransactionManager_ConcurrentWrite(t *testing.T) {
+	t.Parallel()
+
 	tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 	fs := newTempFS(t)
 	tx, err := tm.begin(context.Background(), fs)
@@ -274,6 +291,8 @@ func TestTransactionManager_ConcurrentWrite(t *testing.T) {
 }
 
 func TestTransactionManager_CommitRollbackConcurrency(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	cfg := NewConfig(WithDatabaseDir(t.TempDir()))
 	w, err := DefaultNewWALFunc(ctx, cfg)
@@ -320,129 +339,128 @@ func TestTransactionManager_CommitRollbackConcurrency(t *testing.T) {
 }
 
 func TestTransactionManager_CommitErrors(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
+	wantSyncFail := errors.New("sync fail")
+	wantLogCloseFail := errors.New("log close fail")
+	wantRenameFail := errors.New("rename fail")
+	wantTargetCloseFail := errors.New("target close fail")
+	wantOpenExistingFail := errors.New("open existing fail")
+
 	tests := []struct {
-		name  string
-		setup func(txn *transaction) (func(), error)
+		name      string
+		wantErr   error
+		configure func(t *testing.T, txn *transaction, orig txnDeps)
 	}{
 		{
-			name: "sync error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("sync fail")
-				origSync := fsSync
-				fsSync = func(*FileSystem) error { return wantErr }
-				return func() { fsSync = origSync }, wantErr
+			name:    "sync error",
+			wantErr: wantSyncFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.fsSync = func(*FileSystem) error { return wantSyncFail }
 			},
 		},
 		{
-			name: "log close error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("log close fail")
-				origSync := fsSync
-				origClose := fsClose
-				fsSync = func(*FileSystem) error { return nil }
-				fsClose = func(f *FileSystem) error {
+			name:    "log close error",
+			wantErr: wantLogCloseFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.fsClose = func(f *FileSystem) error {
 					if f == txn.log {
-						return wantErr
+						return wantLogCloseFail
 					}
-					return origClose(f)
+					return orig.fsClose(f)
 				}
-				return func() { fsSync = origSync; fsClose = origClose }, wantErr
 			},
 		},
 		{
-			name: "rename error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("rename fail")
-				origRename := osRename
-				osRename = func(_, _ string) error { return wantErr }
-				return func() { osRename = origRename }, wantErr
+			name:    "rename error",
+			wantErr: wantRenameFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.osRename = func(_, _ string) error { return wantRenameFail }
 			},
 		},
 		{
-			name: "target close error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("target close fail")
-				origClose := fsClose
-				fsClose = func(f *FileSystem) error {
+			name:    "target close error",
+			wantErr: wantTargetCloseFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.fsClose = func(f *FileSystem) error {
 					if f == txn.target {
-						return wantErr
+						return wantTargetCloseFail
 					}
-					return origClose(f)
+					return orig.fsClose(f)
 				}
-				return func() { fsClose = origClose }, wantErr
 			},
 		},
 		{
-			name: "open existing error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("open existing fail")
-				origOpenExisting := fsOpenExisting
-				fsOpenExisting = func(*FileSystem, context.Context) error { return wantErr }
-				return func() { fsOpenExisting = origOpenExisting }, wantErr
+			name:    "open existing error",
+			wantErr: wantOpenExistingFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.fsOpenExisting = func(*FileSystem, context.Context) error { return wantOpenExistingFail }
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			fs := newTempFS(t)
 			tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 			txn, err := tm.begin(ctx, fs)
 			require.NoError(t, err)
-			cleanup, wantErr := tt.setup(txn)
-			if cleanup != nil {
-				defer cleanup()
-			}
+			orig := tm.deps
+			tt.configure(t, txn, orig)
+			t.Cleanup(func() { tm.deps = orig })
 			err = txn.commit(ctx)
-			require.ErrorIs(t, err, wantErr)
+			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }
 
 func TestTransactionManager_RollbackErrors(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
+	wantLogCloseFail := errors.New("log close fail")
+	wantRemoveFail := errors.New("remove fail")
+
 	tests := []struct {
-		name  string
-		setup func(txn *transaction) (func(), error)
+		name      string
+		wantErr   error
+		configure func(t *testing.T, txn *transaction, orig txnDeps)
 	}{
 		{
-			name: "log close error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("log close fail")
-				origClose := fsClose
-				fsClose = func(f *FileSystem) error {
+			name:    "log close error",
+			wantErr: wantLogCloseFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.fsClose = func(f *FileSystem) error {
 					if f == txn.log {
-						return wantErr
+						return wantLogCloseFail
 					}
-					return origClose(f)
+					return orig.fsClose(f)
 				}
-				return func() { fsClose = origClose }, wantErr
 			},
 		},
 		{
-			name: "remove error",
-			setup: func(txn *transaction) (func(), error) {
-				wantErr := errors.New("remove fail")
-				origRemove := osRemove
-				osRemove = func(string) error { return wantErr }
-				return func() { osRemove = origRemove }, wantErr
+			name:    "remove error",
+			wantErr: wantRemoveFail,
+			configure: func(t *testing.T, txn *transaction, orig txnDeps) {
+				txn.manager.deps.osRemove = func(string) error { return wantRemoveFail }
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			fs := newTempFS(t)
 			tm := newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))
 			txn, err := tm.begin(ctx, fs)
 			require.NoError(t, err)
-			cleanup, wantErr := tt.setup(txn)
-			if cleanup != nil {
-				defer cleanup()
-			}
+			orig := tm.deps
+			tt.configure(t, txn, orig)
+			t.Cleanup(func() { tm.deps = orig })
 			err = txn.rollback(ctx)
-			require.ErrorIs(t, err, wantErr)
+			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }

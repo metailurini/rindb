@@ -89,7 +89,8 @@ func validateWALFormat(t *testing.T, file io.ReadSeeker) {
 
 // TestWAL_Clean tests cleaning the WAL.
 func TestWAL_Clean(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -109,8 +110,9 @@ func TestWAL_Clean(t *testing.T) {
 }
 
 func TestWAL_AppendCommitFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -133,7 +135,8 @@ func TestWAL_AppendCommitFailure(t *testing.T) {
 }
 
 func TestWAL_CleanErrors(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	t.Run("ChecksumMismatch", func(t *testing.T) {
 		ctx := context.Background()
@@ -193,9 +196,9 @@ func TestWAL_CleanErrors(t *testing.T) {
 		w := NewWAL(cfg, fs)
 		require.NoError(t, w.Append(ctx, newRecord(Bytes("k"), Bytes("v"), 1)))
 
-		orig := osOpen
-		osOpen = func(name string) (*os.File, error) { return nil, errors.New("open fail") }
-		defer func() { osOpen = orig }()
+		orig := w.tm.deps.osOpen
+		w.tm.deps.osOpen = func(string) (*os.File, error) { return nil, errors.New("open fail") }
+		t.Cleanup(func() { w.tm.deps.osOpen = orig })
 
 		err := w.Clean(ctx, 0)
 		assert.Error(t, err)
@@ -205,7 +208,8 @@ func TestWAL_CleanErrors(t *testing.T) {
 
 // TestWAL_AppendAndLoad tests appending and loading records from the WAL.
 func TestWAL_AppendAndLoad(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -249,7 +253,8 @@ func TestWAL_AppendAndLoad(t *testing.T) {
 
 // TestWALCrashRecovery tests WAL recovery after a crash.
 func TestWALCrashRecovery(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -278,11 +283,12 @@ func TestWALCrashRecovery(t *testing.T) {
 }
 
 func TestDefaultNewWALFunc_ReadDirError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "notadir")
 	assert.NoError(t, os.WriteFile(file, []byte(""), 0o644))
 
-	cfg := testConfig()
+	cfg := testConfig(t)
 	cfg.databaseDir = file
 
 	_, err := DefaultNewWALFunc(context.Background(), cfg)
@@ -291,7 +297,8 @@ func TestDefaultNewWALFunc_ReadDirError(t *testing.T) {
 
 // TestWALCrashRecovery_PartialWrite tests WAL recovery after a crash during a partial write.
 func TestWALCrashRecovery_PartialWrite(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -353,7 +360,8 @@ func TestWALCrashRecovery_PartialWrite(t *testing.T) {
 
 // TestWAL_LoadChecksumMismatch ensures checksum errors surface when loading WAL.
 func TestWAL_LoadChecksumMismatch(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]

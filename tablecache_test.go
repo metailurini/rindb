@@ -29,6 +29,7 @@ func newTestCache(t *testing.T, opt tableCacheOptions) *tableCache {
 }
 
 func TestTableCache_HitMiss(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cases := []struct {
 		name       string
@@ -70,6 +71,7 @@ func TestTableCache_HitMiss(t *testing.T) {
 }
 
 func TestTableCache_TryGetStats(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name       string
 		tryKeys    []tableKey
@@ -129,6 +131,7 @@ func TestTableCache_TryGetStats(t *testing.T) {
 }
 
 func TestTableCacheEviction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
@@ -149,6 +152,7 @@ func TestTableCacheEviction(t *testing.T) {
 }
 
 func TestTableCachePinning(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
@@ -170,6 +174,7 @@ func TestTableCachePinning(t *testing.T) {
 }
 
 func TestTableCacheCorruptionQuarantine(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
 	cache := newTestCache(t, tableCacheOptions{
@@ -192,6 +197,7 @@ func TestTableCacheCorruptionQuarantine(t *testing.T) {
 }
 
 func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	openStart := make(chan struct{})
 	release := make(chan struct{})
@@ -244,6 +250,7 @@ func TestTableCacheGetCanceledWhileSingleflight(t *testing.T) {
 }
 
 func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
@@ -282,6 +289,7 @@ func TestTableCacheCloseDrainsBusyEntries(t *testing.T) {
 }
 
 func TestTableCachePinnedOverCapacity(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
@@ -319,6 +327,7 @@ func TestTableCachePinnedOverCapacity(t *testing.T) {
 }
 
 func TestTableCacheDelete(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
 	var closes atomic.Int32
@@ -357,6 +366,7 @@ func TestTableCacheDelete(t *testing.T) {
 }
 
 func TestTableCacheClose(t *testing.T) {
+	t.Parallel()
 	t.Run("drain", func(t *testing.T) {
 		ctx := context.Background()
 		var opens atomic.Int32
@@ -428,6 +438,7 @@ func TestTableCacheClose(t *testing.T) {
 }
 
 func TestTableCacheCloseUnrefRace(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
@@ -458,6 +469,7 @@ func TestTableCacheCloseUnrefRace(t *testing.T) {
 }
 
 func TestTableCacheTombstoneExpiry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
 	ttl := 10 * time.Millisecond
@@ -489,6 +501,7 @@ func TestTableCacheTombstoneExpiry(t *testing.T) {
 }
 
 func TestTableCacheDeleteClearsCorruptQuarantine(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var opens atomic.Int32
 	var verifies atomic.Int32
@@ -529,6 +542,7 @@ func TestTableCacheDeleteClearsCorruptQuarantine(t *testing.T) {
 }
 
 func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	actuals := []int64{0, 5, -7}
 	var idx atomic.Int32
@@ -554,6 +568,7 @@ func TestTableCacheMeasureAndByteAccounting(t *testing.T) {
 }
 
 func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 10})
 
@@ -578,6 +593,7 @@ func TestTableCacheDeleteUpdatesByteAccounting(t *testing.T) {
 }
 
 func TestTableCacheEvictOversizedEntry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{
 		CapBytes: 5,
@@ -601,6 +617,7 @@ func TestTableCacheEvictOversizedEntry(t *testing.T) {
 }
 
 func TestTableCacheMultiShardByteAccounting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 8, Shards: 4})
 
@@ -632,6 +649,7 @@ func TestTableCacheMultiShardByteAccounting(t *testing.T) {
 }
 
 func TestTableCachePinnedByteAccounting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 1})
 
@@ -670,6 +688,7 @@ func TestTableCachePinnedByteAccounting(t *testing.T) {
 }
 
 func TestTableCacheUnpinTriggersEviction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cache := newTestCache(t, tableCacheOptions{CapBytes: 2})
 
@@ -704,6 +723,7 @@ func TestTableCacheUnpinTriggersEviction(t *testing.T) {
 }
 
 func TestTableCacheStopAdmissionDuringInstall(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var closes atomic.Int32
 	openStart := make(chan struct{})
@@ -743,6 +763,7 @@ func TestTableCacheStopAdmissionDuringInstall(t *testing.T) {
 }
 
 func TestTableCacheTombstoneDuringInstall(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var closes atomic.Int32
 	openStart := make(chan struct{})
@@ -811,6 +832,7 @@ func installEntryForTest(t *testing.T, ctx context.Context, cache *tableCache, k
 }
 
 func TestTableCacheExistingEntryClosesDuplicate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var closes atomic.Int32
 	var inserted atomic.Bool

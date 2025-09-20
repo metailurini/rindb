@@ -13,9 +13,10 @@ import (
 )
 
 func TestSSTableBuilder(t *testing.T) {
+	t.Parallel()
 	t.Run("BuildWithoutAdd", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
@@ -29,7 +30,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("Build", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
@@ -78,7 +79,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("BuildWithNilBloom", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
@@ -103,7 +104,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("AddEnforcesOrder", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
@@ -119,7 +120,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("TruncatesExistingFile", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		initial := bytes.Repeat([]byte("x"), 256)
 		fss, closer := initTempFileSystems(t, 1, [][]byte{initial})
 		defer closer()
@@ -138,7 +139,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("Errors", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]
@@ -165,7 +166,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("CleansOnWriteError", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 
 		tmpDir := t.TempDir()
 		path := filepath.Join(tmpDir, "fail.sst")
@@ -195,7 +196,7 @@ func TestSSTableBuilder(t *testing.T) {
 
 	t.Run("CommitFailure", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		fss, closer := initTempFileSystems(t, 1, nil)
 		defer closer()
 		fs := fss[0]

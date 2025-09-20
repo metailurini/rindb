@@ -14,6 +14,7 @@ import (
 )
 
 func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(1<<20))
 	defer cleanup()
@@ -40,6 +41,7 @@ func TestSnapshot_MemtableCleanupAfterRelease(t *testing.T) {
 }
 
 func TestSnapshot_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(1<<20))
 	defer cleanup()
@@ -77,6 +79,7 @@ func TestSnapshot_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
 }
 
 func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const maxSize = uint(128)
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(maxSize))
@@ -103,6 +106,7 @@ func TestSnapshot_WALSegmentsRespectSnapshots(t *testing.T) {
 }
 
 func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()
@@ -125,6 +129,7 @@ func TestSnapshot_MinSequenceUpdatesOnlyOnFirst(t *testing.T) {
 }
 
 func TestSnapshot_TombstoneRemovedAfterRelease(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(200), WithLevel0CompactionThreshold(1))
 	defer cleanup()
@@ -157,6 +162,7 @@ func TestSnapshot_TombstoneRemovedAfterRelease(t *testing.T) {
 }
 
 func TestRindb_Snapshot(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()
@@ -179,6 +185,7 @@ func TestRindb_Snapshot(t *testing.T) {
 }
 
 func TestSnapshot_IRange(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()
@@ -203,6 +210,7 @@ func TestSnapshot_IRange(t *testing.T) {
 }
 
 func TestSnapshot_ReleaseConcurrent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, WithDatabaseDir(t.TempDir()))
 	defer cleanup()

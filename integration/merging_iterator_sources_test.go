@@ -12,6 +12,7 @@ import (
 )
 
 func TestIRange_AlternatingAcrossMemtableAndSSTable(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(175))
 	t.Cleanup(cleanup)
 	ctx := context.Background()
@@ -73,6 +74,7 @@ func TestIRange_AlternatingAcrossMemtableAndSSTable(t *testing.T) {
 }
 
 func TestIRange_ExhaustsSources(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(175))
 	t.Cleanup(cleanup)
 	ctx := context.Background()

@@ -7,6 +7,7 @@ import (
 )
 
 func TestMergingIterator_HasNext_PrepareIdempotent(t *testing.T) {
+	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -28,6 +29,7 @@ func TestMergingIterator_HasNext_PrepareIdempotent(t *testing.T) {
 }
 
 func TestMergingIterator_HasPrev_PrepareIdempotent(t *testing.T) {
+	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -55,6 +57,7 @@ func TestMergingIterator_HasPrev_PrepareIdempotent(t *testing.T) {
 }
 
 func TestMergingIterator_HasNext_PrefetchErrorSurfacedAfterConsume(t *testing.T) {
+	t.Parallel()
 	r1 := mkRec("a", "1", 1, TypeValue)
 	r2 := mkRec("b", "2", 2, TypeValue)
 	it := &errIterator{records: []Record{r1, r2}, failIdx: 1}

@@ -12,6 +12,7 @@ import (
 )
 
 func TestDB_PersistsDataOnReopen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 	dbOpt := rindb.WithDatabaseDir(dir)

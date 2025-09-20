@@ -27,6 +27,7 @@ func (r *recordingLogger) Error(ctx context.Context, msg string, args ...any) {
 }
 
 func TestLogLevelFiltering(t *testing.T) {
+	t.Parallel()
 	rl := &recordingLogger{}
 	log := newScopedLogger(rl, LogLevelInfo)
 
@@ -47,6 +48,7 @@ func TestLogLevelFiltering(t *testing.T) {
 }
 
 func TestStdLogger_Writes(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := NewStdLogger(log.New(&buf, "", 0))
 
@@ -64,6 +66,7 @@ func TestStdLogger_Writes(t *testing.T) {
 }
 
 func TestStdLogger_TraceContext(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	l := NewStdLogger(log.New(&buf, "", 0))
 
@@ -79,6 +82,7 @@ func TestStdLogger_TraceContext(t *testing.T) {
 }
 
 func TestNewStdLogger_NilLogger(t *testing.T) {
+	t.Parallel()
 	l := NewStdLogger(nil)
 	// Should not panic when logging with a nil underlying logger.
 	l.Info(context.Background(), "silent")

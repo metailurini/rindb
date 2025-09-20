@@ -10,7 +10,8 @@ import (
 )
 
 func TestSSTableIteratorReverse(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -46,7 +47,8 @@ func TestSSTableIteratorReverse(t *testing.T) {
 }
 
 func TestSSTableIteratorMixed(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -95,7 +97,8 @@ func TestSSTableIteratorMixed(t *testing.T) {
 }
 
 func TestSSTableIRangeReverse(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -131,7 +134,8 @@ func TestSSTableIRangeReverse(t *testing.T) {
 }
 
 func TestSSTableIteratorPrevFullTraversal(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -171,7 +175,8 @@ func TestSSTableIteratorPrevFullTraversal(t *testing.T) {
 }
 
 func TestSSTableIRangePrevFullTraversal(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -209,7 +214,8 @@ func TestSSTableIRangePrevFullTraversal(t *testing.T) {
 }
 
 func TestSSTableIteratorPrevOffsetError(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -241,6 +247,7 @@ func TestSSTableIteratorPrevOffsetError(t *testing.T) {
 }
 
 func TestSSTableIteratorPrevReadEOF(t *testing.T) {
+	t.Parallel()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]
@@ -259,7 +266,8 @@ func TestSSTableIteratorPrevReadEOF(t *testing.T) {
 }
 
 func TestSSTableIRangePrepareError(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -291,7 +299,8 @@ func TestSSTableIRangePrepareError(t *testing.T) {
 }
 
 func TestSSTableIRangePrevOffsetEOF(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -322,6 +331,7 @@ func TestSSTableIRangePrevOffsetEOF(t *testing.T) {
 }
 
 func TestSSTableIRangePrevReadEOF(t *testing.T) {
+	t.Parallel()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
 	fs := fss[0]

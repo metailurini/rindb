@@ -14,6 +14,7 @@ import (
 )
 
 func TestDB_ConcurrentPutGet(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t)
 	ctx := context.Background()
 

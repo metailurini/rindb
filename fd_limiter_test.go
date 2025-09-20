@@ -11,6 +11,7 @@ import (
 )
 
 func TestSemaphoreFDLimiter_ConcurrentGet(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	limiter := NewSemaphoreFDLimiter(1)
 
@@ -49,6 +50,7 @@ func TestSemaphoreFDLimiter_ConcurrentGet(t *testing.T) {
 }
 
 func TestSemaphoreFDLimiter_Acquire(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		ctx     func() context.Context

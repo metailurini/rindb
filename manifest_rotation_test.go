@@ -13,6 +13,7 @@ import (
 )
 
 func TestManifestRotation_Rotates(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	rin, cleanup := initRinDBWithCleanup(t,
@@ -46,6 +47,7 @@ func TestManifestRotation_Rotates(t *testing.T) {
 }
 
 func TestManifestRotation_MaybeRotate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cases := []struct {
 		name       string
@@ -84,6 +86,7 @@ func TestManifestRotation_MaybeRotate(t *testing.T) {
 }
 
 func TestManifestRotation_Cleanup(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	for i := 1; i <= 5; i++ {
@@ -109,6 +112,7 @@ func TestManifestRotation_Cleanup(t *testing.T) {
 }
 
 func TestManifestRotation_CleanupAfterRotation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	cfg := NewConfig(WithDatabaseDir(dir), WithManifestSizeThreshold(10))
@@ -143,6 +147,7 @@ func TestManifestRotation_CleanupAfterRotation(t *testing.T) {
 }
 
 func TestManifestRotation_Recovery(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 

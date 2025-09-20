@@ -25,6 +25,7 @@ func (failingManifest) Close() error             { return nil }
 func (failingManifest) Path() string             { return "" }
 
 func TestSSTableManager_OpenAndLoadSSTable(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		fsSetup func(t *testing.T, ctx context.Context, cfg Config) *FileSystem
@@ -83,7 +84,7 @@ func TestSSTableManager_OpenAndLoadSSTable(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			cfg := testConfig()
+			cfg := testConfig(t)
 			mgr := &ssTableManager{config: cfg}
 
 			fs := tt.fsSetup(t, ctx, cfg)
@@ -94,7 +95,8 @@ func TestSSTableManager_OpenAndLoadSSTable(t *testing.T) {
 }
 
 func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	ts := newTestRindbSetup(t, ctx, &cfg)
 	defer ts.Cleanup()
@@ -114,9 +116,10 @@ func TestSSTableManager_SearchKeyPrevIteration(t *testing.T) {
 }
 
 func TestInitSSTableManagerRepairMode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
-	cfg := testConfig()
+	cfg := testConfig(t)
 	cfg.databaseDir = dir
 
 	// Create two valid SSTable files on disk.
@@ -169,8 +172,9 @@ func TestInitSSTableManagerRepairMode(t *testing.T) {
 }
 
 func TestBuildVersionSetFromDisk(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	t.Run("collects metadata from sstable files", func(t *testing.T) {
 		dir := t.TempDir()
@@ -240,6 +244,7 @@ func TestBuildVersionSetFromDisk(t *testing.T) {
 
 func TestSSTableManager_MergeSSTables(t *testing.T) {
 	// Configure the manager to trigger compaction after 3 files in level 0
+	t.Parallel()
 	cfg := NewConfig(WithLevel0CompactionThreshold(3))
 
 	t.Run("Merging sstables via compaction", func(t *testing.T) {
@@ -304,7 +309,8 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 }
 
 func TestSSTableManager_SearchKey(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	t.Run("Key absent in empty SSTables", func(t *testing.T) {
 		ctx := context.Background()
 		ts := newTestRindbSetup(t, ctx, &cfg)
@@ -497,6 +503,7 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 }
 
 func TestSSTableManager_CompactThreshold(t *testing.T) {
+	t.Parallel()
 	t.Run("level 0 file count triggers compaction", func(t *testing.T) {
 		cfg := NewConfig(WithLevel0CompactionThreshold(4))
 		ctx := context.Background()
@@ -634,7 +641,8 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 }
 
 func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	t.Run("Level 0 returns all SSTables in newest-first order", func(t *testing.T) {
 		ctx := context.Background()
@@ -801,6 +809,7 @@ func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
 }
 
 func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
+	t.Parallel()
 	cfg := NewConfig(
 		WithLevel0CompactionThreshold(1000),
 		WithWriteRateTrigger(10),
@@ -847,6 +856,7 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 }
 
 func TestSSTableManager_shouldCompact(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	mb := uint64(1 << 20)
 
@@ -939,9 +949,10 @@ func TestSSTableManager_shouldCompact(t *testing.T) {
 }
 
 func TestSSTableManager_IOLoadSampler(t *testing.T) {
+	t.Parallel()
 	t.Run("records io load", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		cfg.databaseDir = t.TempDir()
 		sm, err := InitSSTableManager(ctx, cfg, &versionSet{}, nil)
 		assert.NoError(t, err)
@@ -964,7 +975,7 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 
 	t.Run("stops on close", func(t *testing.T) {
 		ctx := context.Background()
-		cfg := testConfig()
+		cfg := testConfig(t)
 		cfg.databaseDir = t.TempDir()
 		sm, err := InitSSTableManager(ctx, cfg, &versionSet{}, nil)
 		assert.NoError(t, err)
@@ -1009,7 +1020,8 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 }
 
 func Test_mergeSSTablesV2(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 
 	t.Run("keeps tombstones when not bottommost", func(t *testing.T) {
 		ctx := context.Background()
@@ -1218,8 +1230,9 @@ func Test_mergeSSTablesV2(t *testing.T) {
 }
 
 func TestSSTableManager_compactLevel0(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	t.Run("compacts level 0 into new level when next level missing", func(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
@@ -1362,8 +1375,9 @@ func TestSSTableManager_compactLevel0(t *testing.T) {
 }
 
 func TestSSTableManager_compactHigherLevel(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	t.Run("compact level 1 into level 2 with overlap", func(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
@@ -1492,8 +1506,9 @@ func TestSSTableManager_compactHigherLevel(t *testing.T) {
 }
 
 func TestSSTableManager_mergeIntoLevel(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	cfg := testConfig()
+	cfg := testConfig(t)
 
 	t.Run("creates new level and removes sources", func(t *testing.T) {
 		ts := newTestRindbSetup(t, ctx, &cfg)
@@ -1612,7 +1627,8 @@ func TestSSTableManager_mergeIntoLevel(t *testing.T) {
 }
 
 func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	ik := func(s string) InternalKey { return InternalKey{UserKey: Bytes(s)} }
 
@@ -1775,6 +1791,7 @@ func TestSSTableManager_findOverlappingSSTables(t *testing.T) {
 }
 
 func TestRemoveFiles(t *testing.T) {
+	t.Parallel()
 	t.Run("ignores missing files", func(t *testing.T) {
 		dir := t.TempDir()
 		paths := []string{

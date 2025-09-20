@@ -7,6 +7,7 @@ import (
 )
 
 func TestInternalKey_Decode(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		userKey Bytes

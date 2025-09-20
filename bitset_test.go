@@ -15,6 +15,7 @@ ref:
 */
 
 func TestBitset_New(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		size uint32
@@ -36,6 +37,7 @@ func TestBitset_New(t *testing.T) {
 }
 
 func TestBitset_Set(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		size   uint32

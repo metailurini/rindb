@@ -8,6 +8,7 @@ import (
 )
 
 func TestSQLiteOracleBasicOps(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "oracle.db")
 	o, err := OpenSQLiteOracle(path)

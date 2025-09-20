@@ -12,6 +12,7 @@ import (
 )
 
 func TestFlush_PersistsDataToSSTables(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 

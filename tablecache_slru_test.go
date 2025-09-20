@@ -9,6 +9,7 @@ import (
 
 // TestShardGetEntryLocked_RemovesClosedEntry covers the branch where a closed entry is pruned.
 func TestShardGetEntryLocked_RemovesClosedEntry(t *testing.T) {
+	t.Parallel()
 	parent := &tableCache{}
 	s := &shard{
 		items:  make(map[tableKey]*entry),
@@ -44,6 +45,7 @@ func TestShardGetEntryLocked_RemovesClosedEntry(t *testing.T) {
 
 // TestPromoteOnHit_DemoteAndBreak ensures demotion and the break path when protected list is empty.
 func TestPromoteOnHit_DemoteAndBreak(t *testing.T) {
+	t.Parallel()
 	s := &shard{
 		items:        make(map[tableKey]*entry),
 		protCapBytes: 0,
@@ -70,6 +72,7 @@ func TestPromoteOnHit_DemoteAndBreak(t *testing.T) {
 
 // TestChooseVictimFromProtected_SkipsPinned covers iteration over protected list.
 func TestChooseVictimFromProtected_SkipsPinned(t *testing.T) {
+	t.Parallel()
 	s := &shard{}
 	eUnpinned := &entry{key: tableKey{FileNum: 1}, entry: &tableCacheEntry{}, seg: segProtected}
 	eUnpinned.elem = s.prot.PushBack(eUnpinned)
@@ -82,6 +85,7 @@ func TestChooseVictimFromProtected_SkipsPinned(t *testing.T) {
 
 // TestEvictOrDemoteLocked_DemotesTail verifies demotion when protected exceeds cap.
 func TestEvictOrDemoteLocked_DemotesTail(t *testing.T) {
+	t.Parallel()
 	parent := &tableCache{}
 	s := &shard{
 		items:        make(map[tableKey]*entry),
@@ -113,6 +117,7 @@ func TestEvictOrDemoteLocked_DemotesTail(t *testing.T) {
 
 // TestEvictOrDemoteLocked_BreakOnEmptyProtected exercises the break when protected list is empty.
 func TestEvictOrDemoteLocked_BreakOnEmptyProtected(t *testing.T) {
+	t.Parallel()
 	s := &shard{
 		protCapBytes: 0,
 		protBytes:    1,
@@ -130,6 +135,7 @@ func TestEvictOrDemoteLocked_BreakOnEmptyProtected(t *testing.T) {
 
 // TestEvictOrDemoteLocked_DropsRecentWhenNoVictim ensures recent entry is dropped when all are pinned.
 func TestEvictOrDemoteLocked_DropsRecentWhenNoVictim(t *testing.T) {
+	t.Parallel()
 	parent := &tableCache{}
 	recentEntry := &tableCacheEntry{
 		Table:       &SStable{},

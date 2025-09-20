@@ -7,6 +7,7 @@ import (
 )
 
 func TestCalOnDiskSize_ReturnsExpectedSize(t *testing.T) {
+	t.Parallel()
 	type args struct {
 		r Record
 	}

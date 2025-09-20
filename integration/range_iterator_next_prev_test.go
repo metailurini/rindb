@@ -55,6 +55,7 @@ func runRangeIterSequence(t *testing.T, iter *rindb.RangeIterator, steps []range
 }
 
 func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(100))
 	t.Cleanup(cleanup)
 	ctx := context.Background()
@@ -117,6 +118,7 @@ func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
 }
 
 func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {
+	t.Parallel()
 	t.Run("single-key-latest-version-only", func(t *testing.T) {
 		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(256))
 		t.Cleanup(cleanup)

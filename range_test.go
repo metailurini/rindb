@@ -18,6 +18,7 @@ func rec(k, v string, seq uint64, typ RecordType) Record {
 }
 
 func TestRangeIterator_Next(t *testing.T) {
+	t.Parallel()
 	recL := func(k, v string, seq uint64, typ RecordType) Record {
 		var nv Bytes = nil
 		if v != "" {
@@ -80,6 +81,7 @@ func TestRangeIterator_Next(t *testing.T) {
 
 func TestRangeIterator(t *testing.T) {
 
+	t.Parallel()
 	type iterSpec struct {
 		records []Record
 		failIdx int
@@ -143,6 +145,7 @@ func TestRangeIterator(t *testing.T) {
 }
 
 func TestRangeIteratorReverse(t *testing.T) {
+	t.Parallel()
 	type iterSpec struct {
 		records []Record
 		failIdx int
@@ -184,6 +187,7 @@ func TestRangeIteratorReverse(t *testing.T) {
 }
 
 func TestRangeIteratorPrevBeforeNext(t *testing.T) {
+	t.Parallel()
 	it := &errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1}
 	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
 	assert.NoError(t, err)
@@ -194,6 +198,7 @@ func TestRangeIteratorPrevBeforeNext(t *testing.T) {
 }
 
 func TestRangeIteratorPrev_SuppressesOlderVersion(t *testing.T) {
+	t.Parallel()
 	iter := buildRangeIter(t,
 		[]kv{{key: "k", value: "v3", seq: 3}},
 		[]kv{{key: "k", value: "v2", seq: 2}},
@@ -205,6 +210,7 @@ func TestRangeIteratorPrev_SuppressesOlderVersion(t *testing.T) {
 }
 
 func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
+	t.Parallel()
 	iter := buildRangeIter(t,
 		[]kv{
 			{key: "k", value: "v2", seq: 2},
@@ -223,6 +229,7 @@ func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
 }
 
 func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
+	t.Parallel()
 	iters := []Iterator[Record]{
 		&errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -260,6 +267,7 @@ func TestRangeIteratorAlternatingNextPrev(t *testing.T) {
 }
 
 func TestRangeIteratorEmpty(t *testing.T) {
+	t.Parallel()
 	mi, err := NewMergingIterator([]Iterator[Record]{}, nil)
 	assert.NoError(t, err)
 
@@ -273,7 +281,8 @@ func TestRangeIteratorEmpty(t *testing.T) {
 }
 
 func TestIRange_CloseReleasesSSTables(t *testing.T) {
-	cfg := testConfig()
+	t.Parallel()
+	cfg := testConfig(t)
 	ctx := context.Background()
 	ts := newTestRindbSetup(t, ctx, &cfg)
 	defer ts.Cleanup()
@@ -306,6 +315,7 @@ func TestIRange_CloseReleasesSSTables(t *testing.T) {
 }
 
 func TestRangeIterator_Prepare(t *testing.T) {
+	t.Parallel()
 	rec := func(k, v string, seq uint64) Record {
 		var nv Bytes = nil
 		if v != "" {

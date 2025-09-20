@@ -56,6 +56,7 @@ func mkRec(k, v string, seq uint64, typ RecordType) Record {
 }
 
 func TestMergingIterator(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		iters [][]Record
@@ -98,6 +99,7 @@ func TestMergingIterator(t *testing.T) {
 }
 
 func TestMergingIterator_MergesRecords(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		iters [][]Record
@@ -140,6 +142,7 @@ func TestMergingIterator_MergesRecords(t *testing.T) {
 }
 
 func TestMergingIteratorPrev(t *testing.T) {
+	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue), mkRec("c", "vc", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -165,6 +168,7 @@ func TestMergingIteratorPrev(t *testing.T) {
 }
 
 func TestMergingIteratorPrevBeforeNext(t *testing.T) {
+	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -183,6 +187,7 @@ func TestMergingIteratorPrevBeforeNext(t *testing.T) {
 }
 
 func TestMergingIteratorAlternating(t *testing.T) {
+	t.Parallel()
 	iterators := []Iterator[Record]{
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
@@ -219,6 +224,7 @@ func TestMergingIteratorAlternating(t *testing.T) {
 }
 
 func TestMergingIterator_ErrorPropagation(t *testing.T) {
+	t.Parallel()
 	r1 := newRecord(Bytes("a"), Bytes("1"), 1)
 	r2 := newRecord(Bytes("b"), Bytes("2"), 2)
 	cases := []struct {
@@ -252,6 +258,7 @@ func TestMergingIterator_ErrorPropagation(t *testing.T) {
 }
 
 func TestNewMergingIterator_CleanupOnInitError(t *testing.T) {
+	t.Parallel()
 	iter := &errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: 0}
 	cleaned := false
 	mi, err := NewMergingIterator([]Iterator[Record]{iter}, func() { cleaned = true })
@@ -261,6 +268,7 @@ func TestNewMergingIterator_CleanupOnInitError(t *testing.T) {
 }
 
 func TestMergingIterator_PrepareNextNoopWhenPrepared(t *testing.T) {
+	t.Parallel()
 	iter := &errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1}
 	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil)
 	require.NoError(t, err)
@@ -280,6 +288,7 @@ func TestMergingIterator_PrepareNextNoopWhenPrepared(t *testing.T) {
 }
 
 func TestMergingIterator_HasNextAfterIteratorError(t *testing.T) {
+	t.Parallel()
 	iter := &errIterator{
 		records: []Record{
 			mkRec("a", "v1", 1, TypeValue),
@@ -303,6 +312,7 @@ func TestMergingIterator_HasNextAfterIteratorError(t *testing.T) {
 }
 
 func TestMergingIterator_PrevErrorPropagation(t *testing.T) {
+	t.Parallel()
 	iter := &errIterator{
 		records: []Record{mkRec("a", "va", 1, TypeValue)},
 		failIdx: -1,

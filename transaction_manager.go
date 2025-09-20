@@ -11,23 +11,36 @@ import (
 	"sync/atomic"
 )
 
-var (
-	globalTxnID    atomic.Uint64
-	osOpen         = os.Open
-	ioCopy         = io.Copy
-	osRename       = os.Rename
-	osRemove       = os.Remove
-	fsSync         = (*FileSystem).Sync
-	fsClose        = (*FileSystem).Close
-	fsOpenExisting = (*FileSystem).OpenExisting
-	fsWrite        = (*FileSystem).Write
-)
+var globalTxnID atomic.Uint64
+
+type txnDeps struct {
+	osOpen         func(string) (*os.File, error)
+	ioCopy         func(io.Writer, io.Reader) (int64, error)
+	osRename       func(string, string) error
+	osRemove       func(string) error
+	fsSync         func(*FileSystem) error
+	fsClose        func(*FileSystem) error
+	fsOpenExisting func(*FileSystem, context.Context) error
+	fsWrite        func(*FileSystem, []byte) (int, error)
+}
+
+var defaultTxnDeps = txnDeps{
+	osOpen:         os.Open,
+	ioCopy:         io.Copy,
+	osRename:       os.Rename,
+	osRemove:       os.Remove,
+	fsSync:         (*FileSystem).Sync,
+	fsClose:        (*FileSystem).Close,
+	fsOpenExisting: (*FileSystem).OpenExisting,
+	fsWrite:        (*FileSystem).Write,
+}
 
 // transactionManager manages transactions with a mutex for safe creation.
 type transactionManager struct {
 	mu         sync.Mutex
 	activeTxns map[*transaction]struct{}
 	log        scopedLogger
+	deps       txnDeps
 }
 
 // newTransactionManager creates a new transactionManager.
@@ -35,6 +48,7 @@ func newTransactionManager(log scopedLogger) *transactionManager {
 	return &transactionManager{
 		activeTxns: make(map[*transaction]struct{}),
 		log:        log,
+		deps:       defaultTxnDeps,
 	}
 }
 
@@ -47,7 +61,7 @@ func (tm *transactionManager) begin(ctx context.Context, fs *FileSystem) (*trans
 
 	// copy current data to shadow log
 	path := fs.Path()
-	if err := fs.Close(); err != nil && !errors.Is(err, ErrFileNotOpened) {
+	if err := tm.deps.fsClose(fs); err != nil && !errors.Is(err, ErrFileNotOpened) {
 		return nil, err
 	}
 	dir := filepath.Dir(path)
@@ -58,21 +72,21 @@ func (tm *transactionManager) begin(ctx context.Context, fs *FileSystem) (*trans
 		return nil, err
 	}
 
-	if src, err := osOpen(path); err == nil {
-		if _, err := ioCopy(shadowFS, src); err != nil {
-			_ = shadowFS.Close()
-			_ = os.Remove(shadowPath)
+	if src, err := tm.deps.osOpen(path); err == nil {
+		if _, err := tm.deps.ioCopy(shadowFS, src); err != nil {
+			_ = tm.deps.fsClose(shadowFS)
+			_ = tm.deps.osRemove(shadowPath)
 			_ = src.Close()
 			return nil, err
 		}
 		if err := src.Close(); err != nil {
-			_ = shadowFS.Close()
-			_ = os.Remove(shadowPath)
+			_ = tm.deps.fsClose(shadowFS)
+			_ = tm.deps.osRemove(shadowPath)
 			return nil, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		_ = shadowFS.Close()
-		_ = os.Remove(shadowPath)
+		_ = tm.deps.fsClose(shadowFS)
+		_ = tm.deps.osRemove(shadowPath)
 		return nil, err
 	}
 
@@ -107,9 +121,14 @@ func (t *transaction) write(p []byte) (int, error) {
 	if t.state != "active" {
 		return 0, errors.New("transaction is not active")
 	}
+
+	deps := defaultTxnDeps
+	if t.manager != nil {
+		deps = t.manager.deps
+	}
 	var total int
 	for len(p) > 0 {
-		n, err := fsWrite(t.log, p)
+		n, err := deps.fsWrite(t.log, p)
 		total += n
 		t.written += int64(n)
 		if err != nil {
@@ -138,19 +157,19 @@ func (t *transaction) commit(ctx context.Context) error {
 		return errors.New("transaction is not active")
 	}
 
-	if err := fsSync(t.log); err != nil {
+	if err := t.manager.deps.fsSync(t.log); err != nil {
 		return err
 	}
-	if err := fsClose(t.log); err != nil {
+	if err := t.manager.deps.fsClose(t.log); err != nil {
 		return err
 	}
-	if err := osRename(t.log.Path(), t.target.Path()); err != nil {
+	if err := t.manager.deps.osRename(t.log.Path(), t.target.Path()); err != nil {
 		return err
 	}
-	if err := fsClose(t.target); err != nil && !errors.Is(err, ErrFileNotOpened) {
+	if err := t.manager.deps.fsClose(t.target); err != nil && !errors.Is(err, ErrFileNotOpened) {
 		return err
 	}
-	if err := fsOpenExisting(t.target, ctx); err != nil {
+	if err := t.manager.deps.fsOpenExisting(t.target, ctx); err != nil {
 		return err
 	}
 
@@ -172,10 +191,10 @@ func (t *transaction) rollback(ctx context.Context) error {
 	}
 
 	shadowPath := t.log.Path()
-	if err := fsClose(t.log); err != nil {
+	if err := t.manager.deps.fsClose(t.log); err != nil {
 		return err
 	}
-	if err := osRemove(shadowPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := t.manager.deps.osRemove(shadowPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to remove shadow log %q during rollback: %w", shadowPath, err)
 	}
 

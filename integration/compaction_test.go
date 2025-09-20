@@ -13,6 +13,7 @@ import (
 )
 
 func TestCompaction_MovesSSTablesToNextLevel(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(2),
 		rindb.WithMaxMemtableSize(1),

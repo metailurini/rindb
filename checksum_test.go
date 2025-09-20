@@ -7,6 +7,7 @@ import (
 )
 
 func TestChecksumCRC32C_ComputesConsistentValue(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		parts [][]byte

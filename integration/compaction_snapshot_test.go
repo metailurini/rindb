@@ -14,6 +14,7 @@ import (
 )
 
 func TestCompaction_RespectsSnapshot(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(2),
 		rindb.WithMaxMemtableSize(175),
@@ -55,6 +56,7 @@ func TestCompaction_RespectsSnapshot(t *testing.T) {
 }
 
 func TestCompaction_PreservesSnapshotTombstone(t *testing.T) {
+	t.Parallel()
 	db, cleanup := initTestDB(t,
 		rindb.WithLevel0CompactionThreshold(1),
 		rindb.WithMaxMemtableSize(200),

@@ -15,6 +15,7 @@ import (
 
 func TestIRange_ReturnsOrderedKeys(t *testing.T) {
 	// Increase maxMemtableSize so some records remain unflushed.
+	t.Parallel()
 	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(300))
 	t.Cleanup(cleanup)
 	ctx := context.Background()

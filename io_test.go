@@ -31,7 +31,7 @@ func newFileTx(t *testing.T) (*transaction, func()) {
 	p := filepath.Join(dir, "txn.log")
 	fs, err := OpenFS(context.Background(), p)
 	require.NoError(t, err)
-	tx := &transaction{log: fs, state: "active"}
+	tx := &transaction{log: fs, state: "active", manager: newTransactionManager(newScopedLogger(nopLogger{}, LogLevelWarn))}
 	return tx, func() {
 		require.NoError(t, fs.Close())
 	}
@@ -44,6 +44,7 @@ func writeNumberBuf(buf *bytes.Buffer, n uint64) {
 }
 
 func TestRecord_WriteRead(t *testing.T) {
+	t.Parallel()
 	largeKey, largeValue := func() (Bytes, Bytes) {
 		var k strings.Builder
 		var v strings.Builder
@@ -87,6 +88,7 @@ func TestRecord_WriteRead(t *testing.T) {
 }
 
 func TestReadRecord_Errors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name        string
 		setup       func() io.Reader
