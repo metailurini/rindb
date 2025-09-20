@@ -135,7 +135,8 @@ func (m *MergingIterator) Next() (Record, error) {
 	}
 	item := m.nextItem
 	m.nextPrepared = false
-	m.prevPrepared = false
+	m.prevPrepared = false // Invalidate prev on forward movement.
+	fmt.Printf("Next: Returning rec %s\n", item.rec.GetKey())
 	return item.rec, nil
 }
 
@@ -165,6 +166,8 @@ func (m *MergingIterator) Prev() (Record, error) {
 	}
 	item := m.prevItem
 	m.prevPrepared = false
+	m.nextPrepared = false // Invalidate next on backward movement.
+	fmt.Printf("Prev: Returning rec %s\n", item.rec.GetKey())
 	if m.err != nil {
 		return item.rec, m.err
 	}
@@ -173,12 +176,16 @@ func (m *MergingIterator) Prev() (Record, error) {
 
 // prepareNext stages the next item so that HasNext is idempotent.
 func (m *MergingIterator) prepareNext() {
-	fmt.Printf("prepareNext: start, fwd.Len=%d, rev.Len=%d\n", m.fwd.Len(), m.rev.Len())
+	fmt.Printf("prepareNext: start, fwd.Len=%d, rev.Len=%d, nextPrepared=%v, prevPrepared=%v\n", m.fwd.Len(), m.rev.Len(), m.nextPrepared, m.prevPrepared)
 	if m.nextPrepared {
 		return
 	}
+
+	// When moving forward, any previously prepared backward state is invalidated.
 	m.prevPrepared = false
+
 	if m.fwd.Len() == 0 {
+		fmt.Println("prepareNext: Forward queue is empty, nothing to prepare.")
 		return
 	}
 
@@ -209,12 +216,16 @@ func (m *MergingIterator) prepareNext() {
 
 // preparePrev stages the previous item so that HasPrev is idempotent.
 func (m *MergingIterator) preparePrev() {
-	fmt.Printf("preparePrev: start, fwd.Len=%d, rev.Len=%d\n", m.fwd.Len(), m.rev.Len())
+	fmt.Printf("preparePrev: start, fwd.Len=%d, rev.Len=%d, nextPrepared=%v, prevPrepared=%v\n", m.fwd.Len(), m.rev.Len(), m.nextPrepared, m.prevPrepared)
 	if m.prevPrepared {
 		return
 	}
+
+	// When moving backward, any previously prepared forward state is invalidated.
 	m.nextPrepared = false
+
 	if m.rev.Len() == 0 {
+		fmt.Println("preparePrev: Reverse queue is empty, nothing to prepare.")
 		return
 	}
 
