@@ -3,6 +3,7 @@ package rindb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 )
@@ -72,6 +73,7 @@ func (s *sstableIterator) Next() (Record, error) {
 	}
 	reader := newOffsetReader(s.FileSystem, s.offset)
 	record, _, err := readRecord(reader)
+	fmt.Printf("sstableIterator.Next: readRecord returned rec=%s, err=%v\n", record, err)
 	switch {
 	case err == nil:
 		// No error, continue processing
@@ -81,6 +83,7 @@ func (s *sstableIterator) Next() (Record, error) {
 		return nil, err
 	}
 	s.offset = reader.Offset()
+	fmt.Printf("sstableIterator.Next: Returning rec %s\n", record.GetKey())
 	return record, nil
 }
 
@@ -106,6 +109,7 @@ func (s *sstableIterator) Prev() (Record, error) {
 	}
 	reader.offset = start
 	record, _, err := readRecord(reader)
+	fmt.Printf("sstableIterator.Prev: readRecord returned rec=%s, err=%v\n", record, err)
 	switch {
 	case err == nil:
 		// No error, continue processing
@@ -115,6 +119,7 @@ func (s *sstableIterator) Prev() (Record, error) {
 		return nil, err
 	}
 	s.offset = start
+	fmt.Printf("sstableIterator.Prev: Returning rec %s\n", record.GetKey())
 	return record, nil
 }
 
@@ -136,6 +141,7 @@ type sstableIRange struct {
 }
 
 func (sri *sstableIRange) prepare() {
+	fmt.Printf("sstableIRange.prepare: start, offset=%d, dataEnd=%d, startKey=%s, endKey=%s, seq=%d\n", sri.offset, sri.dataEnd, sri.startKey, sri.endKey, sri.seq)
 	for !sri.prepared && sri.err == nil {
 		if sri.offset >= sri.dataEnd {
 			sri.err = EOI
@@ -144,6 +150,7 @@ func (sri *sstableIRange) prepare() {
 		cur := sri.offset
 		reader := newOffsetReader(sri.s.FileSystem, cur)
 		rec, _, err := readRecord(reader)
+		fmt.Printf("sstableIRange.prepare: readRecord returned rec=%s, err=%v\n", rec, err)
 		switch {
 		case err == nil:
 			// No error, continue processing
@@ -156,18 +163,22 @@ func (sri *sstableIRange) prepare() {
 		}
 		sri.offset = reader.Offset()
 		if rec.GetKey().Compare(sri.startKey) < 0 {
+			fmt.Printf("sstableIRange.prepare: Skipping rec %s due to startKey filter\n", rec.GetKey())
 			continue
 		}
 		if rec.GetKey().Compare(sri.endKey) > 0 {
+			fmt.Printf("sstableIRange.prepare: Skipping rec %s due to endKey filter\n", rec.GetKey())
 			sri.err = EOI
 			return
 		}
 		if rec.GetSequenceNumber() > sri.seq {
+			fmt.Printf("sstableIRange.prepare: Skipping rec %s due to sequence number filter\n", rec.GetKey())
 			continue
 		}
 		sri.preparedOffset = cur
 		sri.next = rec
 		sri.prepared = true
+		fmt.Printf("sstableIRange.prepare: Prepared next rec %s\n", sri.next.GetKey())
 	}
 }
 
@@ -191,6 +202,7 @@ func (sri *sstableIRange) Next() (Record, error) {
 	sri.prepared = false
 	next := sri.next
 	sri.next = nil
+	fmt.Printf("sstableIRange.Next: Returning rec %s\n", next.GetKey())
 	return next, nil
 }
 
@@ -235,5 +247,6 @@ func (sri *sstableIRange) Prev() (Record, error) {
 	sri.prepared = false
 	sri.err = nil
 	sri.next = nil
+	fmt.Printf("sstableIRange.Prev: Returning rec %s\n", rec.GetKey())
 	return rec, nil
 }
