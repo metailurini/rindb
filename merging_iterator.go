@@ -282,23 +282,11 @@ func (m *MergingIterator) Close() error {
 }
 
 func (m *MergingIterator) matchesCrossingAnchor(item pqItem) bool {
-	if !m.crossingAnchorSet {
-		return false
-	}
-	if m.crossingAnchor.rec == nil || item.rec == nil {
-		return false
-	}
-	if m.crossingAnchor.iter != item.iter {
-		return false
-	}
-	if item.rec.GetSequenceNumber() != m.crossingAnchor.rec.GetSequenceNumber() {
-		return false
-	}
-	if item.rec.GetType() != m.crossingAnchor.rec.GetType() {
-		return false
-	}
-	if item.rec.GetKey().Compare(m.crossingAnchor.rec.GetKey()) != CmpEqual {
-		return false
-	}
-	return true
+	return m.crossingAnchorSet &&
+		m.crossingAnchor.rec != nil &&
+		item.rec != nil &&
+		m.crossingAnchor.iter == item.iter &&
+		item.rec.GetSequenceNumber() == m.crossingAnchor.rec.GetSequenceNumber() &&
+		item.rec.GetType() == m.crossingAnchor.rec.GetType() &&
+		item.rec.GetKey().Compare(m.crossingAnchor.rec.GetKey()) == CmpEqual
 }
