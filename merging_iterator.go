@@ -125,6 +125,7 @@ func (m *MergingIterator) Next() (Record, error) {
 	}
 	item := m.nextItem
 	m.nextPrepared = false
+	m.prevPrepared = false
 	return item.rec, nil
 }
 
@@ -166,8 +167,7 @@ func (m *MergingIterator) prepareNext() {
 		return
 	}
 	m.prevPrepared = false
-
-	if m.err != nil || m.fwd.Len() == 0 {
+	if m.fwd.Len() == 0 {
 		return
 	}
 
@@ -195,8 +195,7 @@ func (m *MergingIterator) preparePrev() {
 		return
 	}
 	m.nextPrepared = false
-
-	if m.err != nil || m.rev.Len() == 0 {
+	if m.rev.Len() == 0 {
 		return
 	}
 
