@@ -26,6 +26,16 @@ type MergingIterator struct {
 	// prepared prev state
 	prevPrepared bool
 	prevItem     pqItem
+
+	// forward tracks the last direction of travel. It starts in forward
+	// mode because the iterator is positioned before the first element.
+	forward bool
+
+	// crossingAnchor holds the last surfaced record so we can detect the
+	// direction change boundary and avoid surfacing the same record more
+	// than once when oscillating between Next and Prev.
+	crossingAnchor    pqItem
+	crossingAnchorSet bool
 }
 
 // NewMergingIterator constructs a MergingIterator over provided iterators.
@@ -106,7 +116,7 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 		}
 	}
 	fmt.Printf("NewMergingIterator: Initialized with fwd queue len %d\n", fwd.Len())
-	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup}, nil
+	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup, forward: true}, nil
 }
 
 // HasNext implements Iterator[Record].
@@ -136,6 +146,9 @@ func (m *MergingIterator) Next() (Record, error) {
 	item := m.nextItem
 	m.nextPrepared = false
 	m.prevPrepared = false // Invalidate prev on forward movement.
+	m.forward = true
+	m.crossingAnchor = item
+	m.crossingAnchorSet = true
 	fmt.Printf("Next: Returning rec %s\n", item.rec.GetKey())
 	return item.rec, nil
 }
@@ -167,6 +180,9 @@ func (m *MergingIterator) Prev() (Record, error) {
 	item := m.prevItem
 	m.prevPrepared = false
 	m.nextPrepared = false // Invalidate next on backward movement.
+	m.forward = false
+	m.crossingAnchor = item
+	m.crossingAnchorSet = true
 	fmt.Printf("Prev: Returning rec %s\n", item.rec.GetKey())
 	if m.err != nil {
 		return item.rec, m.err
@@ -184,34 +200,49 @@ func (m *MergingIterator) prepareNext() {
 	// When moving forward, any previously prepared backward state is invalidated.
 	m.prevPrepared = false
 
-	if m.fwd.Len() == 0 {
-		fmt.Println("prepareNext: Forward queue is empty, nothing to prepare.")
-		return
-	}
-
-	item := m.fwd.PopItem()
-	fmt.Printf("prepareNext: Popped rec %s from fwd queue\n", item.rec.GetKey())
-	m.rev.PushItem(item)
-	fmt.Printf("prepareNext: Pushed rec %s to rev queue\n", item.rec.GetKey())
-
-	if item.iter.HasNext() {
-		rec, err := item.iter.Next()
-		switch {
-		case err == nil:
-			m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
-			fmt.Printf("prepareNext: Pushed rec %s from underlying iterator back to fwd queue\n", rec.GetKey())
-		case errors.Is(err, EOI):
-			// End of iteration for this underlying iterator, do nothing.
-			fmt.Printf("prepareNext: Underlying iterator for rec %s returned EOI\n", item.rec.GetKey())
-		default:
-			m.err = err
-			fmt.Printf("prepareNext: Underlying iterator for rec %s returned error %v\n", item.rec.GetKey(), err)
+	for !m.nextPrepared && m.err == nil {
+		if m.fwd.Len() == 0 {
+			fmt.Println("prepareNext: Forward queue is empty, nothing to prepare.")
+			return
 		}
-	}
 
-	m.nextItem = item
-	m.nextPrepared = true
-	fmt.Printf("prepareNext: Prepared next item %s\n", m.nextItem.rec.GetKey())
+		item := m.fwd.PopItem()
+		fmt.Printf("prepareNext: Popped rec %s from fwd queue\n", item.rec.GetKey())
+		if m.matchesCrossingAnchor(item) {
+			if !m.forward {
+				// Allow the boundary element to surface once when
+				// changing direction.
+				m.crossingAnchorSet = false
+			} else {
+				fmt.Printf("prepareNext: Skipping rec %s due to crossing anchor\n", item.rec.GetKey())
+				continue
+			}
+		}
+
+		m.rev.PushItem(item)
+		fmt.Printf("prepareNext: Pushed rec %s to rev queue\n", item.rec.GetKey())
+
+		if item.iter.HasNext() {
+			rec, err := item.iter.Next()
+			switch {
+			case err == nil:
+				m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
+				fmt.Printf("prepareNext: Pushed rec %s from underlying iterator back to fwd queue\n", rec.GetKey())
+			case errors.Is(err, EOI):
+				// End of iteration for this underlying iterator, do nothing.
+				fmt.Printf("prepareNext: Underlying iterator for rec %s returned EOI\n", item.rec.GetKey())
+			default:
+				m.err = err
+				fmt.Printf("prepareNext: Underlying iterator for rec %s returned error %v\n", item.rec.GetKey(), err)
+				// Preserve the currently prepared item; the error
+				// will surface on the next HasNext/Next call.
+			}
+		}
+
+		m.nextItem = item
+		m.nextPrepared = true
+		fmt.Printf("prepareNext: Prepared next item %s\n", m.nextItem.rec.GetKey())
+	}
 }
 
 // preparePrev stages the previous item so that HasPrev is idempotent.
@@ -224,29 +255,43 @@ func (m *MergingIterator) preparePrev() {
 	// When moving backward, any previously prepared forward state is invalidated.
 	m.nextPrepared = false
 
-	if m.rev.Len() == 0 {
-		fmt.Println("preparePrev: Reverse queue is empty, nothing to prepare.")
-		return
-	}
+	for !m.prevPrepared && m.err == nil {
+		if m.rev.Len() == 0 {
+			fmt.Println("preparePrev: Reverse queue is empty, nothing to prepare.")
+			return
+		}
 
-	curItem := m.rev.PopItem()
-	fmt.Printf("preparePrev: Popped rec %s from rev queue\n", curItem.rec.GetKey())
-	_, err := curItem.iter.Prev()
-	fmt.Printf("preparePrev: Underlying iterator for rec %s Prev() returned err=%v\n", curItem.rec.GetKey(), err)
-	switch {
-	case err == nil || errors.Is(err, EOI):
+		curItem := m.rev.PopItem()
+		fmt.Printf("preparePrev: Popped rec %s from rev queue\n", curItem.rec.GetKey())
+		if m.matchesCrossingAnchor(curItem) {
+			if m.forward {
+				m.crossingAnchorSet = false
+			} else {
+				fmt.Printf("preparePrev: Skipping rec %s due to crossing anchor\n", curItem.rec.GetKey())
+				continue
+			}
+		}
+
+		_, err := curItem.iter.Prev()
+		fmt.Printf("preparePrev: Underlying iterator for rec %s Prev() returned err=%v\n", curItem.rec.GetKey(), err)
+		if err != nil && !errors.Is(err, EOI) {
+			m.err = err
+			m.prevItem = curItem
+			m.prevPrepared = true
+			fmt.Printf("preparePrev: Prepared prev item %s despite error\n", m.prevItem.rec.GetKey())
+			return
+		}
+
 		// If Prev() succeeds, the underlying iterator moved back. If it returns EOI,
-		// it's at the beginning. In both cases, the current item should be
-		// requeued so that subsequent Next calls can surface it again.
+		// it's at the beginning. In both cases, the current item should be requeued so
+		// that subsequent Next calls can surface it again.
 		m.fwd.PushItem(curItem)
 		fmt.Printf("preparePrev: Pushed rec %s to fwd queue\n", curItem.rec.GetKey())
-	default:
-		m.err = err
-	}
 
-	m.prevItem = curItem
-	m.prevPrepared = true
-	fmt.Printf("preparePrev: Prepared prev item %s\n", m.prevItem.rec.GetKey())
+		m.prevItem = curItem
+		m.prevPrepared = true
+		fmt.Printf("preparePrev: Prepared prev item %s\n", m.prevItem.rec.GetKey())
+	}
 }
 
 // Close releases any resources held by the iterator. It is safe to call
@@ -257,4 +302,26 @@ func (m *MergingIterator) Close() error {
 		m.cleanup = nil
 	}
 	return m.err
+}
+
+func (m *MergingIterator) matchesCrossingAnchor(item pqItem) bool {
+	if !m.crossingAnchorSet {
+		return false
+	}
+	if m.crossingAnchor.rec == nil || item.rec == nil {
+		return false
+	}
+	if m.crossingAnchor.iter != item.iter {
+		return false
+	}
+	if item.rec.GetSequenceNumber() != m.crossingAnchor.rec.GetSequenceNumber() {
+		return false
+	}
+	if item.rec.GetType() != m.crossingAnchor.rec.GetType() {
+		return false
+	}
+	if item.rec.GetKey().Compare(m.crossingAnchor.rec.GetKey()) != CmpEqual {
+		return false
+	}
+	return true
 }
