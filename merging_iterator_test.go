@@ -251,6 +251,15 @@ func TestMergingIterator_ErrorPropagation(t *testing.T) {
 	}
 }
 
+func TestNewMergingIterator_CleanupOnInitError(t *testing.T) {
+	iter := &errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: 0}
+	cleaned := false
+	mi, err := NewMergingIterator([]Iterator[Record]{iter}, func() { cleaned = true })
+	assert.Nil(t, mi)
+	assert.EqualError(t, err, "boom")
+	assert.True(t, cleaned)
+}
+
 func TestMergingIterator_PrepareNextNoopWhenPrepared(t *testing.T) {
 	iter := &errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1}
 	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil)

@@ -207,3 +207,141 @@ func TestSSTableIRangePrevFullTraversal(t *testing.T) {
 
 	assert.False(t, it.HasPrev())
 }
+
+func TestSSTableIteratorPrevOffsetError(t *testing.T) {
+	cfg := testConfig()
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	rec := newRecord(Bytes("a"), Bytes("va"), 1)
+	mem.Put(rec)
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	iterIface, err := sst.Iterator()
+	require.NoError(t, err)
+	iter := iterIface.(*sstableIterator)
+
+	got, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, rec.GetKey(), got.GetKey())
+
+	endOffset := iter.offset
+	zeroTrailer := make([]byte, mdByteSize)
+	_, err = fs.WriteAt(zeroTrailer, endOffset-int64(mdByteSize))
+	require.NoError(t, err)
+
+	_, err = iter.Prev()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid record size trailer")
+}
+
+func TestSSTableIteratorPrevReadEOF(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	buf := make([]byte, mdByteSize*2)
+	byteOrder.PutUint64(buf[:mdByteSize], uint64(internalKeySuffixLen+1))
+	byteOrder.PutUint64(buf[mdByteSize:], uint64(len(buf)))
+	_, err := fs.WriteAt(buf, 0)
+	require.NoError(t, err)
+
+	iter := &sstableIterator{FileSystem: fs, offset: int64(len(buf)), dataEnd: int64(len(buf))}
+	require.True(t, iter.HasPrev())
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+}
+
+func TestSSTableIRangePrepareError(t *testing.T) {
+	cfg := testConfig()
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	rec := newRecord(Bytes("a"), Bytes("value"), 1)
+	mem.Put(rec)
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"))
+	require.NoError(t, err)
+	iter := iterIface.(*sstableIRange)
+
+	startOffset := iter.offset
+	checksumOffset := startOffset + 2*int64(mdByteSize) + int64(len(EncodeInternalKey(rec.GetKey(), rec.GetSequenceNumber(), rec.GetType()))) + int64(len(rec.GetValue()))
+	buf := make([]byte, checksumSize)
+	_, err = fs.ReadAt(buf, checksumOffset)
+	require.NoError(t, err)
+	buf[0] ^= 0xFF
+	_, err = fs.WriteAt(buf, checksumOffset)
+	require.NoError(t, err)
+
+	assert.False(t, iter.HasNext())
+	_, err = iter.Next()
+	require.ErrorIs(t, err, ErrChecksumMismatch)
+}
+
+func TestSSTableIRangePrevOffsetEOF(t *testing.T) {
+	cfg := testConfig()
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	rec := newRecord(Bytes("a"), Bytes("value"), 1)
+	mem.Put(rec)
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"))
+	require.NoError(t, err)
+	iter := iterIface.(*sstableIRange)
+
+	require.True(t, iter.HasNext())
+	got, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, rec.GetKey(), got.GetKey())
+
+	cursor := iter.cursor
+	require.True(t, iter.HasPrev())
+	require.NoError(t, fs.file.Truncate(cursor-1))
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+}
+
+func TestSSTableIRangePrevReadEOF(t *testing.T) {
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	buf := make([]byte, mdByteSize*2)
+	byteOrder.PutUint64(buf[:mdByteSize], uint64(internalKeySuffixLen+1))
+	byteOrder.PutUint64(buf[mdByteSize:], uint64(len(buf)))
+	_, err := fs.WriteAt(buf, 0)
+	require.NoError(t, err)
+
+	sst := &SStable{FileSystem: fs}
+	iter := &sstableIRange{
+		s:              sst,
+		cursor:         int64(len(buf)),
+		lowerBound:     0,
+		haveLowerBound: true,
+		dataEnd:        int64(len(buf)),
+	}
+	require.True(t, iter.HasPrev())
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+}
