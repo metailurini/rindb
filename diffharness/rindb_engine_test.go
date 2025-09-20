@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	rindb "github.com/metailurini/rindb"
+	"github.com/metailurini/rindb"
 	"github.com/stretchr/testify/require"
 )
 
