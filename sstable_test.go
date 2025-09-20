@@ -548,7 +548,7 @@ func TestSparseIndex_GetOffset(t *testing.T) {
 }
 
 // TestFlushWithTombstones tests flushing a memtable with tombstones.
-func TestFlushWithTombstones(t *testing.T) {
+func TestSSTable_FlushWithTombstones(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfg := testConfig(t)
@@ -572,7 +572,7 @@ func TestFlushWithTombstones(t *testing.T) {
 }
 
 // TestBloomFilterSkipsReads tests that the Bloom filter skips unnecessary reads.
-func TestBloomFilterSkipsReads(t *testing.T) {
+func TestSSTable_BloomFilterSkipsReads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfg := testConfig(t)
@@ -594,7 +594,7 @@ func TestBloomFilterSkipsReads(t *testing.T) {
 }
 
 // TestSStableChecksumMismatch verifies that corrupted checksums are reported.
-func TestSStableChecksumMismatch(t *testing.T) {
+func TestSStable_ChecksumMismatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfg := testConfig(t)
@@ -616,7 +616,7 @@ func TestSStableChecksumMismatch(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChecksumMismatch)
 }
 
-func TestFooterRoundTrip(t *testing.T) {
+func TestSSTable_FooterRoundTrip(t *testing.T) {
 	t.Parallel()
 	tx, cleanup := newFileTx(t)
 	defer cleanup()
@@ -628,7 +628,7 @@ func TestFooterRoundTrip(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-func TestReadFooterErrors(t *testing.T) {
+func TestSSTable_ReadFooterErrors(t *testing.T) {
 	t.Parallel()
 	t.Run("InvalidMagic", func(t *testing.T) {
 		tx, cleanup := newFileTx(t)
@@ -658,7 +658,7 @@ func TestReadFooterErrors(t *testing.T) {
 	})
 }
 
-func TestNewSSTableInvalidFooter(t *testing.T) {
+func TestSSTable_NewSSTableInvalidFooter(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfg := testConfig(t)
@@ -708,7 +708,7 @@ func TestNewSSTableInvalidFooter(t *testing.T) {
 	})
 }
 
-func TestNewSSTableEmptyIndex(t *testing.T) {
+func TestSSTable_NewSSTableEmptyIndex(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfg := testConfig(t)
@@ -746,7 +746,7 @@ func TestNewSSTableEmptyIndex(t *testing.T) {
 	}
 }
 
-func TestLoadSparseIndexSizeMismatch(t *testing.T) {
+func TestSSTable_LoadSparseIndexSizeMismatch(t *testing.T) {
 	t.Parallel()
 	fss, closer := initTempFileSystems(t, 1, nil)
 	defer closer()
@@ -768,9 +768,7 @@ func TestLoadSparseIndexSizeMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "mismatched sparse index size")
 }
 
-// TestSSTableIRangeGetValueConsistency verifies that IRange and GetValue
-// return consistent key/value pairs across different SSTable contents.
-func TestSSTableIRangeGetValueConsistency(t *testing.T) {
+func TestSSTable_IRangeGetValueConsistency(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	cfg := testConfig(t)
@@ -942,7 +940,7 @@ func TestSSTableIRangeGetValueConsistency(t *testing.T) {
 	}
 }
 
-func TestSSTableIRangePrepareEOF(t *testing.T) {
+func TestSSTable_IRangePrepareEOF(t *testing.T) {
 	t.Parallel()
 	content := []byte{1, 2, 3, 4}
 	tests := []struct {
