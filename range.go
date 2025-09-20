@@ -1,6 +1,9 @@
 package rindb
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // RangeIterator is a user-facing iterator that hides tombstones and
 // duplicates. It wraps a MergingIterator which provides all records in key and
@@ -25,8 +28,10 @@ func NewRangeIterator(mi *MergingIterator) *RangeIterator {
 }
 
 func (r *RangeIterator) prepareNext() {
+	fmt.Printf("prepareNext: start, lastKey=%s, lastKeySet=%t, forward=%t, crossingAnchorSet=%t\n", r.lastKey, r.lastKeySet, r.forward, r.crossingAnchorSet)
 	for !r.nextPrepared && r.err == nil {
 		rec, err := r.mi.Next()
+		fmt.Printf("prepareNext: MergingIterator.Next() returned rec=%s, err=%v\n", rec, err)
 		if err != nil {
 			if errors.Is(err, EOI) {
 				return
@@ -36,6 +41,7 @@ func (r *RangeIterator) prepareNext() {
 		}
 		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
 		if sameKey {
+			fmt.Printf("prepareNext: Skipping rec %s due to sameKey\n", rec.GetKey())
 			if !r.forward && r.matchesCrossingAnchor(rec) {
 				r.crossingAnchorSet = false
 			} else {
@@ -45,10 +51,12 @@ func (r *RangeIterator) prepareNext() {
 		r.lastKey = rec.GetKey().Clone()
 		r.lastKeySet = true
 		if rec.GetType() == TypeDeletion {
+			fmt.Printf("prepareNext: Skipping rec %s due to TypeDeletion\n", rec.GetKey())
 			continue
 		}
 		r.next = rec
 		r.nextPrepared = true
+		fmt.Printf("prepareNext: Prepared next rec %s\n", r.next.GetKey())
 	}
 	if r.nextPrepared {
 		r.prevPrepared = false
@@ -56,8 +64,10 @@ func (r *RangeIterator) prepareNext() {
 }
 
 func (r *RangeIterator) preparePrev() {
+	fmt.Printf("preparePrev: start, lastKey=%s, lastKeySet=%t, forward=%t, crossingAnchorSet=%t\n", r.lastKey, r.lastKeySet, r.forward, r.crossingAnchorSet)
 	for !r.prevPrepared && r.err == nil {
 		rec, err := r.mi.Prev()
+		fmt.Printf("preparePrev: MergingIterator.Prev() returned rec=%s, err=%v\n", rec, err)
 		if err != nil {
 			if errors.Is(err, EOI) {
 				return
@@ -67,6 +77,7 @@ func (r *RangeIterator) preparePrev() {
 		}
 		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
 		if sameKey {
+			fmt.Printf("preparePrev: Skipping rec %s due to sameKey\n", rec.GetKey())
 			if r.forward && r.matchesCrossingAnchor(rec) {
 				r.crossingAnchorSet = false
 			} else {
@@ -76,10 +87,12 @@ func (r *RangeIterator) preparePrev() {
 		r.lastKey = rec.GetKey().Clone()
 		r.lastKeySet = true
 		if rec.GetType() == TypeDeletion {
+			fmt.Printf("preparePrev: Skipping rec %s due to TypeDeletion\n", rec.GetKey())
 			continue
 		}
 		r.prev = rec
 		r.prevPrepared = true
+		fmt.Printf("preparePrev: Prepared prev rec %s\n", r.prev.GetKey())
 	}
 	if r.prevPrepared {
 		r.nextPrepared = false
@@ -106,6 +119,7 @@ func (r *RangeIterator) Next() (Record, error) {
 	rec := r.next
 	r.crossingAnchor = rec
 	r.crossingAnchorSet = true
+	fmt.Printf("Next: Returning rec %s\n", rec.GetKey())
 	return rec, nil
 }
 
@@ -129,6 +143,7 @@ func (r *RangeIterator) Prev() (Record, error) {
 	rec := r.prev
 	r.crossingAnchor = rec
 	r.crossingAnchorSet = true
+	fmt.Printf("Prev: Returning rec %s\n", rec.GetKey())
 	return rec, nil
 }
 

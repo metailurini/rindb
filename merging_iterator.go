@@ -1,6 +1,9 @@
 package rindb
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 type pqItem struct {
 	rec  Record
@@ -28,6 +31,7 @@ type MergingIterator struct {
 // NewMergingIterator constructs a MergingIterator over provided iterators.
 // The optional cleanup function is called when Close is invoked.
 func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingIterator, error) {
+	fmt.Printf("NewMergingIterator: Initializing with %d iterators\n", len(iterators))
 	// lessFwd defines the comparison logic for the forward priority queue.
 	// It determines the order in which records are retrieved when iterating forward.
 	//
@@ -98,8 +102,10 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 				return nil, err
 			}
 			fwd.PushItem(pqItem{rec: rec, iter: it})
+			fmt.Printf("NewMergingIterator: Pushed initial rec %s from iterator to fwd queue\n", rec.GetKey())
 		}
 	}
+	fmt.Printf("NewMergingIterator: Initialized with fwd queue len %d\n", fwd.Len())
 	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup}, nil
 }
 
@@ -167,6 +173,7 @@ func (m *MergingIterator) Prev() (Record, error) {
 
 // prepareNext stages the next item so that HasNext is idempotent.
 func (m *MergingIterator) prepareNext() {
+	fmt.Printf("prepareNext: start, fwd.Len=%d, rev.Len=%d\n", m.fwd.Len(), m.rev.Len())
 	if m.nextPrepared {
 		return
 	}
@@ -176,26 +183,33 @@ func (m *MergingIterator) prepareNext() {
 	}
 
 	item := m.fwd.PopItem()
+	fmt.Printf("prepareNext: Popped rec %s from fwd queue\n", item.rec.GetKey())
 	m.rev.PushItem(item)
+	fmt.Printf("prepareNext: Pushed rec %s to rev queue\n", item.rec.GetKey())
 
 	if item.iter.HasNext() {
 		rec, err := item.iter.Next()
 		switch {
 		case err == nil:
 			m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
+			fmt.Printf("prepareNext: Pushed rec %s from underlying iterator back to fwd queue\n", rec.GetKey())
 		case errors.Is(err, EOI):
 			// End of iteration for this underlying iterator, do nothing.
+			fmt.Printf("prepareNext: Underlying iterator for rec %s returned EOI\n", item.rec.GetKey())
 		default:
 			m.err = err
+			fmt.Printf("prepareNext: Underlying iterator for rec %s returned error %v\n", item.rec.GetKey(), err)
 		}
 	}
 
 	m.nextItem = item
 	m.nextPrepared = true
+	fmt.Printf("prepareNext: Prepared next item %s\n", m.nextItem.rec.GetKey())
 }
 
 // preparePrev stages the previous item so that HasPrev is idempotent.
 func (m *MergingIterator) preparePrev() {
+	fmt.Printf("preparePrev: start, fwd.Len=%d, rev.Len=%d\n", m.fwd.Len(), m.rev.Len())
 	if m.prevPrepared {
 		return
 	}
@@ -205,19 +219,23 @@ func (m *MergingIterator) preparePrev() {
 	}
 
 	curItem := m.rev.PopItem()
+	fmt.Printf("preparePrev: Popped rec %s from rev queue\n", curItem.rec.GetKey())
 	_, err := curItem.iter.Prev()
+	fmt.Printf("preparePrev: Underlying iterator for rec %s Prev() returned err=%v\n", curItem.rec.GetKey(), err)
 	switch {
 	case err == nil || errors.Is(err, EOI):
 		// If Prev() succeeds, the underlying iterator moved back. If it returns EOI,
 		// it's at the beginning. In both cases, the current item should be
 		// requeued so that subsequent Next calls can surface it again.
 		m.fwd.PushItem(curItem)
+		fmt.Printf("preparePrev: Pushed rec %s to fwd queue\n", curItem.rec.GetKey())
 	default:
 		m.err = err
 	}
 
 	m.prevItem = curItem
 	m.prevPrepared = true
+	fmt.Printf("preparePrev: Prepared prev item %s\n", m.prevItem.rec.GetKey())
 }
 
 // Close releases any resources held by the iterator. It is safe to call
