@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.14.0](https://github.com/metailurini/rindb/compare/v0.13.0...v0.14.0) (2025-09-20)
+
+
+### Features
+
+* add iter walk flag to diffharness ([f5ccec6](https://github.com/metailurini/rindb/commit/f5ccec6ea29d6cee5c19abaf74aa7d82c152f11e))
+* add iterator engine interface ([73dcee0](https://github.com/metailurini/rindb/commit/73dcee02f2740861354e734af16cbda516365f58))
+* Make HasNext/HasPrev idempotent with prefetching ([c00e848](https://github.com/metailurini/rindb/commit/c00e848e439df61549ec79485b1e4c69cdd3263d))
+
+
+### Bug Fixes
+
+* Adjust RangeWithSeq boundary in SQLite oracle ([9aa947c](https://github.com/metailurini/rindb/commit/9aa947cd61a8100eea75423b51f13c47f4984d55))
+* combine prev rewind cases ([ae6b375](https://github.com/metailurini/rindb/commit/ae6b375be9f9f4adbdc988efa475940610369f55))
+* Correct iterator state management ([05e3b1a](https://github.com/metailurini/rindb/commit/05e3b1af73f62df28b2c3fa498699c1a07c65b79))
+* Improve error handling for sstable iteration ([1c79926](https://github.com/metailurini/rindb/commit/1c79926878526c505f698cd451caf4159064394c))
+* Improve error handling in MergingIterator ([8a0a4cb](https://github.com/metailurini/rindb/commit/8a0a4cbe9598458c0248413b289a5b0997c7d043))
+* requeue record after prev hits eoi ([7ea9038](https://github.com/metailurini/rindb/commit/7ea9038c65d15afcde43b2749c0f0dcc484b196c))
+* retain snapshot-visible versions during cleanup ([f2e3ab2](https://github.com/metailurini/rindb/commit/f2e3ab2b46b9e7916f0c47d54b31f06beaf7145d))
+* return latest version when iterating backwards ([58b722d](https://github.com/metailurini/rindb/commit/58b722dab0a085ef69f0562842deb13c418bac5d))
+
 ## [0.13.0](https://github.com/metailurini/rindb/compare/v0.12.1...v0.13.0) (2025-09-14)
 
 
