@@ -223,47 +223,95 @@ func TestMergingIterator_AlternatingNextPrev(t *testing.T) {
 	assert.Equal(t, 2, mi.rev.Len())
 }
 
-func TestMergingIterator_PrevTwiceThenForwardMovesCorrectly(t *testing.T) {
+type iteratorOp int
+
+const (
+	opNext iteratorOp = iota
+	opPrev
+)
+
+type expectedOp struct {
+	op   iteratorOp
+	want Record
+}
+
+func runIteratorSequence(t *testing.T, mi *MergingIterator, ops []expectedOp) {
+	t.Helper()
+	for i, expected := range ops {
+		var rec Record
+		var err error
+		switch expected.op {
+		case opNext:
+			rec, err = mi.Next()
+		case opPrev:
+			rec, err = mi.Prev()
+		}
+		require.NoError(t, err, "operation %d failed", i)
+		assert.Equal(t, expected.want, rec, "operation %d result mismatch", i)
+	}
+}
+
+func TestMergingIterator_NextPrevSequences(t *testing.T) {
 	t.Parallel()
-	iterators := []Iterator[Record]{&errIterator{records: []Record{
-		mkRec("a", "va", 1, TypeValue),
-		mkRec("b", "vb", 1, TypeValue),
-		mkRec("c", "vc", 1, TypeValue),
-	}, failIdx: -1}}
+	tests := []struct {
+		name    string
+		records []Record
+		ops     []expectedOp
+	}{
+		{
+			name: "PrevTwiceThenForwardMovesCorrectly",
+			records: []Record{
+				mkRec("a", "va", 1, TypeValue),
+				mkRec("b", "vb", 1, TypeValue),
+				mkRec("c", "vc", 1, TypeValue),
+			},
+			ops: []expectedOp{
+				{opNext, mkRec("a", "va", 1, TypeValue)}, // Consume two elements so that both appear in the reverse queue.
+				{opNext, mkRec("b", "vb", 1, TypeValue)},
+				{opPrev, mkRec("b", "vb", 1, TypeValue)}, // Walk backwards twice to the beginning.
+				{opPrev, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("a", "va", 1, TypeValue)}, // Moving forward should yield each element exactly once in order.
+				{opNext, mkRec("b", "vb", 1, TypeValue)},
+				{opNext, mkRec("c", "vc", 1, TypeValue)},
+			},
+		},
+		{
+			name: "ComplexNextPrevSequence",
+			records: []Record{
+				mkRec("a", "va", 1, TypeValue),
+				mkRec("b", "vb", 1, TypeValue),
+			},
+			ops: []expectedOp{
+				{opNext, mkRec("a", "va", 1, TypeValue)},
+				{opPrev, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("a", "va", 1, TypeValue)},
+				{opPrev, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("b", "vb", 1, TypeValue)},
+				{opPrev, mkRec("b", "vb", 1, TypeValue)},
+				{opNext, mkRec("b", "vb", 1, TypeValue)},
+				{opPrev, mkRec("b", "vb", 1, TypeValue)},
+				{opPrev, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("a", "va", 1, TypeValue)},
+				{opPrev, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("a", "va", 1, TypeValue)},
+				{opNext, mkRec("b", "vb", 1, TypeValue)},
+				{opPrev, mkRec("b", "vb", 1, TypeValue)},
+				{opNext, mkRec("b", "vb", 1, TypeValue)},
+			},
+		},
+	}
 
-	mi, err := NewMergingIterator(iterators, nil)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			iterators := []Iterator[Record]{&errIterator{records: tt.records, failIdx: -1}}
 
-	// Consume two elements so that both appear in the reverse queue.
-	first, err := mi.Next()
-	require.NoError(t, err)
-	assert.Equal(t, mkRec("a", "va", 1, TypeValue), first)
+			mi, err := NewMergingIterator(iterators, nil)
+			require.NoError(t, err)
 
-	second, err := mi.Next()
-	require.NoError(t, err)
-	assert.Equal(t, mkRec("b", "vb", 1, TypeValue), second)
-
-	// Walk backwards twice to the beginning.
-	back1, err := mi.Prev()
-	require.NoError(t, err)
-	assert.Equal(t, second, back1)
-
-	back2, err := mi.Prev()
-	require.NoError(t, err)
-	assert.Equal(t, first, back2)
-
-	// Moving forward should yield each element exactly once in order.
-	again1, err := mi.Next()
-	require.NoError(t, err)
-	assert.Equal(t, first, again1)
-
-	again2, err := mi.Next()
-	require.NoError(t, err)
-	assert.Equal(t, second, again2)
-
-	again3, err := mi.Next()
-	require.NoError(t, err)
-	assert.Equal(t, mkRec("c", "vc", 1, TypeValue), again3)
+			runIteratorSequence(t, mi, tt.ops)
+		})
+	}
 }
 
 func TestMergingIterator_ErrorPropagation(t *testing.T) {
