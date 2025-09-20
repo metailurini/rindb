@@ -16,27 +16,22 @@
 
 **RinDB** is a lightweight, embeddable key-value database inspired by Log-Structured Merge (LSM) trees and LevelDB. It is designed for simplicity, performance, and extensibility, making it suitable for applications requiring fast, persistent storage.
 
-🚧 *The project is under active development. Expect incomplete documentation and potential unexpected behavior.* 🚧
-
 ## Features
 
-- **LSM-Based Architecture**: Efficient write-heavy workloads with a memory table (Memtable) and on-disk SSTables.
-- **Skip List Implementation**: Fast in-memory key lookups using a probabilistic skip list data structure.
-- **Bloom Filters**: Reduces unnecessary disk reads for non-existent keys.
-- **Write-Ahead Logging (WAL)**: Ensures durability and crash recovery.
-- **Compaction**: Background process to manage disk space and optimize read performance. Compaction now writes directly to new SSTables via the builder without buffering into an intermediate memtable.
-- **Configurable**: Customize database behavior with options like memtable size, compaction thresholds, and bloom filter settings.
-- **Concurrent Access**: Thread-safe operations with transaction support.
-- **Range Queries**: Efficient retrieval of key-value pairs within a specified key range.
-- **Telemetry**: OpenTelemetry integration for metrics and tracing to monitor database performance.
-- **Table Cache**: Reuses open SSTables via a sharded SLRU cache.
+- **LSM Storage Engine**: Mutable memtable with leveled SSTables, manifest recovery, and deterministic WAL replay.
+- **Crash Safety & Validation**: Write-ahead logging, manifest rotation, SQLite oracle fuzzing, and a diff harness with walk mode to enforce correctness.
+- **Bidirectional Range Iterators**: Unified iterator engine that merges memtable and SSTables with forward/backward scans and reverse range support.
+- **Snapshots**: Point-in-time reads with automatic retention and cleanup to keep historical versions visible while active.
+- **Adaptive Table Cache**: Sharded SLRU cache with tombstones, corruption quarantine, and runtime statistics.
+- **Observability**: OpenTelemetry metrics/tracing plus programmatic stats and CLI reporting.
+- **Configurable Runtime**: Functional options for directories, memory budgets, cache sizing, telemetry exporters, and logging.
 
 ## Installation
 
 RinDB is written in Go and requires Go 1.25.0 or later. To include it in your project:
 
 ```bash
-go get github.com/metailurini/rindb
+go get github.com/metailurini/rindb@latest
 ```
 
 Clone the repository for development:
@@ -56,7 +51,8 @@ package main
 import (
     "context"
     "fmt"
-    "rindb"
+
+    "github.com/metailurini/rindb"
 )
 
 func main() {
@@ -201,7 +197,22 @@ Files that fail verification are quarantined automatically, and the cache evicts
 least-recently-used entries while respecting internally pinned tables during
 compaction.
 
+## CLI
+
+The interactive CLI under `cmd/main.go` exposes `put`, `get`, `remove`, `range`, `stats`, and `exit` commands. Optional flags such as `--cache-bytes` and `--cache-shards` allow quick cache tuning while experimenting locally:
+
+```bash
+go build -o rindb cmd/main.go
+./rindb --cache-bytes=67108864 --cache-shards=8
+```
+
 ## Building and Testing
+
+Run formatting, vet (including the custom span-name analyzer), and static analysis:
+
+```bash
+make check
+```
 
 Run tests:
 
