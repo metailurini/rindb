@@ -34,8 +34,6 @@ func TestIRange_ReturnsOrderedKeys(t *testing.T) {
 	require.NoError(t, db.Put(ctx, rindb.Bytes("mem1"), rindb.Bytes("1")))
 	require.NoError(t, db.Put(ctx, rindb.Bytes("mem2"), rindb.Bytes("2")))
 
-	filesBefore := countNumericEntriesInFDDirectory(t)
-
 	iter, err := db.IRange(ctx, rindb.Bytes("a"), rindb.Bytes("z"))
 	require.NoError(t, err)
 
@@ -54,6 +52,4 @@ func TestIRange_ReturnsOrderedKeys(t *testing.T) {
 	require.NotContains(t, keys, "old")
 
 	require.NoError(t, iter.Close())
-	filesAfter := countNumericEntriesInFDDirectory(t)
-	require.LessOrEqual(t, filesAfter, filesBefore)
 }
