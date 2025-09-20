@@ -1,7 +1,6 @@
 package rindb
 
 import (
-	"context"
 	"errors"
 	"io"
 	"sort"
@@ -10,12 +9,6 @@ import (
 var _ Iterator[Record] = (*sstableIterator)(nil)
 
 func (s SStable) Iterator() (Iterator[Record], error) {
-	if !s.IsOpened() {
-		if err := s.Open(context.Background()); err != nil {
-			return nil, err
-		}
-	}
-
 	return &sstableIterator{
 		FileSystem: s.FileSystem,
 		dataEnd:    s.dataEnd,
@@ -26,11 +19,6 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 // numbers less than or equal to seq.
 func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
 	maxSeq := getMaxSeq(seq...)
-	if !s.IsOpened() {
-		if err := s.Open(context.Background()); err != nil {
-			return nil, err
-		}
-	}
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
 	})
