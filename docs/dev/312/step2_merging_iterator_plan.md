@@ -7,87 +7,142 @@ This plan focuses on the mechanics inside `RangeIterator` and `MergingIterator` 
 It assumes Step 1b (see `docs/dev/312/step1b_iterator_last_plan.md`) has added a shared `Last()` helper to the `Iterator` interface so we can prime descending heaps without bespoke adapter code.
 
 ## Implementation Steps
-1. **Carry the requested order through RangeIterator state.** The wrapper should initialize anchor bookkeeping according to the incoming order and surface the correct `HasNext/HasPrev` answers before iteration begins.
+1. **Carry the requested order through RangeIterator state.** The wrapper should initialize anchor bookkeeping according to the incoming order and surface the correct `HasNext/HasPrev` answers before iteration begins. Extend the struct in `range.go` with:
+   - `order RangeOrder`
+   - `cachedPrev Record`
+   - `prevErr error`
+   - `hasPrevPrimed bool`
 
-```go
-// range_iterator.go
-func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
-    ri := &RangeIterator{
-        mi:      mi,
-        order:   order,
-        forward: order == RangeAsc,
-    }
-    if order == RangeDesc {
-        ri.crossingAnchor.initDescending()
-        ri.cachedPrev, ri.prevErr = mi.peekReverse()
-        ri.hasPrevPrimed = ri.prevErr == nil
-    }
-    return ri
-}
+   The constructor keeps the forward-only default for ascending scans but primes descending scans using `MergingIterator.peekReverse()` without immediately draining the reverse heap:
 
-func (ri *RangeIterator) HasPrev() bool {
-    if ri.order == RangeDesc && !ri.forward {
-        return ri.hasPrevPrimed
-    }
-    return ri.mi.HasPrev()
-}
-```
+   ```go
+   // range.go
+   func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
+       ri := &RangeIterator{
+           mi:      mi,
+           order:   order,
+           forward: order == RangeAsc,
+       }
+       if order == RangeDesc {
+           ri.crossingAnchor.initDescending()
+           ri.cachedPrev, ri.prevErr = mi.peekReverse()
+           ri.hasPrevPrimed = true
+       }
+       return ri
+   }
 
-2. **Prime both heaps inside MergingIterator based on the chosen order.** Construct helpers that load the forward heap with the minimal record or the reverse heap with the maximal record from each child while respecting sequence filtering hooks. The reverse path relies on the new `Iterator.Last()` contract introduced in Step 1b so every child can expose its tail element consistently.
+   func (ri *RangeIterator) HasPrev() bool {
+       if ri.order == RangeDesc && !ri.forward {
+           if !ri.hasPrevPrimed {
+               ri.cachedPrev, ri.prevErr = ri.mi.peekReverse()
+               ri.hasPrevPrimed = true
+           }
+           if ri.prevErr != nil {
+               if !errors.Is(ri.prevErr, EOI) {
+                   ri.err = ri.prevErr
+               }
+               return false
+           }
+           return true
+       }
+       return ri.mi.HasPrev()
+   }
+   ```
 
-```go
-// merging_iterator.go
-type MergingIterator struct {
-    cleanup func()
-    order   RangeOrder
-    forward bool
-    fwdHeap *recordHeap
-    revHeap *recordHeap
-    anchors crossingAnchor
-    err     error
-}
+   Update `preparePrev` to consume the cached primed value before asking the merging iterator to walk backwards. When `hasPrevPrimed` is true, branch on `prevErr`: propagate non-`EOI` failures into `ri.err`; otherwise copy `cachedPrev` into `ri.prev`, mark it prepared, clear the flag, and invoke `mi.commitPeekedReverse()` (see Step 2) so the first `Prev()` on a descending iterator removes the max key from the heap exactly once. Reset `cachedPrev`/`prevErr` after the commit and only fall back to `mi.Prev()` once the cache has been drained.
 
-func NewMergingIterator(children []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
-    m := &MergingIterator{
-        cleanup: cleanup,
-        order:   order,
-        forward: order == RangeAsc,
-        fwdHeap: newForwardHeap(),
-        revHeap: newReverseHeap(),
-    }
-    switch order {
-    case RangeAsc:
-        if err := m.seedForward(children); err != nil {
-            m.cleanup()
-            return nil, err
-        }
-    case RangeDesc:
-        if err := m.seedReverse(children); err != nil {
-            m.cleanup()
-            return nil, err
-        }
-    }
-    return m, nil
-}
+2. **Prime both heaps inside MergingIterator based on the chosen order.** Construct helpers that load the forward heap with the minimal record or the reverse heap with the maximal record from each child while respecting sequence filtering hooks. The reverse path relies on the new `Iterator.Last()` contract introduced in Step 1b so every child can expose its tail element consistently. Extend `merging_iterator.go` with the following fields:
+   - `order RangeOrder`
+   - `cachedPrev pqItem`
+   - `prevErr error`
+   - `hasPrevPrimed bool`
 
-func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
-    for _, child := range children {
-        // Step 1b extends Iterator with Last so each child can surface its tail.
-        rec, err := child.Last()
-        if errors.Is(err, EOI) {
-            continue
-        }
-        if err != nil {
-            return err
-        }
-        m.revHeap.Push(rec, child)
-    }
-    if m.revHeap.Len() > 0 {
-        m.anchors.initFromReverse(m.revHeap.PeekKey())
-    }
-    return nil
-}
-```
+   ```go
+   // merging_iterator.go
+   type MergingIterator struct {
+       cleanup func()
+       order   RangeOrder
+       forward bool
+       fwdHeap *recordHeap
+       revHeap *recordHeap
+       anchors crossingAnchor
+       err     error
+
+       cachedPrev    pqItem
+       prevErr       error
+       hasPrevPrimed bool
+   }
+
+   func NewMergingIterator(children []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
+       m := &MergingIterator{
+           cleanup: cleanup,
+           order:   order,
+           forward: order == RangeAsc,
+           fwdHeap: newForwardHeap(),
+           revHeap: newReverseHeap(),
+       }
+       switch order {
+       case RangeAsc:
+           if err := m.seedForward(children); err != nil {
+               m.cleanup()
+               return nil, err
+           }
+       case RangeDesc:
+           if err := m.seedReverse(children); err != nil {
+               m.cleanup()
+               return nil, err
+           }
+       }
+       return m, nil
+   }
+
+   func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
+       for _, child := range children {
+           // Step 1b extends Iterator with Last so each child can surface its tail.
+           rec, err := child.Last()
+           if errors.Is(err, EOI) {
+               continue
+           }
+           if err != nil {
+               return err
+           }
+           m.revHeap.Push(rec, child)
+       }
+       if m.revHeap.Len() > 0 {
+           m.anchors.initFromReverse(m.revHeap.PeekKey())
+       }
+       return nil
+   }
+   ```
+
+   Add a `peekReverse()` helper that peeks at the reverse heap and memoizes the result without disturbing heap or iterator state:
+
+   ```go
+   func (m *MergingIterator) peekReverse() (Record, error) {
+       if !m.hasPrevPrimed {
+           if m.revHeap.Len() == 0 {
+               m.cachedPrev = pqItem{}
+               m.prevErr = EOI
+           } else {
+               m.cachedPrev = m.revHeap.PeekItem()
+               m.prevErr = nil
+           }
+           m.hasPrevPrimed = true
+       }
+       if m.prevErr != nil {
+           return Record{}, m.prevErr
+       }
+       return m.cachedPrev.rec, nil
+   }
+   ```
+
+   Implement a companion `commitPeekedReverse()` helper that is invoked once the cached record has been handed to the range iterator. The helper should:
+   - Return immediately if `hasPrevPrimed` is false.
+   - When `prevErr` is non-nil, clear `hasPrevPrimed`, reset `cachedPrev`, and assign `m.err` for non-`EOI` errors.
+   - Otherwise pop `cachedPrev` from `revHeap` (safe because `peekReverse()` never mutates the heap), run the same backwards bookkeeping as `preparePrev()`—namely call `matchesCrossingAnchor` before reinserting the item into `fwdHeap`, rewind the child iterator via `Prev()` and requeue the predecessor in `revHeap`, and surface any underlying error through `m.err`.
+   - Finally, clear `hasPrevPrimed`, `cachedPrev`, and `prevErr`.
+
+   With that helper in place, `RangeIterator.preparePrev()` becomes the sole consumer of the primed state: it copies `cachedPrev` into `ri.prev`, invokes `commitPeekedReverse()` so the merging iterator advances its heaps, and clears the flag before control ever reaches `MergingIterator.Prev()`. Consequently `Prev()` does not branch on `hasPrevPrimed`; it can assume the cached record has been retired and proceed with the usual reverse traversal (sync direction, pop the heap, and refill from children) without risking a duplicate first record.
 
 3. **Harmonize direction flips with crossing anchors.** Calling `Next` after `Prev` (and vice versa) should reuse the cached anchors to avoid duplicates while keeping tombstones hidden.
 
@@ -224,11 +279,22 @@ func (m *MergingIterator) backfillForward() error {
 
 ```go
 func TestRangeIterator_DescendingOscillation(t *testing.T) {
-    it := buildRangeIterator(order: RangeDesc, keys: []string{"k3","k2","k1"})
+    it := buildRangeIterator(t, RangeDesc, []string{"k3", "k2", "k1"})
     assertKey(t, it.Prev(), "k3")
     assertKey(t, it.Next(), "k2")
     assertKey(t, it.Prev(), "k2")
     assertKey(t, it.Next(), "k1")
+}
+```
+
+- **First Prev consumes the peeked maximum exactly once.** Add a regression that builds a descending range iterator and asserts the first `Prev()` returns the largest key and the next `Prev()` immediately advances to the next key without duplication.
+
+```go
+func TestRangeIterator_DescendingFirstPrev(t *testing.T) {
+    it := buildRangeIterator(t, RangeDesc, []string{"k3", "k2"})
+    assertKey(t, it.Prev(), "k3")
+    assertKey(t, it.Prev(), "k2")
+    assertNoDuplicate(t, it)
 }
 ```
 
@@ -237,7 +303,7 @@ func TestRangeIterator_DescendingOscillation(t *testing.T) {
 ```go
 func TestMergingIterator_DescTombstoneFiltering(t *testing.T) {
     mt := fakeMemtable([]record{{Key: "a", Deleted: true}, {Key: "a", Seq: 1}})
-    it := newMergingIterator(order: RangeDesc, children: []Iterator{mt})
+    it := newMergingIterator(t, RangeDesc, []Iterator[Record]{mt})
     _, err := it.Prev()
     require.ErrorIs(t, err, io.EOF)
 }
@@ -250,7 +316,7 @@ func TestMergingIterator_SeedReverseFailure(t *testing.T) {
     called := 0
     cleanup := func() { called++ }
     bad := &faultyIterator{lastErr: errors.New("boom")}
-    _, err := NewMergingIterator([]Iterator{bad}, cleanup, RangeDesc)
+    _, err := NewMergingIterator([]Iterator[Record]{bad}, cleanup, RangeDesc)
     require.Error(t, err)
     require.Equal(t, 1, called)
     require.True(t, bad.closed)
@@ -261,9 +327,9 @@ func TestMergingIterator_SeedReverseFailure(t *testing.T) {
 
 ```go
 func TestMergingIterator_AnchorAlignmentAcrossSources(t *testing.T) {
-    left := fakeIterator(keys: []string{"k1","k2"})
-    right := fakeIterator(keys: []string{"k2","k3"})
-    it := newMergingIterator(order: RangeDesc, children: []Iterator{left, right})
+    left := fakeIterator([]string{"k1", "k2"})
+    right := fakeIterator([]string{"k2", "k3"})
+    it := newMergingIterator(t, RangeDesc, []Iterator[Record]{left, right})
     assertKey(t, it.Prev(), "k3")
     assertKey(t, it.Prev(), "k2") // single occurrence
     assertKey(t, it.Prev(), "k1")
