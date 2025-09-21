@@ -65,8 +65,8 @@ Imagine two SSTables contributing the following records (newest sequence first):
 1. `Next` returns `apple@7`. The anchor now references this record (`forward = true`).
 2. Another `Next` returns `banana@6`. The record is pushed to the reverse queue.
 3. The caller invokes `Prev`. `preparePrev` pops `banana@6`, recognises that the last direction was forward, clears the anchor, pushes the record back onto the forward queue, and stages it. `Prev` returns `banana@6` and sets `forward = false`.
-4. A second `Prev` should now move to `apple@7`. `preparePrev` pops `apple@7`. Because the iterator is still moving backward (`forward = false`), the anchor check causes the candidate to be skipped, so the loop continues until it finds `apple@5`. After filtering out the deletion for `banana`, the user observes `apple@5`.
-5. Switching back to `Next`, the reverse process occurs. The first `Next` after the direction flip clears the anchor so the boundary record (`apple@5`) is returned exactly once before new keys are visited.
+4. A second `Prev` moves to `apple@7`. `preparePrev` in `MergingIterator` pops `apple@7`. This doesn't match the anchor (`banana@6`), so it's passed to `RangeIterator`. `RangeIterator` sees the key has changed from `banana` to `apple`, accepts `apple@7`, and returns it. The user observes `apple@7`. Older versions of the key, like `apple@5`, are skipped by `RangeIterator`'s duplicate filtering.
+5. Switching back to `Next`, the reverse process occurs. The boundary record is now `apple@7` (the last record returned). The first `Next` after the direction flip replays `apple@7` exactly once before visiting new keys.
 
 Throughout this sequence the user sees each logical record at most once per direction change, with tombstones hidden and duplicates suppressed, while the internal priority queues remain consistent.
 
