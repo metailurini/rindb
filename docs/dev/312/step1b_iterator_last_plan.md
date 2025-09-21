@@ -39,11 +39,16 @@ child implementation.
    ```
 
 2. **Teach foundational iterators how to reach the tail.**
-   * `slIterator` already has the skip list cursor helpers necessary to jump to
-     the final node. Wrap that logic inside `Last()` so `Prev` continues from the
-     returned element.
-   * `memtableIRange` should delegate to the underlying skip list iterator while
-     keeping sequence/tombstone filtering intact.
+   * Extend the skip list so descending iterators can prime themselves without
+     scanning. `slIterator` and `slIRange` in `skiplist.go` currently lack an
+     `O(log n)` tail locator; add a cached tail pointer on `SkipList` (updated
+     during insert/delete) so `Last()` can position `curr` directly without
+     walking the list.
+   * `slIterator` should use the new helper to wrap that logic inside `Last()`
+     so `Prev` continues from the returned element, and `slIRange` should reuse
+     it for range-bound iterators.
+   * `memtableIRange` in `memtable.go` wraps those skip list iterators; wire the
+     helper through while keeping sequence/tombstone filtering intact.
    * `sstableIRange` can reuse the block index walk performed today by
      `seekBlockLE`/`preparePrev`. `Last()` should position the state machine so
      the next `Prev` call flows through existing reverse iteration logic.
@@ -76,3 +81,6 @@ child implementation.
 * **Divergent iterator semantics.** Document the expectation that calling
   `Last()` immediately followed by `Prev()` returns the same element, keeping the
   iteration contract symmetric with `Next()`.
+* **Re-reading the entire range.** `Last()` must rely on the cached tail pointer
+  (or similar helper) so it avoids iterating from the head each time; otherwise
+  descending seeds degrade to `O(n)` scans per iterator.
