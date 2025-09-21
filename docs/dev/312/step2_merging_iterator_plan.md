@@ -142,7 +142,7 @@ It assumes Step 1b (see `docs/dev/312/step1b_iterator_last_plan.md`) has added a
    - Otherwise pop `cachedPrev` from `revHeap` (safe because `peekReverse()` never mutates the heap), run the same backwards bookkeeping as `preparePrev()`—namely call `matchesCrossingAnchor` before reinserting the item into `fwdHeap`, rewind the child iterator via `Prev()` and requeue the predecessor in `revHeap`, and surface any underlying error through `m.err`.
    - Finally, clear `hasPrevPrimed`, `cachedPrev`, and `prevErr`.
 
-   Inside `Prev()`, check `hasPrevPrimed` before touching the heap: copy `m.cachedPrev` into a local, call `commitPeekedReverse()`, and return the cached record when the flag is set. Only when the primed path is exhausted should the method fall back to the normal `PopItem()` loop so a descending range iterator does not see the maximum key twice.
+   With that helper in place, `RangeIterator.preparePrev()` becomes the sole consumer of the primed state: it copies `cachedPrev` into `ri.prev`, invokes `commitPeekedReverse()` so the merging iterator advances its heaps, and clears the flag before control ever reaches `MergingIterator.Prev()`. Consequently `Prev()` does not branch on `hasPrevPrimed`; it can assume the cached record has been retired and proceed with the usual reverse traversal (sync direction, pop the heap, and refill from children) without risking a duplicate first record.
 
 3. **Harmonize direction flips with crossing anchors.** Calling `Next` after `Prev` (and vice versa) should reuse the cached anchors to avoid duplicates while keeping tombstones hidden.
 
@@ -279,7 +279,7 @@ func (m *MergingIterator) backfillForward() error {
 
 ```go
 func TestRangeIterator_DescendingOscillation(t *testing.T) {
-    it := buildRangeIterator(order: RangeDesc, keys: []string{"k3","k2","k1"})
+    it := buildRangeIterator(t, RangeDesc, []string{"k3", "k2", "k1"})
     assertKey(t, it.Prev(), "k3")
     assertKey(t, it.Next(), "k2")
     assertKey(t, it.Prev(), "k2")
@@ -291,7 +291,7 @@ func TestRangeIterator_DescendingOscillation(t *testing.T) {
 
 ```go
 func TestRangeIterator_DescendingFirstPrev(t *testing.T) {
-    it := buildRangeIterator(order: RangeDesc, keys: []string{"k3","k2"})
+    it := buildRangeIterator(t, RangeDesc, []string{"k3", "k2"})
     assertKey(t, it.Prev(), "k3")
     assertKey(t, it.Prev(), "k2")
     assertNoDuplicate(t, it)
@@ -303,7 +303,7 @@ func TestRangeIterator_DescendingFirstPrev(t *testing.T) {
 ```go
 func TestMergingIterator_DescTombstoneFiltering(t *testing.T) {
     mt := fakeMemtable([]record{{Key: "a", Deleted: true}, {Key: "a", Seq: 1}})
-    it := newMergingIterator(order: RangeDesc, children: []Iterator{mt})
+    it := newMergingIterator(t, RangeDesc, []Iterator[Record]{mt})
     _, err := it.Prev()
     require.ErrorIs(t, err, io.EOF)
 }
@@ -316,7 +316,7 @@ func TestMergingIterator_SeedReverseFailure(t *testing.T) {
     called := 0
     cleanup := func() { called++ }
     bad := &faultyIterator{lastErr: errors.New("boom")}
-    _, err := NewMergingIterator([]Iterator{bad}, cleanup, RangeDesc)
+    _, err := NewMergingIterator([]Iterator[Record]{bad}, cleanup, RangeDesc)
     require.Error(t, err)
     require.Equal(t, 1, called)
     require.True(t, bad.closed)
@@ -327,9 +327,9 @@ func TestMergingIterator_SeedReverseFailure(t *testing.T) {
 
 ```go
 func TestMergingIterator_AnchorAlignmentAcrossSources(t *testing.T) {
-    left := fakeIterator(keys: []string{"k1","k2"})
-    right := fakeIterator(keys: []string{"k2","k3"})
-    it := newMergingIterator(order: RangeDesc, children: []Iterator{left, right})
+    left := fakeIterator([]string{"k1", "k2"})
+    right := fakeIterator([]string{"k2", "k3"})
+    it := newMergingIterator(t, RangeDesc, []Iterator[Record]{left, right})
     assertKey(t, it.Prev(), "k3")
     assertKey(t, it.Prev(), "k2") // single occurrence
     assertKey(t, it.Prev(), "k1")
