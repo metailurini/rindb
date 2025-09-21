@@ -44,9 +44,13 @@ child implementation.
      returned element.
    * `memtableIRange` should delegate to the underlying skip list iterator while
      keeping sequence/tombstone filtering intact.
-   * `sstableIRange` can reuse the block index walk performed today by
-     `seekBlockLE`/`preparePrev`. `Last()` should position the state machine so
-     the next `Prev` call flows through existing reverse iteration logic.
+   * `sstableIRange` should binary search the sparse index to locate the last
+     block whose starting key is less than or equal to `end` (mirroring the
+     `IRange` startup logic) and then walk backwards with `PrevOffset` until the
+     terminal record is in range.
+     Cross-reference the `sstable_iteration.go` state machine so `Last()` seeds
+     `offset`, `cursor`, and `haveLowerBound` exactly as `Prev` expects before the
+     first reverse step.
 
 3. **Adapt composed iterators.**
    * The step 2 merging iterator plan will call `child.Last()` while seeding the
@@ -76,3 +80,6 @@ child implementation.
 * **Divergent iterator semantics.** Document the expectation that calling
   `Last()` immediately followed by `Prev()` returns the same element, keeping the
   iteration contract symmetric with `Next()`.
+* **Large SSTables.** Avoid rescanning the entire table when priming the tail;
+  rely on the sparse index + `PrevOffset` walk so `Last()` remains logarithmic in
+  table size even for multi-gigabyte files.

@@ -86,22 +86,26 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // }
 ```
 
-5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** We reuse the table index to locate the last qualifying block, then walk backward while applying key-range and sequence filters.
-   This step ensures the iterator exposes the same contract regardless of initial direction.
+5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** Introduce a `findOffsetLE` helper that binary searches the sparse index for the final block whose key is ≤ `end`, then have `primeDescending` step backward with `PrevOffset` until the first in-range record is prepared.
+   This keeps the work logarithmic in table size and ensures the iterator exposes the same contract regardless of initial direction.
 
 ```go
 // Step 4: SSTable tail seeding
 // func (s SStable) IRange(start, end Bytes, order RangeOrder, seq ...uint64) (Iterator[Record], error) {
 //   if order == RangeDesc {
-//     offset := s.findOffsetLE(end)
+//     offset, haveOffset := s.findOffsetLE(end)
+//     if !haveOffset { return emptyIterator(), nil }
 //     sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), order: RangeDesc}
-//     sri.primeDescending()
+//     if err := sri.primeDescending(); err != nil { return nil, err }
 //     return sri, nil
 //   }
 //   ...
 // }
+// func (s *SStable) findOffsetLE(end Bytes) (int64, bool) {
+//   // binary search SparseIndex for block starting key <= end
+// }
 // func (sri *sstableIRange) primeDescending() error {
-//   // read prior block with PrevOffset until key < start or seq too new
+//   // use PrevOffset to walk blocks/records until key < start or seq too new
 // }
 ```
 
