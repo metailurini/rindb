@@ -38,12 +38,13 @@ func (ri *RangeIterator) HasPrev() bool {
 ```go
 // merging_iterator.go
 type MergingIterator struct {
-    cleanup   func()
-    order     RangeOrder
-    forward   bool
-    fwdHeap   *recordHeap
-    revHeap   *recordHeap
-    anchors   crossingAnchor
+    cleanup func()
+    order   RangeOrder
+    forward bool
+    fwdHeap *recordHeap
+    revHeap *recordHeap
+    anchors crossingAnchor
+    err     error
 }
 
 func NewMergingIterator(children []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
@@ -71,8 +72,9 @@ func NewMergingIterator(children []Iterator[Record], cleanup func(), order Range
 
 func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
     for _, child := range children {
+        // Step 1b extends Iterator with Last so each child can surface its tail.
         rec, err := child.Last()
-        if errors.Is(err, io.EOF) {
+        if errors.Is(err, EOI) {
             continue
         }
         if err != nil {
@@ -91,6 +93,9 @@ func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
 
 ```go
 func (m *MergingIterator) Next() (Record, error) {
+    if m.err != nil {
+        return Record{}, m.err
+    }
     if m.order == RangeDesc && !m.forward {
         if err := m.syncFromReverse(); err != nil {
             return Record{}, err
@@ -104,14 +109,23 @@ func (m *MergingIterator) Next() (Record, error) {
     m.anchors.updateFromForward(rec.InternalKey)
     if refill := src.HasNext(); refill {
         nxt, err := src.Next()
-        if err == nil {
+        switch {
+        case err == nil:
             m.fwdHeap.Push(nxt, src)
+        case errors.Is(err, EOI):
+            // Child exhausted; no refill required.
+        default:
+            m.err = err
+            return Record{}, err
         }
     }
     return rec, nil
 }
 
 func (m *MergingIterator) Prev() (Record, error) {
+    if m.err != nil {
+        return Record{}, m.err
+    }
     if m.order == RangeAsc && m.forward {
         if err := m.syncFromForward(); err != nil {
             return Record{}, err
@@ -125,32 +139,30 @@ func (m *MergingIterator) Prev() (Record, error) {
     m.anchors.updateFromReverse(rec.InternalKey)
     if refill := src.HasPrev(); refill {
         prv, err := src.Prev()
-        if err == nil {
+        switch {
+        case err == nil:
             m.revHeap.Push(prv, src)
+        case errors.Is(err, EOI):
+            // Iterator hit the beginning; nothing to repopulate.
+        default:
+            m.err = err
+            return Record{}, err
         }
     }
     return rec, nil
 }
 ```
 
-4. **Centralize cleanup guarantees and error propagation.** Ensure both heaps drain correctly and the shared `cleanup` runs exactly once, even if seeding fails or a child iterator bubbles an error mid-iteration.
+4. **Centralize cleanup guarantees and error propagation.** Let the injected `cleanup` closure continue to own all child lifecycle work, and make sure it runs exactly once while any stored iterator error is returned to callers.
 
 ```go
 func (m *MergingIterator) Close() error {
     if m.cleanup == nil {
-        return nil
-    }
-    defer func() { m.cleanup = nil }()
-    for m.fwdHeap.Len() > 0 {
-        _, child := m.fwdHeap.Pop()
-        child.Close()
-    }
-    for m.revHeap.Len() > 0 {
-        _, child := m.revHeap.Pop()
-        child.Close()
+        return m.err
     }
     m.cleanup()
-    return nil
+    m.cleanup = nil
+    return m.err
 }
 
 func (m *MergingIterator) syncFromReverse() error {
@@ -167,6 +179,43 @@ func (m *MergingIterator) syncFromReverse() error {
         }
     }
     return nil
+}
+
+func (m *MergingIterator) backfillForward() error {
+    type drained struct {
+        rec Record
+        src Iterator[Record]
+    }
+    scratch := make([]drained, 0, m.revHeap.Len())
+    var failure error
+    for m.revHeap.Len() > 0 {
+        rec, src := m.revHeap.Pop()
+        scratch = append(scratch, drained{rec: rec, src: src})
+        if m.anchors.isForwardDuplicate(rec.InternalKey) {
+            continue
+        }
+        m.fwdHeap.Push(rec, src)
+        if src.HasNext() {
+            nxt, err := src.Next()
+            switch {
+            case err == nil:
+                m.fwdHeap.Push(nxt, src)
+            case errors.Is(err, EOI):
+                // No additional forward elements remain for this iterator.
+            default:
+                m.err = err
+                failure = err
+            }
+        }
+        if failure != nil {
+            break
+        }
+    }
+    for i := range scratch {
+        entry := scratch[len(scratch)-1-i]
+        m.revHeap.Push(entry.rec, entry.src)
+    }
+    return failure
 }
 ```
 
