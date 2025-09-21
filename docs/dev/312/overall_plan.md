@@ -4,21 +4,32 @@ RinDB's range iterators currently assume callers walk forward before moving back
 The goal is to thread an explicit order value through the public API and iterator stack while keeping tombstone filtering, crossing-anchor semantics, and resource cleanup intact.
 We will tackle the work in layered increments so each stage has a clear set of invariants and guardrails.
 
-1. **Step 1 – Expand the public API with an order parameter (Complexity 5/10).** We add an ergonomic option for callers and make sure defaults remain ascending so existing integrations behave the same.
-   This step also validates bounds early so we reject inverted ranges (`start > end`) while letting callers pick either iteration direction with the same bounds.
+1. **Step 1 – Expand the public API with an order parameter (Complexity 5/10).** We add an ergonomic option for callers and make sure defaults remain ascending so existing integrations behave the same. The range config continues to accept an optional snapshot cut-off: we replace the loose variadic sequence argument with a dedicated option helper so wrappers like `Snapshot.IRange` can forward their sequence before layering on the order flag.
+   This step also validates bounds early so we reject inverted ranges (`start > end`) while letting callers pick either iteration direction with the same bounds. Callers will compose options—e.g. `db.IRange(ctx, start, end, IRangeSnapshot(seq), IRangeOrder(RangeDesc))`—to request both a historical view and the initial iteration direction.
 
 ```go
-// Step 1: surface RangeOrder
+// Step 1: surface RangeOrder + snapshot option
 // type RangeOrder int
 // const (
 //   RangeAsc RangeOrder = iota
 //   RangeDesc
 // )
+// type rangeConfig struct {
+//   order       RangeOrder
+//   snapshotSeq *uint64
+// }
+// type RangeOption func(*rangeConfig)
 // func IRangeOrder(order RangeOrder) RangeOption { ... }
+// func IRangeSnapshot(seq uint64) RangeOption { ... }
+// func (s *Snapshot) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
+//   opts = append([]RangeOption{IRangeSnapshot(s.sequence)}, opts...)
+//   return s.db.IRange(ctx, start, end, opts...)
+// }
 // func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
 //   cfg := rangeDefaultConfig()
 //   for _, opt := range opts { opt(&cfg) }
 //   if start.Compare(end) == CmpGreater { return nil, ErrInvalidRange }
+//   iterators, cleanup := r.buildSources(ctx, start, end, cfg.snapshotSeq)
 //   mi, err := NewMergingIterator(iterators, cleanup, cfg.order)
 //   return NewRangeIterator(mi, cfg.order), err
 //   // RangeOrder flips iteration direction without swapping start/end semantics.
@@ -89,22 +100,36 @@ This keeps the contract consistent for skip list, memtable, and SSTable updates 
 // }
 ```
 
-5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** We reuse the table index to locate the last qualifying block, then walk backward while applying key-range and sequence filters.
-   This step ensures the iterator exposes the same `start <= end` contract regardless of initial direction.
+5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** Introduce a `findOffsetLE` helper that binary searches the sparse index for the final block whose key is ≤ `end`, then have `primeDescending` step backward with `PrevOffset` until the first in-range record is prepared.
+   Follow-up `Next()` calls in descending mode should invoke a new `preparePrevDescending()` helper so steady-state iteration also walks backward and respects the `startKey` guard.
+   This keeps the work logarithmic in table size and ensures the iterator exposes the same `start <= end` contract regardless of initial direction.
 
 ```go
 // Step 4: SSTable tail seeding
 // func (s SStable) IRange(start, end Bytes, order RangeOrder, seq ...uint64) (Iterator[Record], error) {
 //   if order == RangeDesc {
-//     offset := s.findOffsetLE(end)
-//     sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), order: RangeDesc}
-//     sri.primeDescending()
+//     offset, haveOffset := s.findOffsetLE(end)
+//     if !haveOffset { return emptyIterator(), nil }
+//     sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), haveLowerBound: true, order: RangeDesc}
+//     if err := sri.primeDescending(); err != nil { return nil, err }
 //     return sri, nil
 //   }
 //   ...
 // }
+// func (s *SStable) findOffsetLE(end Bytes) (int64, bool) {
+//   // binary search SparseIndex for block starting key <= end
+// }
 // func (sri *sstableIRange) primeDescending() error {
-//   // read prior block with PrevOffset until key < start or seq too new
+//   // use PrevOffset to walk blocks/records until key < start or seq too new
+// }
+// func (sri *sstableIRange) Next() (Record, error) {
+//   if sri.order == RangeDesc {
+//     return sri.preparePrevDescending()
+//   }
+//   ...
+// }
+// func (sri *sstableIRange) preparePrevDescending() (Record, error) {
+//   // mirror primeDescending for steady-state iteration and stop once key < startKey
 // }
 ```
 
