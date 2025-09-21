@@ -17,14 +17,14 @@ import (
 )
 
 type runConfig struct {
-	seed           int64
-	n              int
-	logPath        string
-	iterWalk       int
-	crashEvery     int
-	telemetryEvery int
-	jaeger         string
-	opts           []rindb.Option
+	seed                      int64
+	n                         int
+	logPath                   string
+	iterWalk                  int
+	crashEvery                int
+	telemetryEvery            int
+	telemetryExporterEndpoint string
+	opts                      []rindb.Option
 }
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 	iterWalk := flag.Int("iter-walk", 64, "max elements to walk when testing iterators")
 	crashEvery := flag.Int("crash-every", 0, "crash/recover every N ops")
 	telemetryEvery := flag.Int("telemetry-every", 0, "emit telemetry every N ops")
-	jaeger := flag.String("jaeger", "", "Jaeger OTLP gRPC endpoint (e.g., localhost:4317)")
+	telemetryExporterEndpoint := flag.String("telemetry-exporter-endpoint", "", "OTLP gRPC endpoint (e.g., localhost:4317)")
 	dir := flag.String("dir", "", "work directory (default temp dir)")
 	metamorphic := flag.Bool("metamorphic", false, "run metamorphic config variants")
 	flag.Parse()
@@ -75,14 +75,14 @@ func main() {
 					runDir = filepath.Join(runDir, c.label)
 				}
 				cfg := runConfig{
-					seed:           *seed,
-					n:              *n,
-					logPath:        *logPath + "-" + c.label,
-					iterWalk:       *iterWalk,
-					crashEvery:     *crashEvery,
-					telemetryEvery: *telemetryEvery,
-					jaeger:         *jaeger,
-					opts:           c.opts,
+					seed:                      *seed,
+					n:                         *n,
+					logPath:                   *logPath + "-" + c.label,
+					iterWalk:                  *iterWalk,
+					crashEvery:                *crashEvery,
+					telemetryEvery:            *telemetryEvery,
+					telemetryExporterEndpoint: *telemetryExporterEndpoint,
+					opts:                      c.opts,
 				}
 				if err := runOne(ctx, runDir, cfg); err != nil {
 					errCh <- fmt.Errorf("%s run failed: %w", c.label, err)
@@ -100,13 +100,13 @@ func main() {
 	}
 
 	baseCfg := runConfig{
-		seed:           *seed,
-		n:              *n,
-		logPath:        *logPath,
-		iterWalk:       *iterWalk,
-		crashEvery:     *crashEvery,
-		telemetryEvery: *telemetryEvery,
-		jaeger:         *jaeger,
+		seed:                      *seed,
+		n:                         *n,
+		logPath:                   *logPath,
+		iterWalk:                  *iterWalk,
+		crashEvery:                *crashEvery,
+		telemetryEvery:            *telemetryEvery,
+		telemetryExporterEndpoint: *telemetryExporterEndpoint,
 	}
 	for _, c := range configs {
 		runDir := *dir
@@ -157,10 +157,10 @@ func runOne(ctx context.Context, dir string, runCfg runConfig) error {
 		rindb.WithLogger(rindb.NewStdLogger(log.Default())),
 		rindb.WithLogLevel(rindb.LogLevelDebug),
 	}
-	if runCfg.jaeger != "" {
+	if runCfg.telemetryExporterEndpoint != "" {
 		baseOpts = append(baseOpts,
 			rindb.WithEnableTelemetry(true),
-			rindb.WithExporterEndpoint(runCfg.jaeger),
+			rindb.WithExporterEndpoint(runCfg.telemetryExporterEndpoint),
 			rindb.WithExporterInsecure(true),
 		)
 	}

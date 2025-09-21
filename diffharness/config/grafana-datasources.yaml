@@ -1,0 +1,34 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    access: proxy
+    isDefault: true
+    version: 1
+    editable: false
+  - name: Tempo
+    type: tempo
+    url: http://tempo:3200
+    access: proxy
+    version: 1
+    editable: false
+    uid: tempo
+    jsonData:
+      httpHeaderName1: 'X-Scope-OrgID'
+      httpHeaderValue1: 'tempo'
+      serviceMap:
+        datasourceUid: 'prometheus'
+      tracesToLogs:
+        datasourceUid: 'loki' # Assuming Loki might be added later, or can be removed if not needed
+        tags: ['job', 'instance', 'pod']
+        mappedTags:
+          - { key: 'service.name', value: 'app' }
+        mapTagNames: true
+        spanStartTimeShift: '1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+        filterBySpanID: false
+      nodeGraph:
+        enabled: true
