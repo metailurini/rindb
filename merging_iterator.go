@@ -40,24 +40,18 @@ type MergingIterator struct {
 // NewMergingIterator constructs a MergingIterator over provided iterators.
 // The optional cleanup function is called when Close is invoked.
 func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingIterator, error) {
-	// lessFwd defines the comparison logic for the forward priority queue.
-	// It determines the order in which records are retrieved when iterating forward.
+	// lessFwd describes how items are ordered inside the forward priority queue.
+	// PriorityQueue is backed by container/heap and behaves like a min-heap: the
+	// element considered "less" is promoted to the root and will be the one
+	// popped first. We therefore sort primarily by key in ascending order and,
+	// for duplicate keys, by sequence number in descending order so newer
+	// versions are surfaced before older ones.
 	//
-	// The primary sorting key is the record's Key, in ascending order.
-	// If two records have the same Key, their sequence numbers are used as a
-	// secondary sorting key, in descending order (higher sequence number first).
-	//
-	// This ensures that when iterating forward, we prioritize:
-	// 1. Records with smaller keys first.
-	// 2. For the same key, newer records (higher sequence numbers) first.
-	//
-	// Example scenarios for lessFwd(a, b):
-	// - a = {key: "apple", seq: 10}, b = {key: "banana", seq: 5}
-	//   Comparison: a.key ("apple") < b.key ("banana"). Result: true (a is "less").
-	// - a = {key: "apple", seq: 10}, b = {key: "apple", seq: 5}
-	//   Comparison: a.key == b.key. Then a.seq (10) > b.seq (5). Result: true (a is "less").
-	// - a = {key: "apple", seq: 5}, b = {key: "apple", seq: 10}
-	//   Comparison: a.key == b.key. Then a.seq (5) is not > b.seq (10). Result: false (a is NOT "less").
+	// Visualising the heap: imagine fwd currently holds
+	//   [apple@10, apple@5, banana@1].
+	// PopItem removes apple@10 because it is the smallest key and the newest
+	// version for that key. A subsequent PopItem would yield apple@5 followed by
+	// banana@1. This ordering is what Next observes when draining the queue.
 	lessFwd := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
@@ -66,24 +60,17 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 		return cmp == CmpLess
 	}
 
-	// lessRev defines the comparison logic for the reverse priority queue.
-	// It determines the order in which records are retrieved when iterating backward.
+	// lessRev performs the same duty for the reverse queue. The heap still
+	// treats items for which lessRev returns true as higher priority, so we flip
+	// the key comparison: larger keys should appear closer to the root so that
+	// popping from rev yields the lexicographically greatest key first. Sequence
+	// numbers continue to be ordered descending to keep newer values ahead of
+	// older ones.
 	//
-	// The primary sorting key is the record's Key, in descending order.
-	// If two records have the same Key, their sequence numbers are used as a
-	// secondary sorting key, in descending order (higher sequence number first).
-	//
-	// This ensures that when iterating backward, we prioritize:
-	// 1. Records with larger keys first.
-	// 2. For the same key, newer records (higher sequence numbers) first.
-	//
-	// Example scenarios for lessRev(a, b):
-	// - a = {key: "banana", seq: 5}, b = {key: "apple", seq: 10}
-	//   Comparison: a.key ("banana") > b.key ("apple"). Result: true (a is "less").
-	// - a = {key: "apple", seq: 10}, b = {key: "apple", seq: 5}
-	//   Comparison: a.key == b.key. Then a.seq (10) > b.seq (5). Result: true (a is "less").
-	// - a = {key: "apple", seq: 5}, b = {key: "apple", seq: 10}
-	//   Comparison: a.key == b.key. Then a.seq (5) is not > b.seq (10). Result: false (a is NOT "less").
+	// Example state: rev contains [carrot@7, banana@2, apple@4]. PopItem returns
+	// carrot@7 because it has the highest key. If we continue popping we would
+	// see banana@2 and then apple@4. Prev relies on this ordering when walking
+	// backwards through the merged stream.
 	lessRev := func(a, b pqItem) bool {
 		cmp := a.rec.GetKey().Compare(b.rec.GetKey())
 		if cmp == CmpEqual {
@@ -193,11 +180,17 @@ func (m *MergingIterator) prepareNext() {
 	// When moving forward, any previously prepared backward state is invalidated.
 	m.prevPrepared = false
 
+	// Iterate until we successfully stage the next record or exhaust the
+	// queue. Each pass pulls the highest priority element from the forward
+	// heap and attempts to prefetch a replacement from the same iterator.
 	for !m.nextPrepared && m.err == nil {
 		if m.fwd.Len() == 0 {
 			return
 		}
 
+		// PopItem returns the smallest key (and newest sequence for ties)
+		// due to the lessFwd comparator. This is the next candidate record
+		// to expose to callers.
 		item := m.fwd.PopItem()
 		if m.matchesCrossingAnchor(item) {
 			if !m.forward {
@@ -209,12 +202,16 @@ func (m *MergingIterator) prepareNext() {
 			}
 		}
 
+		// Keep the popped element in the reverse heap so Prev() can walk
+		// back across it later.
 		m.rev.PushItem(item)
 
 		if item.iter.HasNext() {
 			rec, err := item.iter.Next()
 			switch {
 			case err == nil:
+				// Feed the freshly retrieved record into the forward
+				// heap so the merged stream remains primed.
 				m.fwd.PushItem(pqItem{rec: rec, iter: item.iter})
 			case errors.Is(err, EOI):
 				// End of iteration for this underlying iterator, do nothing.
@@ -225,6 +222,7 @@ func (m *MergingIterator) prepareNext() {
 			}
 		}
 
+		// Stage the popped item as the prepared result for HasNext/Next.
 		m.nextItem = item
 		m.nextPrepared = true
 	}
@@ -239,11 +237,16 @@ func (m *MergingIterator) preparePrev() {
 	// When moving backward, any previously prepared forward state is invalidated.
 	m.nextPrepared = false
 
+	// Similar to prepareNext, drain the reverse heap until we can surface a
+	// record or encounter an error. The reverse heap presents the largest key
+	// (newest sequence first) as its next element.
 	for !m.prevPrepared && m.err == nil {
 		if m.rev.Len() == 0 {
 			return
 		}
 
+		// PopItem selects the record that should appear when iterating
+		// backwards: highest key and newest sequence number first.
 		curItem := m.rev.PopItem()
 		if m.matchesCrossingAnchor(curItem) {
 			if m.forward {
@@ -253,6 +256,9 @@ func (m *MergingIterator) preparePrev() {
 			}
 		}
 
+		// Prev returns the current element and rewinds the iterator by one
+		// position so another Prev call can continue walking backwards. The
+		// returned record is ignored because curItem already holds it.
 		_, err := curItem.iter.Prev()
 		if err != nil && !errors.Is(err, EOI) {
 			m.err = err
@@ -264,8 +270,11 @@ func (m *MergingIterator) preparePrev() {
 		// If Prev() succeeds, the underlying iterator moved back. If it returns EOI,
 		// it's at the beginning. In both cases, the current item should be requeued so
 		// that subsequent Next calls can surface it again.
+		// Pushing into the forward heap preserves the contract where Prev
+		// immediately followed by Next yields the same record.
 		m.fwd.PushItem(curItem)
 
+		// Store the prepared item for Prev().
 		m.prevItem = curItem
 		m.prevPrepared = true
 	}
