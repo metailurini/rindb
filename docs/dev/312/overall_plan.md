@@ -5,7 +5,7 @@ The goal is to thread an explicit order value through the public API and iterato
 We will tackle the work in layered increments so each stage has a clear set of invariants and guardrails.
 
 1. **Step 1 – Expand the public API with an order parameter (Complexity 5/10).** We add an ergonomic option for callers and make sure defaults remain ascending so existing integrations behave the same.
-   This step also validates bounds early so we do not hand invalid ranges to lower layers.
+   This step also validates bounds early so we reject inverted ranges (`start > end`) while letting callers pick either iteration direction with the same bounds.
 
 ```go
 // Step 1: surface RangeOrder
@@ -18,12 +18,15 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
 //   cfg := rangeDefaultConfig()
 //   for _, opt := range opts { opt(&cfg) }
-//   if cfg.order == RangeAsc && start.Compare(end) == CmpGreater { return nil, ErrInvalidRange }
-//   if cfg.order == RangeDesc && start.Compare(end) == CmpLess { return nil, ErrInvalidRange }
+//   if start.Compare(end) == CmpGreater { return nil, ErrInvalidRange }
 //   mi, err := NewMergingIterator(iterators, cleanup, cfg.order)
 //   return NewRangeIterator(mi, cfg.order), err
+//   // RangeOrder flips iteration direction without swapping start/end semantics.
 // }
 ```
+
+Callers continue to supply `start <= end`; `RangeOrder` only determines whether we traverse that span from low-to-high or high-to-low.
+This keeps the contract consistent for skip list, memtable, and SSTable updates later in the plan.
 
 2. **Step 1b – Add iterator tail priming support (Complexity 6/10).** Before the merging iterator can seed descending order we need a shared `Last()` helper on every iterator implementation.
    This step updates the core `Iterator` contract plus `slIterator`, `memtableIRange`, `sstableIRange`, and test fixtures so they can surface their final record without duplicating bespoke plumbing. See `docs/dev/312/step1b_iterator_last_plan.md` for the detailed design.
@@ -66,7 +69,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // // Maintain crossingAnchor invariants regardless of initial direction.
 ```
 
-4. **Step 3 – Provide descending cursors for memtable/skiplist layers (Complexity 7/10).** We modify the skip list range iterator so it can begin from the predecessor of the end key and update memtable filtering to respect that cursor.
+4. **Step 3 – Provide descending cursors for memtable/skiplist layers (Complexity 7/10).** We modify the skip list range iterator so it can begin from the predecessor of the end key and update memtable filtering to respect that cursor, while still treating `start` as the inclusive lower bound and `end` as the upper bound.
    The sequence filtering must stay symmetric so deletions remain hidden in both directions.
 
 ```go
@@ -87,7 +90,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 ```
 
 5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** We reuse the table index to locate the last qualifying block, then walk backward while applying key-range and sequence filters.
-   This step ensures the iterator exposes the same contract regardless of initial direction.
+   This step ensures the iterator exposes the same `start <= end` contract regardless of initial direction.
 
 ```go
 // Step 4: SSTable tail seeding
