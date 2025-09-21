@@ -56,26 +56,52 @@ func (it *sstableIRange) Last() (Record, error) {
 }
 ```
 
-3. **Step 2 – Teach RangeIterator/MergingIterator to honor the initial order (Complexity 9/10).** The iterators must seed their forward/backward heaps based on the requested orientation and cope with direction changes without duplicating records.
+3. **Step 2 – Teach RangeIterator/MergingIterator to honor the initial order (Complexity 9/10).** The iterators must seed their forward/backward heaps based on the requested orientation and cope with direction changes without duplicating records. In particular, descending ranges should return `Next()` results in descending key order so clients can consume `6,5,4…` without switching APIs.
    Because this rewrites core iteration mechanics, we will drive the finer design in `docs/dev/312/step2_merging_iterator_plan.md`.
 
 ```go
 // Step 2: order-aware merging
 func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator { ... }
+func (ri *RangeIterator) prepareNext() bool {
+  if ri.order == RangeDesc {
+    if !ri.hasReversePrimed {
+      ri.cachedReverse, ri.reverseErr = ri.mi.peekReverse()
+      ri.hasReversePrimed = true
+    }
+    if ri.reverseErr != nil {
+      if !errors.Is(ri.reverseErr, EOI) {
+        ri.err = ri.reverseErr
+      }
+      return false
+    }
+    ri.next = ri.cachedReverse
+    ri.mi.commitPeekedReverse()
+    ri.hasReversePrimed = false
+    return true
+  }
+  ...
+}
 func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
   switch order {
   case RangeAsc:
     primeForward(iterators)
   case RangeDesc:
-    primeReverse(iterators) // new helper that seeds rev heap and backfills fwd for oscillation
+    primeReverse(iterators) // seeds reverse heap so Next() can emit the largest key first
   }
   return &MergingIterator{fwd: fwd, rev: rev, forward: order == RangeAsc}, nil
 }
-func (m *MergingIterator) HasNext() bool {
-  if m.order == RangeDesc && !m.forward && !m.revPrimed {
-    m.preparePrev() // first call in desc mode should surface rev heap
+func (m *MergingIterator) peekReverse() (Record, error) {
+  if !m.hasReversePrimed {
+    m.cachedReverse, m.reverseErr = m.syncReverse()
+    m.hasReversePrimed = true
   }
-  ...
+  return m.cachedReverse, m.reverseErr
+}
+func (m *MergingIterator) commitPeekedReverse() {
+  if m.hasReversePrimed && m.reverseErr == nil {
+    m.drainReverseOnce()
+  }
+  m.hasReversePrimed = false
 }
 // Maintain crossingAnchor invariants regardless of initial direction.
 ```
@@ -94,14 +120,14 @@ func (list *SkipList[K,V]) IRange(start, end K, order RangeOrder) Iterator[V] {
 }
 func (mi *memtableIRange) Next()/Prev() {
   if mi.order == RangeDesc {
-    mi.preparePrevDescending()
+    mi.prepareNextDescending()
   }
   // ensure preparedNext/preparedPrev flip correctly when alternating directions
 }
 ```
 
 5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** Introduce a `findOffsetLE` helper that binary searches the sparse index for the final block whose key is ≤ `end`, then have `primeDescending` step backward with `PrevOffset` until the first in-range record is prepared.
-   Follow-up `Next()` calls in descending mode should invoke a new `preparePrevDescending()` helper so steady-state iteration also walks backward and respects the `startKey` guard.
+   Follow-up `Next()` calls in descending mode should invoke a new `prepareNextDescending()` helper so steady-state iteration also walks backward and respects the `startKey` guard.
    This keeps the work logarithmic in table size and ensures the iterator exposes the same `start <= end` contract regardless of initial direction.
 
 ```go
@@ -124,11 +150,11 @@ func (sri *sstableIRange) primeDescending() error {
 }
 func (sri *sstableIRange) Next() (Record, error) {
   if sri.order == RangeDesc {
-    return sri.preparePrevDescending()
+    return sri.prepareNextDescending()
   }
   ...
 }
-func (sri *sstableIRange) preparePrevDescending() (Record, error) {
+func (sri *sstableIRange) prepareNextDescending() (Record, error) {
   // mirror primeDescending for steady-state iteration and stop once key < startKey
 }
 ```
@@ -138,9 +164,9 @@ func (sri *sstableIRange) preparePrevDescending() (Record, error) {
 
 ```go
 // Step 5: verification assets
-// - rindb_test.go: add desc cases mirroring TestRindb_IRangeDirections
-// - integration/range_iterator_next_prev_test.go: table-driven asc vs desc checks
-// - sstable_iteration_test.go & memtable_test.go: ensure Prev before Next works when order == RangeDesc
+// - rindb_test.go: add desc cases mirroring TestRindb_IRangeDirections where Next() yields the highest key first
+// - integration/range_iterator_next_prev_test.go: table-driven asc vs desc checks that Next() streams k3,k2,k1
+// - sstable_iteration_test.go & memtable_test.go: ensure Prev before Next works when order == RangeDesc and Next() remains monotonic
 // - README + cmd/main.go usage banner: document the new order option
 ```
 
@@ -148,8 +174,8 @@ Pitfalls and test hooks: we will guard against regressions by pairing each risk 
 Maintaining this mapping clarifies how to validate every layer as we iterate on the detailed designs.
 
 ```go
-// Pitfall: reverse seeding skips first record -> Add desc variant of TestSSTableIRange_ReverseIteration.
-// Pitfall: duplicates during direction flip -> Extend integration/range_iterator_next_prev_test.go with desc oscillation.
-// Pitfall: tombstones leaking -> Mirror TestMemtableIRange_Reverse under desc mode.
+// Pitfall: reverse seeding skips first record -> Add desc variant of TestSSTableIRange_ReverseIteration that checks Next() returns the end key first.
+// Pitfall: duplicates during direction flip -> Extend integration/range_iterator_next_prev_test.go with desc oscillation covering Next()/Prev() alternation.
+// Pitfall: tombstones leaking -> Mirror TestMemtableIRange_Reverse under desc mode using Next() reads.
 // Pitfall: invalid range inputs -> New unit tests for RangeOrder validation in rindb_test.go.
 ```
