@@ -92,7 +92,7 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order Rang
 }
 func (m *MergingIterator) peekReverse() (Record, error) {
   if !m.hasReversePrimed {
-    m.cachedReverse, m.reverseErr = m.syncReverse()
+    m.cachedReverse, m.reverseErr = m.peekFromReverseHeap()
     m.hasReversePrimed = true
   }
   return m.cachedReverse, m.reverseErr
