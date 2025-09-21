@@ -95,7 +95,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 //   if order == RangeDesc {
 //     offset, haveOffset := s.findOffsetLE(end)
 //     if !haveOffset { return emptyIterator(), nil }
-//     sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), order: RangeDesc}
+//     sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), haveLowerBound: true, order: RangeDesc}
 //     if err := sri.primeDescending(); err != nil { return nil, err }
 //     return sri, nil
 //   }
