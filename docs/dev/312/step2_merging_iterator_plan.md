@@ -4,6 +4,7 @@
 We need the range iterator stack to honor an initial descending orientation without forcing callers to walk forward first.
 The merging iterator must seed both priority queues consistently, preserve crossing-anchor semantics, and still guarantee deterministic cleanup.
 This plan focuses on the mechanics inside `RangeIterator` and `MergingIterator` so that Step 3 and Step 4 can build on a stable contract.
+It assumes Step 1b (see `docs/dev/312/step1b_iterator_last_plan.md`) has added a shared `Last()` helper to the `Iterator` interface so we can prime descending heaps without bespoke adapter code.
 
 ## Implementation Steps
 1. **Carry the requested order through RangeIterator state.** The wrapper should initialize anchor bookkeeping according to the incoming order and surface the correct `HasNext/HasPrev` answers before iteration begins.
@@ -32,7 +33,7 @@ func (ri *RangeIterator) HasPrev() bool {
 }
 ```
 
-2. **Prime both heaps inside MergingIterator based on the chosen order.** Construct helpers that load the forward heap with the minimal record or the reverse heap with the maximal record from each child while respecting sequence filtering hooks.
+2. **Prime both heaps inside MergingIterator based on the chosen order.** Construct helpers that load the forward heap with the minimal record or the reverse heap with the maximal record from each child while respecting sequence filtering hooks. The reverse path relies on the new `Iterator.Last()` contract introduced in Step 1b so every child can expose its tail element consistently.
 
 ```go
 // merging_iterator.go

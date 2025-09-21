@@ -25,7 +25,24 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // }
 ```
 
-2. **Step 2 – Teach RangeIterator/MergingIterator to honor the initial order (Complexity 9/10).** The iterators must seed their forward/backward heaps based on the requested orientation and cope with direction changes without duplicating records.
+2. **Step 1b – Add iterator tail priming support (Complexity 6/10).** Before the merging iterator can seed descending order we need a shared `Last()` helper on every iterator implementation.
+   This step updates the core `Iterator` contract plus `slIterator`, `memtableIRange`, `sstableIRange`, and test fixtures so they can surface their final record without duplicating bespoke plumbing. See `docs/dev/312/step1b_iterator_last_plan.md` for the detailed design.
+
+```go
+// Step 1b: iterator tail priming
+// type Iterator[T any] interface {
+//   ...
+//   Last() (T, error)
+// }
+// func (it *sstableIRange) Last() (Record, error) {
+//   if err := it.seekTail(); err != nil {
+//     return Record{}, err
+//   }
+//   return it.curr, nil
+// }
+```
+
+3. **Step 2 – Teach RangeIterator/MergingIterator to honor the initial order (Complexity 9/10).** The iterators must seed their forward/backward heaps based on the requested orientation and cope with direction changes without duplicating records.
    Because this rewrites core iteration mechanics, we will drive the finer design in `docs/dev/312/step2_merging_iterator_plan.md`.
 
 ```go
@@ -49,7 +66,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // // Maintain crossingAnchor invariants regardless of initial direction.
 ```
 
-3. **Step 3 – Provide descending cursors for memtable/skiplist layers (Complexity 7/10).** We modify the skip list range iterator so it can begin from the predecessor of the end key and update memtable filtering to respect that cursor.
+4. **Step 3 – Provide descending cursors for memtable/skiplist layers (Complexity 7/10).** We modify the skip list range iterator so it can begin from the predecessor of the end key and update memtable filtering to respect that cursor.
    The sequence filtering must stay symmetric so deletions remain hidden in both directions.
 
 ```go
@@ -69,7 +86,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // }
 ```
 
-4. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** We reuse the table index to locate the last qualifying block, then walk backward while applying key-range and sequence filters.
+5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** We reuse the table index to locate the last qualifying block, then walk backward while applying key-range and sequence filters.
    This step ensures the iterator exposes the same contract regardless of initial direction.
 
 ```go
@@ -88,7 +105,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // }
 ```
 
-5. **Step 5 – Update regression coverage and documentation (Complexity 6/10).** We extend unit and integration suites to cover descending usage and make sure docs & CLI helpers describe the new flag.
+6. **Step 5 – Update regression coverage and documentation (Complexity 6/10).** We extend unit and integration suites to cover descending usage and make sure docs & CLI helpers describe the new flag.
    Coverage should include asc/desc parity checks and alternating direction smoke tests.
 
 ```go
