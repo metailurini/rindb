@@ -4,22 +4,32 @@ RinDB's range iterators currently assume callers walk forward before moving back
 The goal is to thread an explicit order value through the public API and iterator stack while keeping tombstone filtering, crossing-anchor semantics, and resource cleanup intact.
 We will tackle the work in layered increments so each stage has a clear set of invariants and guardrails.
 
-1. **Step 1 – Expand the public API with an order parameter (Complexity 5/10).** We add an ergonomic option for callers and make sure defaults remain ascending so existing integrations behave the same.
-   This step also validates bounds early so we do not hand invalid ranges to lower layers.
+1. **Step 1 – Expand the public API with an order parameter (Complexity 5/10).** We add an ergonomic option for callers and make sure defaults remain ascending so existing integrations behave the same. The range config continues to accept an optional snapshot cut-off: we replace the loose variadic sequence argument with a dedicated option helper so wrappers like `Snapshot.IRange` can forward their sequence before layering on the order flag.
+   This step also validates bounds early so we do not hand invalid ranges to lower layers. Callers will compose options—e.g. `db.IRange(ctx, start, end, IRangeSnapshot(seq), IRangeOrder(RangeDesc))`—to request both a historical view and the initial iteration direction.
 
 ```go
-// Step 1: surface RangeOrder
+// Step 1: surface RangeOrder + snapshot option
 // type RangeOrder int
 // const (
 //   RangeAsc RangeOrder = iota
 //   RangeDesc
 // )
+// type rangeConfig struct {
+//   order       RangeOrder
+//   snapshotSeq *uint64
+// }
+// type RangeOption func(*rangeConfig)
 // func IRangeOrder(order RangeOrder) RangeOption { ... }
+// func IRangeSnapshot(seq uint64) RangeOption { ... }
+// func (s *Snapshot) IRange(ctx, start, end Bytes) (*RangeIterator, error) {
+//   return s.db.IRange(ctx, start, end, IRangeSnapshot(s.sequence))
+// }
 // func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
 //   cfg := rangeDefaultConfig()
 //   for _, opt := range opts { opt(&cfg) }
 //   if cfg.order == RangeAsc && start.Compare(end) == CmpGreater { return nil, ErrInvalidRange }
 //   if cfg.order == RangeDesc && start.Compare(end) == CmpLess { return nil, ErrInvalidRange }
+//   iterators, cleanup := r.buildSources(ctx, start, end, cfg.snapshotSeq)
 //   mi, err := NewMergingIterator(iterators, cleanup, cfg.order)
 //   return NewRangeIterator(mi, cfg.order), err
 // }
