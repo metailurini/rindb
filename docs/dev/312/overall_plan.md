@@ -10,30 +10,30 @@ We will tackle the work in layered increments so each stage has a clear set of i
 ```go
 // Step 1: surface RangeOrder + snapshot option
 // type RangeOrder int
-// const (
-//   RangeAsc RangeOrder = iota
-//   RangeDesc
-// )
-// type rangeConfig struct {
-//   order       RangeOrder
-//   snapshotSeq *uint64
-// }
-// type RangeOption func(*rangeConfig)
-// func IRangeOrder(order RangeOrder) RangeOption { ... }
-// func IRangeSnapshot(seq uint64) RangeOption { ... }
-// func (s *Snapshot) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
-//   opts = append([]RangeOption{IRangeSnapshot(s.sequence)}, opts...)
-//   return s.db.IRange(ctx, start, end, opts...)
-// }
-// func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
-//   cfg := rangeDefaultConfig()
-//   for _, opt := range opts { opt(&cfg) }
-//   if start.Compare(end) == CmpGreater { return nil, ErrInvalidRange }
-//   iterators, cleanup := r.buildSources(ctx, start, end, cfg.snapshotSeq)
-//   mi, err := NewMergingIterator(iterators, cleanup, cfg.order)
-//   return NewRangeIterator(mi, cfg.order), err
-//   // RangeOrder flips iteration direction without swapping start/end semantics.
-// }
+const (
+  RangeAsc RangeOrder = iota
+  RangeDesc
+)
+type rangeConfig struct {
+  order       RangeOrder
+  snapshotSeq *uint64
+}
+type RangeOption func(*rangeConfig)
+func IRangeOrder(order RangeOrder) RangeOption { ... }
+func IRangeSnapshot(seq uint64) RangeOption { ... }
+func (s *Snapshot) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
+  opts = append([]RangeOption{IRangeSnapshot(s.sequence)}, opts...)
+  return s.db.IRange(ctx, start, end, opts...)
+}
+func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
+  cfg := rangeDefaultConfig()
+  for _, opt := range opts { opt(&cfg) }
+  if start.Compare(end) == CmpGreater { return nil, ErrInvalidRange }
+  iterators, cleanup := r.buildSources(ctx, start, end, cfg.snapshotSeq)
+  mi, err := NewMergingIterator(iterators, cleanup, cfg.order)
+  return NewRangeIterator(mi, cfg.order), err
+  // RangeOrder flips iteration direction without swapping start/end semantics.
+}
 ```
 
 Callers must supply `start <= end`; `RangeOrder` only determines whether we traverse that span from low-to-high or high-to-low.
@@ -44,16 +44,16 @@ This keeps the contract consistent for skip list, memtable, and SSTable updates 
 
 ```go
 // Step 1b: iterator tail priming
-// type Iterator[T any] interface {
-//   ...
-//   Last() (T, error)
-// }
-// func (it *sstableIRange) Last() (Record, error) {
-//   if err := it.seekTail(); err != nil {
-//     return Record{}, err
-//   }
-//   return it.curr, nil
-// }
+type Iterator[T any] interface {
+  ...
+  Last() (T, error)
+}
+func (it *sstableIRange) Last() (Record, error) {
+  if err := it.seekTail(); err != nil {
+    return Record{}, err
+  }
+  return it.curr, nil
+}
 ```
 
 3. **Step 2 – Teach RangeIterator/MergingIterator to honor the initial order (Complexity 9/10).** The iterators must seed their forward/backward heaps based on the requested orientation and cope with direction changes without duplicating records.
@@ -61,23 +61,23 @@ This keeps the contract consistent for skip list, memtable, and SSTable updates 
 
 ```go
 // Step 2: order-aware merging
-// func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator { ... }
-// func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
-//   switch order {
-//   case RangeAsc:
-//     primeForward(iterators)
-//   case RangeDesc:
-//     primeReverse(iterators) // new helper that seeds rev heap and backfills fwd for oscillation
-//   }
-//   return &MergingIterator{fwd: fwd, rev: rev, forward: order == RangeAsc}, nil
-// }
-// func (m *MergingIterator) HasNext() bool {
-//   if m.order == RangeDesc && !m.forward && !m.revPrimed {
-//     m.preparePrev() // first call in desc mode should surface rev heap
-//   }
-//   ...
-// }
-// // Maintain crossingAnchor invariants regardless of initial direction.
+func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator { ... }
+func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
+  switch order {
+  case RangeAsc:
+    primeForward(iterators)
+  case RangeDesc:
+    primeReverse(iterators) // new helper that seeds rev heap and backfills fwd for oscillation
+  }
+  return &MergingIterator{fwd: fwd, rev: rev, forward: order == RangeAsc}, nil
+}
+func (m *MergingIterator) HasNext() bool {
+  if m.order == RangeDesc && !m.forward && !m.revPrimed {
+    m.preparePrev() // first call in desc mode should surface rev heap
+  }
+  ...
+}
+// Maintain crossingAnchor invariants regardless of initial direction.
 ```
 
 4. **Step 3 – Provide descending cursors for memtable/skiplist layers (Complexity 7/10).** We modify the skip list range iterator so it can begin from the predecessor of the end key and update memtable filtering to respect that cursor, while still treating `start` as the inclusive lower bound and `end` as the upper bound.
@@ -85,19 +85,19 @@ This keeps the contract consistent for skip list, memtable, and SSTable updates 
 
 ```go
 // Step 3: skip list + memtable
-// func (list *SkipList[K,V]) IRange(start, end K, order RangeOrder) Iterator[V] {
-//   if order == RangeDesc {
-//     curr := findFloor(end)
-//     return &slIRange{curr: curr, startKey: start, endKey: end, order: RangeDesc}
-//   }
-//   ...
-// }
-// func (mi *memtableIRange) Next()/Prev() {
-//   if mi.order == RangeDesc {
-//     mi.preparePrevDescending()
-//   }
-//   // ensure preparedNext/preparedPrev flip correctly when alternating directions
-// }
+func (list *SkipList[K,V]) IRange(start, end K, order RangeOrder) Iterator[V] {
+  if order == RangeDesc {
+    curr := findFloor(end)
+    return &slIRange{curr: curr, startKey: start, endKey: end, order: RangeDesc}
+  }
+  ...
+}
+func (mi *memtableIRange) Next()/Prev() {
+  if mi.order == RangeDesc {
+    mi.preparePrevDescending()
+  }
+  // ensure preparedNext/preparedPrev flip correctly when alternating directions
+}
 ```
 
 5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** Introduce a `findOffsetLE` helper that binary searches the sparse index for the final block whose key is ≤ `end`, then have `primeDescending` step backward with `PrevOffset` until the first in-range record is prepared.
@@ -106,31 +106,31 @@ This keeps the contract consistent for skip list, memtable, and SSTable updates 
 
 ```go
 // Step 4: SSTable tail seeding
-// func (s SStable) IRange(start, end Bytes, order RangeOrder, seq ...uint64) (Iterator[Record], error) {
-//   if order == RangeDesc {
-//     offset, haveOffset := s.findOffsetLE(end)
-//     if !haveOffset { return emptyIterator(), nil }
-//     sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), haveLowerBound: true, order: RangeDesc}
-//     if err := sri.primeDescending(); err != nil { return nil, err }
-//     return sri, nil
-//   }
-//   ...
-// }
-// func (s *SStable) findOffsetLE(end Bytes) (int64, bool) {
-//   // binary search SparseIndex for block starting key <= end
-// }
-// func (sri *sstableIRange) primeDescending() error {
-//   // use PrevOffset to walk blocks/records until key < start or seq too new
-// }
-// func (sri *sstableIRange) Next() (Record, error) {
-//   if sri.order == RangeDesc {
-//     return sri.preparePrevDescending()
-//   }
-//   ...
-// }
-// func (sri *sstableIRange) preparePrevDescending() (Record, error) {
-//   // mirror primeDescending for steady-state iteration and stop once key < startKey
-// }
+func (s SStable) IRange(start, end Bytes, order RangeOrder, seq ...uint64) (Iterator[Record], error) {
+  if order == RangeDesc {
+    offset, haveOffset := s.findOffsetLE(end)
+    if !haveOffset { return emptyIterator(), nil }
+    sri := &sstableIRange{offset: offset, cursor: offset, lowerBound: findLowerBound(start), haveLowerBound: true, order: RangeDesc}
+    if err := sri.primeDescending(); err != nil { return nil, err }
+    return sri, nil
+  }
+  ...
+}
+func (s *SStable) findOffsetLE(end Bytes) (int64, bool) {
+  // binary search SparseIndex for block starting key <= end
+}
+func (sri *sstableIRange) primeDescending() error {
+  // use PrevOffset to walk blocks/records until key < start or seq too new
+}
+func (sri *sstableIRange) Next() (Record, error) {
+  if sri.order == RangeDesc {
+    return sri.preparePrevDescending()
+  }
+  ...
+}
+func (sri *sstableIRange) preparePrevDescending() (Record, error) {
+  // mirror primeDescending for steady-state iteration and stop once key < startKey
+}
 ```
 
 6. **Step 5 – Update regression coverage and documentation (Complexity 6/10).** We extend unit and integration suites to cover descending usage and make sure docs & CLI helpers describe the new flag.
