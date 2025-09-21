@@ -21,8 +21,9 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // type RangeOption func(*rangeConfig)
 // func IRangeOrder(order RangeOrder) RangeOption { ... }
 // func IRangeSnapshot(seq uint64) RangeOption { ... }
-// func (s *Snapshot) IRange(ctx, start, end Bytes) (*RangeIterator, error) {
-//   return s.db.IRange(ctx, start, end, IRangeSnapshot(s.sequence))
+// func (s *Snapshot) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
+//   opts = append([]RangeOption{IRangeSnapshot(s.sequence)}, opts...)
+//   return s.db.IRange(ctx, start, end, opts...)
 // }
 // func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
 //   cfg := rangeDefaultConfig()
