@@ -36,7 +36,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // }
 ```
 
-Callers continue to supply `start <= end`; `RangeOrder` only determines whether we traverse that span from low-to-high or high-to-low.
+Callers must supply `start <= end`; `RangeOrder` only determines whether we traverse that span from low-to-high or high-to-low.
 This keeps the contract consistent for skip list, memtable, and SSTable updates later in the plan.
 
 2. **Step 1b – Add iterator tail priming support (Complexity 6/10).** Before the merging iterator can seed descending order we need a shared `Last()` helper on every iterator implementation.
