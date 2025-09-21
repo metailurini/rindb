@@ -87,6 +87,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 ```
 
 5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** Introduce a `findOffsetLE` helper that binary searches the sparse index for the final block whose key is ≤ `end`, then have `primeDescending` step backward with `PrevOffset` until the first in-range record is prepared.
+   Follow-up `Next()` calls in descending mode should invoke a new `preparePrevDescending()` helper so steady-state iteration also walks backward and respects the `startKey` guard.
    This keeps the work logarithmic in table size and ensures the iterator exposes the same contract regardless of initial direction.
 
 ```go
@@ -106,6 +107,15 @@ We will tackle the work in layered increments so each stage has a clear set of i
 // }
 // func (sri *sstableIRange) primeDescending() error {
 //   // use PrevOffset to walk blocks/records until key < start or seq too new
+// }
+// func (sri *sstableIRange) Next() (Record, error) {
+//   if sri.order == RangeDesc {
+//     return sri.preparePrevDescending()
+//   }
+//   ...
+// }
+// func (sri *sstableIRange) preparePrevDescending() (Record, error) {
+//   // mirror primeDescending for steady-state iteration and stop once key < startKey
 // }
 ```
 
