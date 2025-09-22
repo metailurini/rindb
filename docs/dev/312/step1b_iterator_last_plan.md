@@ -49,12 +49,15 @@ child implementation.
      it for range-bound iterators.
    * `memtableIRange` in `memtable.go` wraps those skip list iterators; wire the
      helper through while keeping sequence/tombstone filtering intact.
-   * `sstableIRange` can reuse the sparse-index walk performed today by
-     `seekBlockLE`/`preparePrev`: locate the last block whose starting key is
-     `<= end`, then walk backwards with `PrevOffset` until the terminal record is
-     in range. Ensure the `sstable_iteration.go` state machine seeds `offset`,
-     `cursor`, and `haveLowerBound` exactly as `Prev` expects before the first
-     reverse step.
+  * `sstableIRange` can reuse the sparse-index walk performed today inside
+    `SStable.IRange`: binary search `SparseIndex` with `sort.Search` to grab the
+    final block whose starting key is `<= end`, then walk backwards with
+    `PrevOffset` until the terminal record is in range. Ensure the
+    `sstable_iteration.go` state machine seeds `offset`, `cursor`, and
+    `haveLowerBound` exactly as `Prev` expects before the first reverse step.
+    Step 4 will introduce a shared `findOffsetLE` helper; call out that Step 1b
+    temporarily inlines the same logic (or adds a private helper) so the `Last`
+    implementation can land without waiting on later stages.
 
 3. **Adapt composed iterators.**
    * The step 2 merging iterator plan will call `child.Last()` while seeding the
