@@ -30,11 +30,11 @@ func (r *Rindb) IRange(ctx, start, end Bytes, opts ...RangeOption) (*RangeIterat
   for _, opt := range opts { opt(&cfg) }
   iterators, cleanup := r.buildSources(ctx, start, end, cfg.snapshotSeq)
   if start.Compare(end) == CmpGreater {
-    defer cleanup()
+    cleanup()
     return newEmptyRangeIterator(), nil // preserve today’s “empty on inverted bounds” contract
   }
   if cfg.order == RangeDesc {
-    defer cleanup()
+    cleanup()
     return nil, ErrRangeOrderNotReady // Step 1 gate: descending rolls out in Step 2+
   }
   mi, err := NewMergingIterator(iterators, cleanup, cfg.order)
