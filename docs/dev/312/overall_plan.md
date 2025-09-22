@@ -9,7 +9,7 @@ We will tackle the work in layered increments so each stage has a clear set of i
 
 ```go
 // Step 1: surface RangeOrder + snapshot option
-// type RangeOrder int
+type RangeOrder int
 const (
   RangeAsc RangeOrder = iota
   RangeDesc
