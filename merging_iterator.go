@@ -17,6 +17,7 @@ type MergingIterator struct {
 	rev     *PriorityQueue[pqItem]
 	cleanup func()
 	err     error
+	order   RangeOrder
 
 	// prepared next state
 	nextPrepared bool
@@ -39,7 +40,7 @@ type MergingIterator struct {
 
 // NewMergingIterator constructs a MergingIterator over provided iterators.
 // The optional cleanup function is called when Close is invoked.
-func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingIterator, error) {
+func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
 	// lessFwd describes how items are ordered inside the forward priority queue.
 	// PriorityQueue is backed by container/heap and behaves like a min-heap: the
 	// element considered "less" is promoted to the root and will be the one
@@ -99,7 +100,7 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 			fwd.PushItem(pqItem{rec: rec, iter: it})
 		}
 	}
-	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup, forward: true}, nil
+	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup, forward: true, order: order}, nil
 }
 
 // HasNext implements Iterator[Record].

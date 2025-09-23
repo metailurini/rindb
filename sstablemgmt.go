@@ -700,7 +700,7 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		iterators = append(iterators, iter)
 	}
 
-	mergeIter, err := NewMergingIterator(iterators, nil)
+	mergeIter, err := NewMergingIterator(iterators, nil, RangeAsc)
 	if err != nil {
 		return nil, fileMeta{}, err
 	}

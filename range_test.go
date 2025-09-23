@@ -57,9 +57,9 @@ func TestRangeIterator_Next(t *testing.T) {
 			for _, spec := range tt.iters {
 				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 			}
-			mi, err := NewMergingIterator(iterators, nil)
+			mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 			assert.NoError(t, err)
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, RangeAsc)
 
 			var got []exp
 			for iter.HasNext() {
@@ -122,9 +122,9 @@ func TestRangeIterator_FilterTombstonesAndDuplicates(t *testing.T) {
 			for _, spec := range tt.iters {
 				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 			}
-			mi, err := NewMergingIterator(iterators, nil)
+			mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 			assert.NoError(t, err)
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, RangeAsc)
 
 			var got []exp
 			for iter.HasNext() {
@@ -162,9 +162,9 @@ func TestRangeIterator_ReverseIteration(t *testing.T) {
 	for _, spec := range iters {
 		iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 	}
-	mi, err := NewMergingIterator(iterators, nil)
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 	assert.NoError(t, err)
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 
 	var forward []exp
 	for iter.HasNext() {
@@ -189,10 +189,10 @@ func TestRangeIterator_ReverseIteration(t *testing.T) {
 func TestRangeIterator_PrevBeforeNext(t *testing.T) {
 	t.Parallel()
 	it := &errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1}
-	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil, RangeAsc)
 	assert.NoError(t, err)
 
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 	_, err = iter.Prev()
 	assert.ErrorIs(t, err, EOI)
 }
@@ -235,9 +235,9 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("c", "vc", 1, TypeValue)}, failIdx: -1},
 	}
-	mi, err := NewMergingIterator(iters, nil)
+	mi, err := NewMergingIterator(iters, nil, RangeAsc)
 	assert.NoError(t, err)
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 
 	type exp struct{ k, v string }
 	ops := []struct {
@@ -268,10 +268,10 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 
 func TestRangeIterator_EmptyIterator(t *testing.T) {
 	t.Parallel()
-	mi, err := NewMergingIterator([]Iterator[Record]{}, nil)
+	mi, err := NewMergingIterator([]Iterator[Record]{}, nil, RangeAsc)
 	assert.NoError(t, err)
 
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 	assert.False(t, iter.HasNext())
 	assert.False(t, iter.HasPrev())
 	_, err = iter.Next()
@@ -355,10 +355,10 @@ func TestRangeIterator_Prepare(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			it := &errIterator{records: tt.records, failIdx: tt.failIdx}
-			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil, RangeAsc)
 			assert.NoError(t, err)
 
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, RangeAsc)
 			// Emulate internal preparation flow used by HasNext/Next
 			iter.prepareNext()
 			_, err = iter.Next()
@@ -403,9 +403,9 @@ func buildRangeIter(t *testing.T, sources ...[]kv) *RangeIterator {
 		iterators = append(iterators, &errIterator{records: records, failIdx: -1})
 	}
 
-	mi, err := NewMergingIterator(iterators, nil)
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 	require.NoError(t, err)
-	return NewRangeIterator(mi)
+	return NewRangeIterator(mi, RangeAsc)
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
