@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.2](https://github.com/metailurini/rindb/compare/v0.14.1...v0.14.2) (2025-09-23)
+
+
+### Bug Fixes
+
+* normalize table cache errors ([86cc98a](https://github.com/metailurini/rindb/commit/86cc98a5568eb36b1f0ce552963b9cc79438b7fe))
+* remove unused table cache error ([0f1e4c3](https://github.com/metailurini/rindb/commit/0f1e4c3a0d692edd7b49d6f05bee863d74ff9179))
+
 ## [0.14.1](https://github.com/metailurini/rindb/compare/v0.14.0...v0.14.1) (2025-09-20)
 
 
