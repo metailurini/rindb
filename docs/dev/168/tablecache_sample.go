@@ -28,7 +28,6 @@ var (
 	ErrClosed     = errors.New("cache closed")
 	ErrObsolete   = errors.New("cache entry obsolete")
 	ErrCorruption = errors.New("corruption verified")
-	ErrNotFound   = errors.New("cache entry not found")
 )
 
 // tableKey uniquely identifies an sstable file within (possibly) multi-DB setups.
