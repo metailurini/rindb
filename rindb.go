@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"sync"
@@ -244,7 +245,7 @@ func (r *Rindb) Get(ctx context.Context, key Bytes, seq ...uint64) (Bytes, error
 //
 // The returned iterator must be closed when no longer needed to release
 // any associated resources.
-func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*RangeIterator, error) {
+func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
 	ctx, span := tracer.Start(ctx, "Rindb.IRange")
 	defer span.End()
 	iRangeCalls.Add(ctx, 1)
@@ -263,17 +264,56 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 		return nil, ErrDatabaseClosed
 	}
 
-	maxSeq := getMaxSeq(seq...)
+	cfg := rangeDefaultConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.snapshotSeq)
+	if err != nil {
+		return nil, err
+	}
+
+	if start.Compare(end) == CmpGreater {
+		if cleanup != nil {
+			cleanup()
+		}
+		return newEmptyRangeIterator(), nil
+	}
+
+	if cfg.order == RangeDesc {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, ErrRangeOrderNotReady
+	}
+
+	mergeIter, err := NewMergingIterator(iterators, cleanup, cfg.order)
+	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, err
+	}
+
+	return NewRangeIterator(mergeIter, cfg.order), nil
+}
+
+func (r *Rindb) buildSources(ctx context.Context, start, end Bytes, snapshotSeq *uint64) ([]Iterator[Record], func(), error) {
+	maxSeq := uint64(math.MaxUint64)
+	if snapshotSeq != nil {
+		maxSeq = *snapshotSeq
+	}
 
 	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq)}
 
 	entries, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	opened := entries
 
-	cleanupOpened := func() {
+	opened := entries
+	cleanup := func() {
 		for _, o := range opened {
 			o.unref()
 		}
@@ -282,19 +322,13 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, seq ...uint64) (*R
 	for _, entry := range entries {
 		rangeIter, err := entry.Table.IRange(start, end, maxSeq)
 		if err != nil {
-			cleanupOpened()
-			return nil, err
+			cleanup()
+			return nil, nil, err
 		}
 		iterators = append(iterators, rangeIter)
 	}
 
-	mergeIter, err := NewMergingIterator(iterators, cleanupOpened)
-	if err != nil {
-		cleanupOpened()
-		return nil, err
-	}
-
-	return NewRangeIterator(mergeIter), nil
+	return iterators, cleanup, nil
 }
 
 // Put inserts or updates a key-value pair in the database.

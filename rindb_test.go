@@ -234,7 +234,7 @@ func TestRindb_IRange(t *testing.T) {
 			if tt.seq == 0 {
 				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end)
 			} else {
-				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end, tt.seq)
+				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end, IRangeSnapshot(tt.seq))
 			}
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
@@ -298,6 +298,16 @@ func TestRindb_IRangeDirections(t *testing.T) {
 	assert.ErrorIs(t, err, EOI)
 	_, err = emptyIter.Prev()
 	assert.ErrorIs(t, err, EOI)
+}
+
+func TestRindb_IRangeDescendingNotReady(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	_, err := rin.IRange(ctx, Bytes("a"), Bytes("z"), IRangeOrder(RangeDesc))
+	assert.ErrorIs(t, err, ErrRangeOrderNotReady)
 }
 
 // TestRindb_Remove tests the Remove operation of Rindb.

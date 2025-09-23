@@ -4,6 +4,49 @@ import (
 	"errors"
 )
 
+// ErrRangeOrderNotReady indicates that descending range iteration is not yet
+// supported. It is returned when callers request RangeDesc in Step 1 of the
+// asc/desc rollout plan.
+var ErrRangeOrderNotReady = errors.New("descending range iteration is not yet supported")
+
+// RangeOrder represents the initial traversal direction for range iterators.
+type RangeOrder int
+
+const (
+	// RangeAsc streams keys from smallest to largest.
+	RangeAsc RangeOrder = iota
+	// RangeDesc streams keys from largest to smallest. Step 1 guards callers
+	// behind ErrRangeOrderNotReady until descending support is wired
+	// end-to-end.
+	RangeDesc
+)
+
+type rangeConfig struct {
+	order       RangeOrder
+	snapshotSeq *uint64
+}
+
+func rangeDefaultConfig() rangeConfig {
+	return rangeConfig{order: RangeAsc}
+}
+
+// RangeOption configures IRange behaviour.
+type RangeOption func(*rangeConfig)
+
+// IRangeOrder sets the initial iteration order for IRange.
+func IRangeOrder(order RangeOrder) RangeOption {
+	return func(cfg *rangeConfig) {
+		cfg.order = order
+	}
+}
+
+// IRangeSnapshot restricts IRange to records visible at or below seq.
+func IRangeSnapshot(seq uint64) RangeOption {
+	return func(cfg *rangeConfig) {
+		cfg.snapshotSeq = &seq
+	}
+}
+
 // RangeIterator is a user-facing iterator that hides tombstones and
 // duplicates. It wraps a MergingIterator which provides all records in key and
 // sequence order.
@@ -19,11 +62,12 @@ type RangeIterator struct {
 	forward           bool
 	crossingAnchor    Record
 	crossingAnchorSet bool
+	order             RangeOrder
 }
 
 // NewRangeIterator creates a new RangeIterator from a MergingIterator.
-func NewRangeIterator(mi *MergingIterator) *RangeIterator {
-	return &RangeIterator{mi: mi, forward: true}
+func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
+	return &RangeIterator{mi: mi, forward: true, order: order}
 }
 
 func (r *RangeIterator) prepareNext() {
@@ -145,4 +189,12 @@ func (r *RangeIterator) matchesCrossingAnchor(rec Record) bool {
 		rec.GetSequenceNumber() == r.crossingAnchor.GetSequenceNumber() &&
 		rec.GetType() == r.crossingAnchor.GetType() &&
 		rec.GetKey().Compare(r.crossingAnchor.GetKey()) == CmpEqual
+}
+
+func newEmptyRangeIterator() *RangeIterator {
+	mi, err := NewMergingIterator(nil, nil, RangeAsc)
+	if err != nil {
+		panic(err)
+	}
+	return NewRangeIterator(mi, RangeAsc)
 }
