@@ -17,10 +17,10 @@ const (
 )
 
 var (
-	ErrClosed     = errors.New("tablecache: closed")
-	ErrObsolete   = errors.New("tablecache: obsolete")
-	ErrCorruption = errors.New("tablecache: corruption verified")
-	ErrNotFound   = errors.New("tablecache: not found")
+	ErrClosed     = errors.New("cache closed")
+	ErrObsolete   = errors.New("cache entry obsolete")
+	ErrCorruption = errors.New("corruption verified")
+	ErrNotFound   = errors.New("cache entry not found")
 )
 
 // tableKey uniquely identifies an sstable file within (possibly) multi-DB setups.
