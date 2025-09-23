@@ -269,30 +269,21 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOptio
 		opt(&cfg)
 	}
 
+	if start.Compare(end) == CmpGreater {
+		return newEmptyRangeIterator(), nil
+	}
+
+	if cfg.order == RangeDesc {
+		return nil, ErrRangeOrderNotReady
+	}
+
 	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.snapshotSeq)
 	if err != nil {
 		return nil, err
 	}
 
-	if start.Compare(end) == CmpGreater {
-		if cleanup != nil {
-			cleanup()
-		}
-		return newEmptyRangeIterator(), nil
-	}
-
-	if cfg.order == RangeDesc {
-		if cleanup != nil {
-			cleanup()
-		}
-		return nil, ErrRangeOrderNotReady
-	}
-
 	mergeIter, err := NewMergingIterator(iterators, cleanup, cfg.order)
 	if err != nil {
-		if cleanup != nil {
-			cleanup()
-		}
 		return nil, err
 	}
 
