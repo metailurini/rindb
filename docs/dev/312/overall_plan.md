@@ -66,6 +66,7 @@ func (it *sstableIRange) Last() (Record, error) {
 
 3. **Step 2 – Teach RangeIterator/MergingIterator to honor the initial order (Complexity 9/10).** The iterators must seed their forward/backward heaps based on the requested orientation and cope with direction changes without duplicating records. In particular, descending ranges should return `Next()` results in descending key order so clients can consume `6,5,4…` without switching APIs.
    Because this rewrites core iteration mechanics, we will drive the finer design in `docs/dev/312/step2_merging_iterator_plan.md`.
+   We also rename the staging helpers from `prepare*` to `prime*` so the priming terminology stays consistent across the iterator stack.
 
 ```go
 // Step 2: order-aware merging
@@ -82,7 +83,7 @@ func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
   return ri
 }
 
-func (ri *RangeIterator) prepareNext() {
+func (ri *RangeIterator) primeNext() {
   if ri.order == RangeDesc {
     for !ri.nextPrepared && ri.err == nil {
       if !ri.reversePrimed {
@@ -158,14 +159,14 @@ func (list *SkipList[K,V]) IRange(start, end K, order RangeOrder) Iterator[V] {
 }
 func (mi *memtableIRange) Next()/Prev() {
   if mi.order == RangeDesc {
-    mi.prepareNextDescending()
+    mi.primeNextDescending()
   }
   // ensure preparedNext/preparedPrev flip correctly when alternating directions
 }
 ```
 
 5. **Step 4 – Add descending seed logic to `sstableIRange` (Complexity 8/10).** Introduce a `findOffsetLE` helper that binary searches the sparse index for the final block whose key is ≤ `end`, then have `primeDescending` step backward with `PrevOffset` until the first in-range record is prepared.
-   Follow-up `Next()` calls in descending mode should invoke a new `prepareNextDescending()` helper so steady-state iteration also walks backward and respects the `startKey` guard.
+   Follow-up `Next()` calls in descending mode should invoke a new `primeNextDescending()` helper so steady-state iteration also walks backward and respects the `startKey` guard.
    This keeps the work logarithmic in table size and ensures the iterator exposes the same `start <= end` contract regardless of initial direction.
 
 ```go
@@ -188,11 +189,11 @@ func (sri *sstableIRange) primeDescending() error {
 }
 func (sri *sstableIRange) Next() (Record, error) {
   if sri.order == RangeDesc {
-    return sri.prepareNextDescending()
+    return sri.primeNextDescending()
   }
   ...
 }
-func (sri *sstableIRange) prepareNextDescending() (Record, error) {
+func (sri *sstableIRange) primeNextDescending() (Record, error) {
   // mirror primeDescending for steady-state iteration and stop once key < startKey
 }
 ```

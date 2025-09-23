@@ -15,6 +15,8 @@ It assumes Step 1b (see `docs/dev/312/step1b_iterator_last_plan.md`) has added a
 
    The constructor now accepts the order and primes descending scans by peeking without draining the reverse heap. Use the existing error handling helpers (`errors.Is(err, EOI)`) and keep the struct’s `forward` flag describing the last movement relative to ascending order.
 
+   While touching this code, rename the staging helpers from `prepare*` to `prime*` (e.g. `primeNext`, `primePrev`) so the terminology matches the descending `primeDescending` entrypoint and the broader iterator plans.
+
    ```go
    func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
        ri := &RangeIterator{mi: mi, order: order, forward: order != RangeDesc}
@@ -50,14 +52,14 @@ It assumes Step 1b (see `docs/dev/312/step1b_iterator_last_plan.md`) has added a
            }
            return ri.reversePrimed && ri.err == nil
        }
-       ri.prepareNext()
+       ri.primeNext()
        return ri.nextPrepared
    }
    ```
 
-   Update `prepareNext` to fetch candidates from the cache when descending: reuse the existing duplicate/tombstone filtering loop by substituting the call that sources the next record. When `reversePrimed` is true, treat `reverseCached` as the candidate, run the same `lastKey`/tombstone guards, and after choosing it invoke `mi.commitPeekedReverse()` so the merging iterator advances its heaps. Clear `reversePrimed` and keep `ri.forward = false` because the most recent movement was reverse relative to ascending order. For the ascending path continue to call `mi.Next()` as today.
+   Update `primeNext` to fetch candidates from the cache when descending: reuse the existing duplicate/tombstone filtering loop by substituting the call that sources the next record. When `reversePrimed` is true, treat `reverseCached` as the candidate, run the same `lastKey`/tombstone guards, and after choosing it invoke `mi.commitPeekedReverse()` so the merging iterator advances its heaps. Clear `reversePrimed` and keep `ri.forward = false` because the most recent movement was reverse relative to ascending order. For the ascending path continue to call `mi.Next()` as today.
 
-   Mirror the change inside `preparePrev`: when `order == RangeDesc`, pull candidates from `mi.Next()` (because walking “backwards” relative to a descending scan means moving forward through the merged stream). Reuse the same duplicate/tombstone logic so oscillating between `Next`/`Prev` still honours `lastKey` and `matchesCrossingAnchor`. Once the descending path is in place, drop the temporary `ErrRangeOrderNotReady` guard from Step 1 and update API/docs/tests to expect `RangeDesc` to succeed.
+   Mirror the change inside `primePrev`: when `order == RangeDesc`, pull candidates from `mi.Next()` (because walking “backwards” relative to a descending scan means moving forward through the merged stream). Reuse the same duplicate/tombstone logic so oscillating between `Next`/`Prev` still honours `lastKey` and `matchesCrossingAnchor`. Once the descending path is in place, drop the temporary `ErrRangeOrderNotReady` guard from Step 1 and update API/docs/tests to expect `RangeDesc` to succeed.
 
 2. **Seed and cache the reverse heap inside MergingIterator.** Keep using `PriorityQueue[pqItem]` for both heaps so we remain aligned with the current implementation. Extend the struct with `order RangeOrder`, `reversePrimed bool`, `reverseErr error`, and `cachedReverse pqItem`. Update the constructor signature to `NewMergingIterator(children []Iterator[Record], cleanup func(), order RangeOrder)` so Step 1’s caller wiring compiles. The existing forward seeding logic stays, and descending scans add a mirrored seeding loop that relies on Step 1b’s `Last()` helper:
 
