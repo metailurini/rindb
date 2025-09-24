@@ -326,7 +326,7 @@ func (sri *sstableIRange) Last() (Record, error) {
 		})
 		switch {
 		case idx == 0:
-			return empty, EOI
+			cursor = sri.s.SparseIndex[0].offset
 		case idx < len(sri.s.SparseIndex):
 			cursor = sri.s.SparseIndex[idx].offset
 		default:
