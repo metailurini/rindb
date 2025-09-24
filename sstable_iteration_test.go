@@ -96,6 +96,35 @@ func TestSSTableIterator_MixedDirectionIteration(t *testing.T) {
 	assert.False(t, it.HasPrev())
 }
 
+func TestSSTableIterator_Last(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc"), 3))
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.Iterator()
+	require.NoError(t, err)
+
+	last, err := it.Last()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("c"), last.GetKey())
+	assert.Equal(t, Bytes("vc"), last.GetValue())
+
+	prev, err := it.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), prev.GetKey())
+}
+
 func TestSSTableIRange_ReverseIteration(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
@@ -131,6 +160,38 @@ func TestSSTableIRange_ReverseIteration(t *testing.T) {
 
 	assert.Equal(t, []Bytes{Bytes("a"), Bytes("b"), Bytes("c")}, fwd)
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, rev)
+}
+
+func TestSSTableIRange_Last(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb3"), 3))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc5"), 5))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc1"), 1))
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.IRange(Bytes("a"), Bytes("c"), 2)
+	require.NoError(t, err)
+
+	last, err := it.Last()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("c"), last.GetKey())
+	assert.Equal(t, uint64(1), last.GetSequenceNumber())
+
+	prev, err := it.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), prev.GetKey())
+	assert.Equal(t, uint64(2), prev.GetSequenceNumber())
 }
 
 func TestSSTableIterator_PrevFullTraversal(t *testing.T) {
