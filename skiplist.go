@@ -104,10 +104,6 @@ func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 			list.tail = newNode
 		}
 
-		if list.tail == nil {
-			list.tail = newNode
-		}
-
 		list.length++
 	}
 }

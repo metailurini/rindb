@@ -137,6 +137,38 @@ func TestMergingIterator_LastErrorSurfaced(t *testing.T) {
 	assert.EqualError(t, err, "tail boom")
 }
 
+func TestMergingIterator_LastReturnsMaxAndPrimesPrev(t *testing.T) {
+	t.Parallel()
+	iterators := []Iterator[Record]{
+		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue), mkRec("c", "vc1", 2, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue), mkRec("c", "vc2", 3, TypeValue)}, failIdx: -1},
+	}
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
+	require.NoError(t, err)
+
+	last, err := mi.Last()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("c", "vc2", 3, TypeValue), last)
+
+	prev, err := mi.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("c", "vc1", 2, TypeValue), prev)
+
+	prev2, err := mi.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("b", "vb", 1, TypeValue), prev2)
+}
+
+func TestMergingIterator_LastEmpty(t *testing.T) {
+	t.Parallel()
+	iterators := []Iterator[Record]{&errIterator{records: nil, failIdx: -1}}
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
+	require.NoError(t, err)
+
+	_, err = mi.Last()
+	assert.ErrorIs(t, err, EOI)
+}
+
 func TestMergingIterator_MergesRecords(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

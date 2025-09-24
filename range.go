@@ -183,19 +183,8 @@ func (r *RangeIterator) Last() (Record, error) {
 	var empty Record
 	r.err = nil
 
-	var last Record
-	for r.HasNext() {
-		rec, err := r.Next()
-		if err != nil {
-			return empty, err
-		}
-		last = rec
-	}
-	if last == nil {
-		return empty, EOI
-	}
-
-	if _, err := r.mi.Prev(); err != nil && !errors.Is(err, EOI) {
+	rec, err := r.mi.Last()
+	if err != nil {
 		return empty, err
 	}
 
@@ -206,10 +195,42 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.prev = nil
 	r.next = nil
 	r.err = nil
-	r.lastKey = last.GetKey().Clone()
-	r.lastKeySet = true
+	r.lastKeySet = false
 
-	return last, nil
+	for {
+		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
+		if sameKey {
+			prev, err := r.mi.Prev()
+			switch {
+			case err == nil:
+				rec = prev
+			case errors.Is(err, EOI):
+				return empty, EOI
+			default:
+				return empty, err
+			}
+			continue
+		}
+
+		r.lastKey = rec.GetKey().Clone()
+		r.lastKeySet = true
+		if rec.GetType() == TypeDeletion {
+			prev, err := r.mi.Prev()
+			switch {
+			case err == nil:
+				rec = prev
+			case errors.Is(err, EOI):
+				return empty, EOI
+			default:
+				return empty, err
+			}
+			continue
+		}
+
+		r.crossingAnchor = rec
+		r.crossingAnchorSet = true
+		return rec, nil
+	}
 }
 
 // Close releases any resources held by the iterator.
