@@ -81,6 +81,19 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order Rang
 	}
 	fwd := NewPriorityQueue(lessFwd)
 	rev := NewPriorityQueue(lessRev)
+	if order == RangeDesc {
+		for _, it := range iterators {
+			if it == nil {
+				continue
+			}
+			if _, err := it.Last(); err != nil && !errors.Is(err, EOI) {
+				if cleanup != nil {
+					cleanup()
+				}
+				return nil, err
+			}
+		}
+	}
 	for _, it := range iterators {
 		if it.HasNext() {
 			rec, err := it.Next()

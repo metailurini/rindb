@@ -12,6 +12,7 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 	return &sstableIterator{
 		FileSystem: s.FileSystem,
 		dataEnd:    s.dataEnd,
+		cursor:     0,
 	}, nil
 }
 
@@ -39,12 +40,13 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	}
 	dataEnd := int64(byteOrder.Uint64(buf))
 
-	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, dataEnd: dataEnd}, nil
+	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, startOffset: startOffset, dataEnd: dataEnd}, nil
 }
 
 type sstableIterator struct {
 	*FileSystem
 	offset  int64
+	cursor  int64
 	dataEnd int64
 }
 
@@ -69,12 +71,16 @@ func (s *sstableIterator) Next() (Record, error) {
 		return nil, err
 	}
 	s.offset = reader.Offset()
+	s.cursor = s.offset
 	return record, nil
 }
 
 // HasPrev implements Iterator.
 func (s *sstableIterator) HasPrev() bool {
-	return s.offset > 0
+	if s.cursor == 0 && s.offset > 0 {
+		s.cursor = s.offset
+	}
+	return s.cursor > 0
 }
 
 // Prev implements Iterator.
@@ -82,7 +88,7 @@ func (s *sstableIterator) Prev() (Record, error) {
 	if !s.HasPrev() {
 		return nil, EOI
 	}
-	reader := newOffsetReader(s.FileSystem, s.offset)
+	reader := newOffsetReader(s.FileSystem, s.cursor)
 	start, err := reader.PrevOffset()
 	switch {
 	case err == nil:
@@ -103,6 +109,34 @@ func (s *sstableIterator) Prev() (Record, error) {
 		return nil, err
 	}
 	s.offset = start
+	s.cursor = start
+	return record, nil
+}
+
+// Last implements Iterator.
+func (s *sstableIterator) Last() (Record, error) {
+	reader := newOffsetReader(s.FileSystem, s.dataEnd)
+	start, err := reader.PrevOffset()
+	switch {
+	case err == nil:
+		// continue
+	case errors.Is(err, io.EOF):
+		return nil, EOI
+	default:
+		return nil, err
+	}
+	reader.offset = start
+	record, _, err := readRecord(reader)
+	switch {
+	case err == nil:
+		// continue
+	case errors.Is(err, EOI), errors.Is(err, io.EOF):
+		return nil, EOI
+	default:
+		return nil, err
+	}
+	s.cursor = start
+	s.offset = reader.Offset()
 	return record, nil
 }
 
@@ -114,6 +148,7 @@ type sstableIRange struct {
 	seq            uint64
 	offset         int64
 	cursor         int64
+	startOffset    int64
 	preparedOffset int64
 	lowerBound     int64
 	haveLowerBound bool
@@ -182,6 +217,40 @@ func (sri *sstableIRange) Next() (Record, error) {
 	return next, nil
 }
 
+func (sri *sstableIRange) ensureLowerBound() error {
+	if sri.haveLowerBound {
+		return nil
+	}
+	reader := newOffsetReader(sri.s.FileSystem, sri.startOffset)
+	offset := sri.startOffset
+	for offset < sri.dataEnd {
+		cur := offset
+		rec, _, err := readRecord(reader)
+		switch {
+		case err == nil:
+			// continue
+		case errors.Is(err, EOI), errors.Is(err, io.EOF):
+			return EOI
+		default:
+			return err
+		}
+		offset = reader.Offset()
+		if rec.GetKey().Compare(sri.startKey) < 0 {
+			continue
+		}
+		if rec.GetKey().Compare(sri.endKey) > 0 {
+			return EOI
+		}
+		if rec.GetSequenceNumber() > sri.seq {
+			continue
+		}
+		sri.lowerBound = cur
+		sri.haveLowerBound = true
+		return nil
+	}
+	return EOI
+}
+
 // HasPrev implements Iterator.
 func (sri *sstableIRange) HasPrev() bool {
 	if !sri.haveLowerBound {
@@ -192,36 +261,120 @@ func (sri *sstableIRange) HasPrev() bool {
 
 // Prev implements Iterator.
 func (sri *sstableIRange) Prev() (Record, error) {
-	if !sri.HasPrev() {
-		var empty Record
-		return empty, EOI
+	var empty Record
+	for {
+		if !sri.HasPrev() {
+			return empty, EOI
+		}
+		reader := newOffsetReader(sri.s.FileSystem, sri.cursor)
+		start, err := reader.PrevOffset()
+		switch {
+		case err == nil:
+			// continue
+		case errors.Is(err, io.EOF):
+			return empty, EOI
+		default:
+			return nil, err
+		}
+		reader.offset = start
+		rec, _, err := readRecord(reader)
+		switch {
+		case err == nil:
+			// continue
+		case errors.Is(err, EOI), errors.Is(err, io.EOF):
+			sri.cursor = start
+			sri.offset = start
+			continue
+		default:
+			return nil, err
+		}
+
+		sri.offset = start
+		sri.cursor = start
+		if rec.GetKey().Compare(sri.endKey) > 0 {
+			continue
+		}
+		if rec.GetKey().Compare(sri.startKey) < 0 {
+			return empty, EOI
+		}
+		if rec.GetSequenceNumber() > sri.seq {
+			continue
+		}
+
+		sri.prepared = false
+		sri.err = nil
+		sri.next = nil
+		return rec, nil
 	}
-	reader := newOffsetReader(sri.s.FileSystem, sri.cursor)
-	start, err := reader.PrevOffset()
-	switch {
-	case err == nil:
-		// No error, continue processing
-	case errors.Is(err, io.EOF):
-		var empty Record
-		return empty, EOI
-	default:
-		return nil, err
-	}
-	reader.offset = start
-	rec, _, err := readRecord(reader)
-	switch {
-	case err == nil:
-		// No error, continue processing
-	case errors.Is(err, EOI), errors.Is(err, io.EOF):
-		var empty Record
-		return empty, EOI
-	default:
-		return nil, err
-	}
-	sri.offset = start
-	sri.cursor = start
-	sri.prepared = false
+}
+
+// Last implements Iterator.
+func (sri *sstableIRange) Last() (Record, error) {
+	var empty Record
 	sri.err = nil
+	sri.prepared = false
 	sri.next = nil
-	return rec, nil
+
+	if err := sri.ensureLowerBound(); err != nil {
+		return empty, err
+	}
+
+	cursor := sri.dataEnd
+	if len(sri.s.SparseIndex) > 0 {
+		idx := sort.Search(len(sri.s.SparseIndex), func(i int) bool {
+			return sri.s.SparseIndex[i].key.Compare(sri.endKey) == CmpGreater
+		})
+		switch {
+		case idx == 0:
+			return empty, EOI
+		case idx < len(sri.s.SparseIndex):
+			cursor = sri.s.SparseIndex[idx].offset
+		default:
+			cursor = sri.dataEnd
+		}
+	}
+
+	for {
+		if cursor <= 0 {
+			return empty, EOI
+		}
+		reader := newOffsetReader(sri.s.FileSystem, cursor)
+		start, err := reader.PrevOffset()
+		switch {
+		case err == nil:
+			// continue
+		case errors.Is(err, io.EOF):
+			return empty, EOI
+		default:
+			return empty, err
+		}
+		reader.offset = start
+		rec, _, err := readRecord(reader)
+		switch {
+		case err == nil:
+			// continue
+		case errors.Is(err, EOI), errors.Is(err, io.EOF):
+			cursor = start
+			continue
+		default:
+			return empty, err
+		}
+		cursor = start
+		key := rec.GetKey()
+		if key.Compare(sri.endKey) == CmpGreater {
+			continue
+		}
+		if key.Compare(sri.startKey) == CmpLess {
+			return empty, EOI
+		}
+		if rec.GetSequenceNumber() > sri.seq {
+			continue
+		}
+		sri.cursor = start
+		sri.offset = reader.Offset()
+		if sri.offset > sri.dataEnd {
+			sri.offset = sri.dataEnd
+		}
+		return rec, nil
+	}
 }

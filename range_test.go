@@ -228,6 +228,30 @@ func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
 	mustPrevEOI(t, iter)
 }
 
+func TestRangeIterator_LastPositionsPrevBeforeTail(t *testing.T) {
+	t.Parallel()
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "a", value: "va1", seq: 1},
+			{key: "c", value: "vc5", seq: 5},
+		},
+		[]kv{
+			{key: "b", value: "vb2", seq: 2},
+			{key: "c", value: "vc3", seq: 3},
+		},
+	)
+
+	last, err := iter.Last()
+	require.NoError(t, err)
+	assert.Equal(t, "c", string(last.GetKey()))
+	assert.Equal(t, "vc5", string(last.GetValue()))
+
+	prev, err := iter.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, "b", string(prev.GetKey()))
+	assert.Equal(t, "vb2", string(prev.GetValue()))
+}
+
 func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	t.Parallel()
 	iters := []Iterator[Record]{

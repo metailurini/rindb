@@ -319,6 +319,28 @@ func TestSkipList_IteratorMixed(t *testing.T) {
 	assert.Equal(t, 2, v)
 }
 
+func TestSkipList_IteratorLast(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 4; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.Iterator().(*slIterator[int, int])
+	assert.True(t, ok)
+
+	last, err := it.Last()
+	assert.NoError(t, err)
+	assert.Equal(t, 4, last)
+
+	prev, err := it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, 3, prev)
+}
+
 func TestSkipList_IteratorConcurrentMutations(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
@@ -426,6 +448,28 @@ func TestSkipList_IRangeMixed(t *testing.T) {
 	v, err = it.Next()
 	assert.NoError(t, err)
 	assert.Equal(t, 3, v)
+}
+
+func TestSkipList_IRangeLast(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	last, err := it.Last()
+	assert.NoError(t, err)
+	assert.Equal(t, 4, last)
+
+	prev, err := it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, 3, prev)
 }
 
 func TestSkipList_Clear(t *testing.T) {

@@ -522,6 +522,30 @@ func TestMemtableIRange_Reverse(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
 }
 
+func TestMemtableIRange_Last(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc4"), 4))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 3)
+	mi, ok := it.(*memtableIRange)
+	assert.True(t, ok)
+
+	last, err := mi.Last()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), last.GetKey())
+	assert.Equal(t, uint64(3), last.GetSequenceNumber())
+
+	prev, err := mi.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), prev.GetKey())
+	assert.Equal(t, uint64(2), prev.GetSequenceNumber())
+}
+
 func TestMemtableIRange_PrevBeforeNext(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)

@@ -47,6 +47,38 @@ func (e *errIterator) Prev() (Record, error) {
 	return e.records[e.idx], nil
 }
 
+func (e *errIterator) Last() (Record, error) {
+	var empty Record
+	if len(e.records) == 0 {
+		return empty, EOI
+	}
+	e.idx = len(e.records) - 1
+	return e.records[e.idx], nil
+}
+
+type lastErrorIterator struct {
+	err error
+}
+
+func (l *lastErrorIterator) HasNext() bool { return false }
+
+func (l *lastErrorIterator) Next() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
+func (l *lastErrorIterator) HasPrev() bool { return false }
+
+func (l *lastErrorIterator) Prev() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
+func (l *lastErrorIterator) Last() (Record, error) {
+	var empty Record
+	return empty, l.err
+}
+
 func mkRec(k, v string, seq uint64, typ RecordType) Record {
 	var nv Bytes
 	if v != "" {
@@ -96,6 +128,13 @@ func TestMergingIterator_IncludesDuplicatesAndTombstones(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestMergingIterator_LastErrorSurfaced(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("tail boom")
+	_, err := NewMergingIterator([]Iterator[Record]{&lastErrorIterator{err: boom}}, nil, RangeDesc)
+	assert.EqualError(t, err, "tail boom")
 }
 
 func TestMergingIterator_MergesRecords(t *testing.T) {

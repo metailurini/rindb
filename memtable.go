@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"bytes"
+	"errors"
 	"math"
 )
 
@@ -184,6 +185,32 @@ func (mi *memtableIRange) Prev() (Record, error) {
 	mi.preparedPrev = false
 	mi.preparedNext = false
 	return mi.prev, nil
+}
+
+// Last implements Iterator[Record].
+func (mi *memtableIRange) Last() (Record, error) {
+	mi.err = nil
+	mi.preparedNext = false
+	mi.preparedPrev = false
+
+	var empty Record
+	rec, err := mi.it.Last()
+	if err != nil {
+		return empty, err
+	}
+	for rec.GetSequenceNumber() > mi.seq {
+		if !mi.it.HasPrev() {
+			return empty, EOI
+		}
+		rec, err = mi.it.Prev()
+		if err != nil {
+			if errors.Is(err, EOI) {
+				return empty, EOI
+			}
+			return empty, err
+		}
+	}
+	return rec, nil
 }
 
 // Cleanup removes records with sequence numbers less than minSeq.

@@ -178,6 +178,40 @@ func (r *RangeIterator) Prev() (Record, error) {
 	return rec, nil
 }
 
+// Last implements Iterator[Record].
+func (r *RangeIterator) Last() (Record, error) {
+	var empty Record
+	r.err = nil
+
+	var last Record
+	for r.HasNext() {
+		rec, err := r.Next()
+		if err != nil {
+			return empty, err
+		}
+		last = rec
+	}
+	if last == nil {
+		return empty, EOI
+	}
+
+	if _, err := r.mi.Prev(); err != nil && !errors.Is(err, EOI) {
+		return empty, err
+	}
+
+	r.prevPrepared = false
+	r.nextPrepared = false
+	r.forward = false
+	r.crossingAnchorSet = false
+	r.prev = nil
+	r.next = nil
+	r.err = nil
+	r.lastKey = last.GetKey().Clone()
+	r.lastKeySet = true
+
+	return last, nil
+}
+
 // Close releases any resources held by the iterator.
 func (r *RangeIterator) Close() error {
 	return r.mi.Close()
