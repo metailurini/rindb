@@ -191,6 +191,48 @@ func TestSSTableIRange_DescendingNext(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("d"), Bytes("c"), Bytes("b"), Bytes("a")}, keys)
 }
 
+func TestSSTableIRange_DescendingPriming(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	for idx, key := range []string{"a", "b", "c"} {
+		mem.Put(newRecord(Bytes(key), Bytes("v"+key), uint64(idx+1)))
+	}
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.IRange(Bytes("a"), Bytes("c"), RangeDesc)
+	require.NoError(t, err)
+
+	_, err = it.Prev()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err := it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	_, err = it.Next()
+	require.ErrorIs(t, err, EOI)
+}
+
 func TestSSTableIRange_DescendingOscillation(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)

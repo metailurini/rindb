@@ -542,6 +542,38 @@ func TestMemtableIRange_DescendingPrev(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, keys)
 }
 
+func TestMemtableIRange_DescendingNext(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 3, RangeDesc)
+
+	rec, err := it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+
+	it = mem.IRange(Bytes("a"), Bytes("c"), 3, RangeDesc)
+
+	var keys []Bytes
+	for it.HasNext() {
+		rec, err := it.Next()
+		assert.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+	assert.Equal(t, []Bytes{Bytes("a"), Bytes("b"), Bytes("c")}, keys)
+
+	_, err = it.Next()
+	assert.ErrorIs(t, err, EOI)
+
+	rec, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+}
+
 func TestMemtableIRange_DescendingSequenceFilter(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
