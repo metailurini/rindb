@@ -307,7 +307,7 @@ func (r *Rindb) buildSources(ctx context.Context, start, end Bytes, order RangeO
 	}
 
 	for _, entry := range entries {
-		rangeIter, err := entry.Table.IRange(start, end, maxSeq)
+		rangeIter, err := entry.Table.IRange(start, end, order, maxSeq)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
