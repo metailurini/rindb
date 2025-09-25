@@ -300,14 +300,28 @@ func TestRindb_IRangeDirections(t *testing.T) {
 	assert.ErrorIs(t, err, EOI)
 }
 
-func TestRindb_IRangeDescendingNotReady(t *testing.T) {
+func TestRindb_IRangeDescending(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
 	defer cleanup()
 
-	_, err := rin.IRange(ctx, Bytes("a"), Bytes("z"), IRangeOrder(RangeDesc))
-	assert.ErrorIs(t, err, ErrRangeOrderNotReady)
+	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+
+	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("z"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	var keys []string
+	for iter.HasNext() {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		keys = append(keys, string(rec.GetKey()))
+	}
+
+	assert.Equal(t, []string{"c", "b", "a"}, keys)
 }
 
 // TestRindb_Remove tests the Remove operation of Rindb.

@@ -13,31 +13,29 @@ type pqItem struct {
 // records ordered by key and sequence number (descending) and supports
 // bidirectional traversal.
 type MergingIterator struct {
-	fwd              *PriorityQueue[pqItem]
-	rev              *PriorityQueue[pqItem]
-	cleanup          func()
-	err              error
+	fwd     *PriorityQueue[pqItem]
+	rev     *PriorityQueue[pqItem]
+	cleanup func()
+	err     error
+
+	nextPrepared bool
+	nextItem     pqItem
+
+	prevPrepared bool
+	prevItem     pqItem
+
+	forward bool
+
+	crossingAnchor    pqItem
+	crossingAnchorSet bool
+
 	order            RangeOrder
 	iters            []Iterator[Record]
 	descendingPrimed bool
 
-	// prepared next state
-	nextPrepared bool
-	nextItem     pqItem
-
-	// prepared prev state
-	prevPrepared bool
-	prevItem     pqItem
-
-	// forward tracks the last direction of travel. It starts in forward
-	// mode because the iterator is positioned before the first element.
-	forward bool
-
-	// crossingAnchor holds the last surfaced record so we can detect the
-	// direction change boundary and avoid surfacing the same record more
-	// than once when oscillating between Next and Prev.
-	crossingAnchor    pqItem
-	crossingAnchorSet bool
+	cachedReverse pqItem
+	reverseErr    error
+	reversePrimed bool
 }
 
 // NewMergingIterator constructs a MergingIterator over provided iterators.
@@ -90,36 +88,121 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order Rang
 		}
 		active = append(active, it)
 	}
+
+	m := &MergingIterator{
+		fwd:     fwd,
+		rev:     rev,
+		cleanup: cleanup,
+		forward: order != RangeDesc,
+		order:   order,
+		iters:   active,
+	}
+
+	if err := m.seedForward(active); err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, err
+	}
 	if order == RangeDesc {
-		for _, it := range active {
-			if _, err := it.Last(); err != nil && !errors.Is(err, EOI) {
-				if cleanup != nil {
-					cleanup()
-				}
-				return nil, err
+		if err := m.seedReverse(active); err != nil {
+			if cleanup != nil {
+				cleanup()
 			}
+			return nil, err
 		}
 	}
-	for _, it := range active {
-		if it.HasNext() {
-			rec, err := it.Next()
+
+	return m, nil
+}
+
+func (m *MergingIterator) seedForward(children []Iterator[Record]) error {
+	if m.order == RangeDesc {
+		return nil
+	}
+	for _, child := range children {
+		if child == nil {
+			continue
+		}
+		if child.HasNext() {
+			rec, err := child.Next()
 			switch {
 			case err == nil:
-				// No error, continue processing
+				// continue
 			case errors.Is(err, EOI):
-				// End of iteration, skip to next iterator
 				continue
 			default:
-				// Actual error occurred
-				if cleanup != nil {
-					cleanup()
-				}
-				return nil, err
+				return err
 			}
-			fwd.PushItem(pqItem{rec: rec, iter: it})
+			m.fwd.PushItem(pqItem{rec: rec, iter: child})
 		}
 	}
-	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup, forward: true, order: order, iters: active}, nil
+	return nil
+}
+
+func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
+	for _, child := range children {
+		rec, err := child.Last()
+		switch {
+		case errors.Is(err, EOI):
+			continue
+		case err != nil:
+			return err
+		default:
+			m.rev.PushItem(pqItem{rec: rec, iter: child})
+		}
+	}
+	return nil
+}
+
+func (m *MergingIterator) peekReverse() (Record, error) {
+	if !m.reversePrimed {
+		if m.rev.Len() == 0 {
+			m.reverseErr = EOI
+		} else {
+			m.cachedReverse = m.rev.PeekItem()
+			m.reverseErr = nil
+		}
+		m.reversePrimed = true
+	}
+	if m.reverseErr != nil {
+		var empty Record
+		return empty, m.reverseErr
+	}
+	return m.cachedReverse.rec, nil
+}
+
+func (m *MergingIterator) commitPeekedReverse() {
+	if !m.reversePrimed {
+		return
+	}
+	if m.reverseErr != nil {
+		if !errors.Is(m.reverseErr, EOI) {
+			m.err = m.reverseErr
+		}
+		m.reversePrimed = false
+		m.cachedReverse = pqItem{}
+		m.reverseErr = nil
+		return
+	}
+
+	item := m.rev.PopItem()
+	m.fwd.PushItem(item)
+	if item.iter.HasPrev() {
+		prev, err := item.iter.Prev()
+		switch {
+		case err == nil:
+			m.rev.PushItem(pqItem{rec: prev, iter: item.iter})
+		case errors.Is(err, EOI):
+			// exhausted
+		default:
+			m.err = err
+		}
+	}
+	m.forward = false
+	m.reversePrimed = false
+	m.cachedReverse = pqItem{}
+	m.reverseErr = nil
 }
 
 // HasNext implements Iterator[Record].

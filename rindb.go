@@ -273,10 +273,6 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOptio
 		return newEmptyRangeIterator(), nil
 	}
 
-	if cfg.order == RangeDesc {
-		return nil, ErrRangeOrderNotReady
-	}
-
 	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.snapshotSeq)
 	if err != nil {
 		return nil, err

@@ -384,16 +384,16 @@ func TestRangeIterator_Prepare(t *testing.T) {
 
 			iter := NewRangeIterator(mi, RangeAsc)
 			// Emulate internal preparation flow used by HasNext/Next
-			iter.prepareNext()
+			iter.primeNext()
 			_, err = iter.Next()
 			assert.NoError(t, err)
 
 			// Prepare the next element and validate expectations
-			iter.prepareNext()
+			iter.primeNext()
 			if tt.wantErr != "" {
 				assert.EqualError(t, iter.err, tt.wantErr)
 				iter.nextPrepared = false
-				iter.prepareNext()
+				iter.primeNext()
 				assert.False(t, iter.nextPrepared)
 			} else {
 				assert.Equal(t, tt.wantPrepared, iter.nextPrepared)
@@ -412,6 +412,10 @@ type kv struct {
 }
 
 func buildRangeIter(t *testing.T, sources ...[]kv) *RangeIterator {
+	return buildRangeIterOrder(t, RangeAsc, sources...)
+}
+
+func buildRangeIterOrder(t *testing.T, order RangeOrder, sources ...[]kv) *RangeIterator {
 	t.Helper()
 
 	var iterators []Iterator[Record]
@@ -427,9 +431,31 @@ func buildRangeIter(t *testing.T, sources ...[]kv) *RangeIterator {
 		iterators = append(iterators, &errIterator{records: records, failIdx: -1})
 	}
 
-	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
+	mi, err := NewMergingIterator(iterators, nil, order)
 	require.NoError(t, err)
-	return NewRangeIterator(mi, RangeAsc)
+	return NewRangeIterator(mi, order)
+}
+
+func TestRangeIterator_DescendingFirstNext(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
+	mustNextEOI(t, iter)
+}
+
+func TestRangeIterator_DescendingOscillation(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustPrevValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
