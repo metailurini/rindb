@@ -314,6 +314,13 @@ type slIRange[K Comparable, V any] struct {
 	desc     *SLNode[K, V]
 }
 
+func (s *slIRange[K, V]) clipBackward(node *SLNode[K, V]) *SLNode[K, V] {
+	if node != nil && Compare(node.Key, s.startKey) == CmpLess {
+		return nil
+	}
+	return node
+}
+
 // HasNext implements Iterator.
 func (s *slIRange[K, V]) HasNext() bool {
 	return s.curr != nil && s.curr.Next() != nil && Compare(s.curr.Next().Key, s.endKey) != CmpGreater
@@ -353,10 +360,7 @@ func (s *slIRange[K, V]) Prev() (V, error) {
 		}
 		node := s.desc
 		value := node.Value
-		prev := node.backward
-		if prev != nil && Compare(prev.Key, s.startKey) == CmpLess {
-			prev = nil
-		}
+		prev := s.clipBackward(node.backward)
 		s.curr = prev
 		s.desc = prev
 		return value, nil
@@ -385,11 +389,7 @@ func (s *slIRange[K, V]) Last() (V, error) {
 	}
 	s.curr = node.backward
 	if s.order == RangeDesc {
-		prev := node.backward
-		if prev != nil && Compare(prev.Key, s.startKey) == CmpLess {
-			prev = nil
-		}
-		s.desc = prev
+		s.desc = s.clipBackward(node.backward)
 	}
 	return node.Value, nil
 }
