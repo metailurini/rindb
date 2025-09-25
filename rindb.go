@@ -273,7 +273,7 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOptio
 		return newEmptyRangeIterator(), nil
 	}
 
-	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.snapshotSeq)
+	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.order, cfg.snapshotSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -286,13 +286,13 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOptio
 	return NewRangeIterator(mergeIter, cfg.order), nil
 }
 
-func (r *Rindb) buildSources(ctx context.Context, start, end Bytes, snapshotSeq *uint64) ([]Iterator[Record], func(), error) {
+func (r *Rindb) buildSources(ctx context.Context, start, end Bytes, order RangeOrder, snapshotSeq *uint64) ([]Iterator[Record], func(), error) {
 	maxSeq := uint64(math.MaxUint64)
 	if snapshotSeq != nil {
 		maxSeq = *snapshotSeq
 	}
 
-	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq)}
+	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq, order)}
 
 	entries, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {

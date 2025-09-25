@@ -395,7 +395,7 @@ func TestSkipList_IRangeReverse(t *testing.T) {
 		list.Put(i, i)
 	}
 
-	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	it, ok := list.IRange(2, 4, RangeAsc).(*slIRange[int, int])
 	assert.True(t, ok)
 
 	for it.HasNext() {
@@ -423,7 +423,7 @@ func TestSkipList_IRangeMixed(t *testing.T) {
 		list.Put(i, i)
 	}
 
-	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	it, ok := list.IRange(2, 4, RangeAsc).(*slIRange[int, int])
 	assert.True(t, ok)
 
 	assert.True(t, it.HasNext())
@@ -450,6 +450,55 @@ func TestSkipList_IRangeMixed(t *testing.T) {
 	assert.Equal(t, 3, v)
 }
 
+func TestSkipList_IRangeDescendingPrev(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it := list.IRange(1, 5, RangeDesc)
+
+	var values []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		values = append(values, v)
+	}
+
+	assert.Equal(t, []int{5, 4, 3, 2, 1}, values)
+}
+
+func TestSkipList_IRangeDescendingLast(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 4; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4, RangeDesc).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	last, err := it.Last()
+	assert.NoError(t, err)
+	assert.Equal(t, 4, last)
+
+	var backwards []int
+	for it.HasPrev() {
+		v, err := it.Prev()
+		assert.NoError(t, err)
+		backwards = append(backwards, v)
+	}
+
+	assert.Equal(t, []int{3, 2}, backwards)
+}
+
 func TestSkipList_IRangeLast(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
@@ -460,7 +509,7 @@ func TestSkipList_IRangeLast(t *testing.T) {
 		list.Put(i, i)
 	}
 
-	it, ok := list.IRange(2, 4).(*slIRange[int, int])
+	it, ok := list.IRange(2, 4, RangeAsc).(*slIRange[int, int])
 	assert.True(t, ok)
 
 	last, err := it.Last()
@@ -535,7 +584,7 @@ func TestSkipList_IRange(t *testing.T) {
 		list, err := InitSkipList[int, int](cfg)
 		assert.NoError(t, err)
 
-		it := list.IRange(1, 5)
+		it := list.IRange(1, 5, RangeAsc)
 		assert.False(t, it.HasNext())
 		_, err = it.Next()
 		assert.ErrorIs(t, err, EOI)
@@ -550,7 +599,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(0, 6)
+		it := list.IRange(0, 6, RangeAsc)
 		expected := []int{10, 20, 30, 40, 50}
 		actual := []int{}
 		for it.HasNext() {
@@ -573,7 +622,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(1, 5)
+		it := list.IRange(1, 5, RangeAsc)
 		assert.False(t, it.HasNext())
 		_, err = it.Next()
 		assert.ErrorIs(t, err, EOI)
@@ -588,7 +637,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(35, 40)
+		it := list.IRange(35, 40, RangeAsc)
 		assert.False(t, it.HasNext())
 		_, err = it.Next()
 		assert.ErrorIs(t, err, EOI)
@@ -603,7 +652,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(5, 30)
+		it := list.IRange(5, 30, RangeAsc)
 		expected := []int{100, 200, 300}
 		actual := []int{}
 		for it.HasNext() {
@@ -623,7 +672,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(30, 55)
+		it := list.IRange(30, 55, RangeAsc)
 		expected := []int{300, 400, 500}
 		actual := []int{}
 		for it.HasNext() {
@@ -643,7 +692,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(20, 40)
+		it := list.IRange(20, 40, RangeAsc)
 		expected := []int{200, 300, 400}
 		actual := []int{}
 		for it.HasNext() {
@@ -663,7 +712,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(30, 30)
+		it := list.IRange(30, 30, RangeAsc)
 		expected := []int{300}
 		actual := []int{}
 		for it.HasNext() {
@@ -683,7 +732,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(25, 25)
+		it := list.IRange(25, 25, RangeAsc)
 		assert.False(t, it.HasNext())
 		_, err = it.Next()
 		assert.ErrorIs(t, err, EOI)
@@ -698,7 +747,7 @@ func TestSkipList_IRange(t *testing.T) {
 			list.Put(v, v*10)
 		}
 
-		it := list.IRange(30, 20)
+		it := list.IRange(30, 20, RangeAsc)
 		assert.False(t, it.HasNext())
 		_, err = it.Next()
 		assert.ErrorIs(t, err, EOI)
@@ -713,7 +762,7 @@ func TestSkipList_IRange(t *testing.T) {
 		list.Put(10, 101) // Overwrites 100
 		list.Put(30, 300)
 
-		it := list.IRange(5, 35)
+		it := list.IRange(5, 35, RangeAsc)
 		expected := []int{101, 200, 300}
 		actual := []int{}
 		for it.HasNext() {
@@ -731,7 +780,7 @@ func TestSkipList_IRange(t *testing.T) {
 		list.Put(1, 10)
 		list.Put(2, 20)
 
-		it := list.IRange(1, 2)
+		it := list.IRange(1, 2, RangeAsc)
 		val1, err := it.Next()
 		assert.NoError(t, err)
 		assert.Equal(t, 10, val1)

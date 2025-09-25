@@ -94,11 +94,11 @@ func (m *memtable) Iterator() Iterator[Record] {
 
 // IRange returns an iterator over records whose keys fall within [start, end]
 // and sequence numbers less than or equal to seq.
-func (m *memtable) IRange(start, end Bytes, seq uint64) Iterator[Record] {
+func (m *memtable) IRange(start, end Bytes, seq uint64, order RangeOrder) Iterator[Record] {
 	startKey := InternalKey{UserKey: start, Seq: math.MaxUint64, Type: TypeValue}
 	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeMerge}
-	it := m.data.IRange(startKey, endKey)
-	return &memtableIRange{it: it, seq: seq}
+	it := m.data.IRange(startKey, endKey, order)
+	return &memtableIRange{it: it, seq: seq, order: order}
 }
 
 type memtableIRange struct {
@@ -109,6 +109,7 @@ type memtableIRange struct {
 	prev         Record
 	preparedPrev bool
 	err          error
+	order        RangeOrder
 }
 
 func (mi *memtableIRange) prepareNext() {
