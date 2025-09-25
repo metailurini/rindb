@@ -120,7 +120,19 @@ for it.HasPrev() {
     fmt.Printf("rev %s => %s\n", rec.GetKey(), rec.GetValue())
 }
 it.Close()
+
+// Descending scans stream the highest key first.
+desc, _ := db.IRange(ctx, []byte("k1"), []byte("k3"), rindb.IRangeOrder(rindb.RangeDesc))
+for desc.HasNext() {
+    rec, _ := desc.Next()
+    fmt.Printf("desc %s => %s\n", rec.GetKey(), rec.GetValue())
+}
+desc.Close()
 ```
+
+Range scans walk keys in ascending order by default. Pass
+`rindb.IRangeOrder(rindb.RangeDesc)` (or `range <start> <end> desc` in the CLI) to
+stream records from the upper bound down to the start key.
 
 ### Runtime Statistics
 

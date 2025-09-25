@@ -29,7 +29,7 @@ func main() {
 		fmt.Println("Error initializing database:", err)
 		return
 	}
-	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end>, stats, exit")
+	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end> [asc|desc], stats, exit")
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -75,11 +75,29 @@ func main() {
 				fmt.Println("OK")
 			}
 		case "range":
-			if len(parts) != 3 {
-				fmt.Println("Usage: range <start> <end>")
+			if len(parts) < 3 || len(parts) > 4 {
+				fmt.Println("Usage: range <start> <end> [asc|desc]")
 				continue
 			}
-			iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
+			order := rindb.RangeAsc
+			if len(parts) == 4 {
+				switch strings.ToLower(parts[3]) {
+				case "asc", "ascending":
+					order = rindb.RangeAsc
+				case "desc", "descending":
+					order = rindb.RangeDesc
+				default:
+					fmt.Println("Usage: range <start> <end> [asc|desc]")
+					continue
+				}
+			}
+
+			opts := make([]rindb.RangeOption, 0, 1)
+			if order == rindb.RangeDesc {
+				opts = append(opts, rindb.IRangeOrder(order))
+			}
+
+			iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]), opts...)
 			if err != nil {
 				fmt.Println("Error:", err)
 				continue
