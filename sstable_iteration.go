@@ -18,7 +18,7 @@ func (s SStable) Iterator() (Iterator[Record], error) {
 
 // IRange returns an iterator over records with keys in [start, end] and sequence
 // numbers less than or equal to seq.
-func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], error) {
+func (s SStable) IRange(start, end Bytes, order RangeOrder, seq ...uint64) (Iterator[Record], error) {
 	maxSeq := getMaxSeq(seq...)
 	startIdx := sort.Search(len(s.SparseIndex), func(i int) bool {
 		return s.SparseIndex[i].key.Compare(start) >= 0
@@ -40,7 +40,45 @@ func (s SStable) IRange(start, end Bytes, seq ...uint64) (Iterator[Record], erro
 	}
 	dataEnd := int64(byteOrder.Uint64(buf))
 
-	return &sstableIRange{s: &s, startKey: start, endKey: end, seq: maxSeq, offset: startOffset, startOffset: startOffset, dataEnd: dataEnd}, nil
+	sri := &sstableIRange{
+		s:           &s,
+		startKey:    start,
+		endKey:      end,
+		seq:         maxSeq,
+		offset:      startOffset,
+		startOffset: startOffset,
+		dataEnd:     dataEnd,
+		order:       order,
+	}
+
+	if order == RangeDesc {
+		if _, nextOffset, ok := s.findOffsetLE(end); ok {
+			sri.offset = nextOffset
+			sri.cursor = nextOffset
+		} else {
+			sri.offset = 0
+			sri.cursor = 0
+		}
+	}
+
+	return sri, nil
+}
+
+func (s SStable) findOffsetLE(end Bytes) (int64, int64, bool) {
+	if len(s.SparseIndex) == 0 {
+		return 0, 0, false
+	}
+	idx := sort.Search(len(s.SparseIndex), func(i int) bool {
+		return s.SparseIndex[i].key.Compare(end) == CmpGreater
+	})
+	switch {
+	case idx == 0:
+		return 0, s.SparseIndex[0].offset, false
+	case idx < len(s.SparseIndex):
+		return s.SparseIndex[idx-1].offset, s.SparseIndex[idx].offset, true
+	default:
+		return s.SparseIndex[len(s.SparseIndex)-1].offset, s.dataEnd, true
+	}
 }
 
 type sstableIterator struct {
@@ -142,20 +180,22 @@ func (s *sstableIterator) Last() (Record, error) {
 
 // sstableIRange iterates over a range of keys in an SSTable.
 type sstableIRange struct {
-	s              *SStable
-	startKey       Bytes
-	endKey         Bytes
-	seq            uint64
-	offset         int64
-	cursor         int64
-	startOffset    int64
-	preparedOffset int64
-	lowerBound     int64
-	haveLowerBound bool
-	dataEnd        int64
-	next           Record
-	err            error
-	prepared       bool
+	s                *SStable
+	startKey         Bytes
+	endKey           Bytes
+	seq              uint64
+	offset           int64
+	cursor           int64
+	startOffset      int64
+	preparedOffset   int64
+	lowerBound       int64
+	haveLowerBound   bool
+	dataEnd          int64
+	next             Record
+	err              error
+	prepared         bool
+	order            RangeOrder
+	descendingPrimed bool
 }
 
 func (sri *sstableIRange) prepare() {
@@ -194,8 +234,81 @@ func (sri *sstableIRange) prepare() {
 	}
 }
 
+func (sri *sstableIRange) primeDescending() {
+	if sri.descendingPrimed || sri.err != nil {
+		return
+	}
+	if sri.offset == 0 && sri.cursor > 0 {
+		sri.offset = sri.cursor
+	}
+	sri.descendingPrimed = true
+}
+
+func (sri *sstableIRange) primeNextDescending() {
+	if sri.err != nil {
+		return
+	}
+	if !sri.descendingPrimed {
+		sri.primeDescending()
+	}
+	for !sri.prepared && sri.err == nil {
+		if sri.offset <= 0 {
+			sri.err = EOI
+			return
+		}
+		reader := newOffsetReader(sri.s.FileSystem, sri.offset)
+		start, err := reader.PrevOffset()
+		switch {
+		case err == nil:
+		case errors.Is(err, io.EOF):
+			sri.err = EOI
+			return
+		default:
+			sri.err = err
+			return
+		}
+		reader.offset = start
+		rec, _, err := readRecord(reader)
+		switch {
+		case err == nil:
+		case errors.Is(err, EOI), errors.Is(err, io.EOF):
+			sri.offset = start
+			sri.cursor = start
+			continue
+		default:
+			sri.err = err
+			return
+		}
+		sri.offset = start
+		sri.cursor = reader.Offset()
+		key := rec.GetKey()
+		if key.Compare(sri.endKey) == CmpGreater {
+			continue
+		}
+		if key.Compare(sri.startKey) == CmpLess {
+			sri.err = EOI
+			return
+		}
+		if rec.GetSequenceNumber() > sri.seq {
+			continue
+		}
+		sri.preparedOffset = start
+		sri.next = rec
+		sri.prepared = true
+	}
+}
+
 // HasNext implements Iterator.
 func (sri *sstableIRange) HasNext() bool {
+	if sri.order == RangeDesc {
+		if !sri.descendingPrimed {
+			sri.primeDescending()
+		}
+		if !sri.prepared {
+			sri.primeNextDescending()
+		}
+		return sri.prepared
+	}
 	sri.prepare()
 	return sri.prepared
 }
@@ -206,11 +319,13 @@ func (sri *sstableIRange) Next() (Record, error) {
 		var empty Record
 		return empty, sri.err
 	}
-	if !sri.haveLowerBound {
+	if !sri.haveLowerBound || sri.preparedOffset < sri.lowerBound {
 		sri.lowerBound = sri.preparedOffset
 		sri.haveLowerBound = true
 	}
-	sri.cursor = sri.offset
+	if sri.order != RangeDesc {
+		sri.cursor = sri.offset
+	}
 	sri.prepared = false
 	next := sri.next
 	sri.next = nil

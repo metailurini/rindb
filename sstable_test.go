@@ -319,7 +319,7 @@ func TestSSTable_BasicOperations(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				iterator, err := sstable.IRange(tt.startKey, tt.endKey)
+				iterator, err := sstable.IRange(tt.startKey, tt.endKey, RangeAsc)
 				if tt.expectError {
 					assert.Error(t, err)
 					return
@@ -902,7 +902,7 @@ func TestSSTable_IRangeGetValueConsistency(t *testing.T) {
 			require.NoError(t, err)
 			require.NotZero(t, meta.Number)
 
-			it, err := sst.IRange(tt.records[0].key, tt.records[len(tt.records)-1].key, tt.seq)
+			it, err := sst.IRange(tt.records[0].key, tt.records[len(tt.records)-1].key, RangeAsc, tt.seq)
 			require.NoError(t, err)
 
 			idx := 0

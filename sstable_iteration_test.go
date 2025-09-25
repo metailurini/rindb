@@ -141,7 +141,7 @@ func TestSSTableIRange_ReverseIteration(t *testing.T) {
 	sst, _, err := flush(ctx, cfg, mem, fs)
 	require.NoError(t, err)
 
-	it, err := sst.IRange(Bytes("a"), Bytes("c"))
+	it, err := sst.IRange(Bytes("a"), Bytes("c"), RangeAsc)
 	require.NoError(t, err)
 
 	var fwd []Bytes
@@ -162,6 +162,71 @@ func TestSSTableIRange_ReverseIteration(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, rev)
 }
 
+func TestSSTableIRange_DescendingNext(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	for idx, key := range []string{"a", "b", "c", "d"} {
+		mem.Put(newRecord(Bytes(key), Bytes("v"+key), uint64(idx+1)))
+	}
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.IRange(Bytes("a"), Bytes("d"), RangeDesc)
+	require.NoError(t, err)
+
+	var keys []Bytes
+	for it.HasNext() {
+		rec, err := it.Next()
+		require.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+
+	assert.Equal(t, []Bytes{Bytes("d"), Bytes("c"), Bytes("b"), Bytes("a")}, keys)
+}
+
+func TestSSTableIRange_DescendingOscillation(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc"), 3))
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.IRange(Bytes("a"), Bytes("c"), RangeDesc)
+	require.NoError(t, err)
+
+	rec, err := it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+}
+
 func TestSSTableIRange_Last(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
@@ -180,7 +245,7 @@ func TestSSTableIRange_Last(t *testing.T) {
 	sst, _, err := flush(ctx, cfg, mem, fs)
 	require.NoError(t, err)
 
-	it, err := sst.IRange(Bytes("a"), Bytes("c"), 2)
+	it, err := sst.IRange(Bytes("a"), Bytes("c"), RangeAsc, 2)
 	require.NoError(t, err)
 
 	last, err := it.Last()
@@ -252,7 +317,7 @@ func TestSSTableIRange_PrevFullTraversal(t *testing.T) {
 	sst, _, err := flush(ctx, cfg, mem, fs)
 	require.NoError(t, err)
 
-	it, err := sst.IRange(Bytes("b"), Bytes("e"))
+	it, err := sst.IRange(Bytes("b"), Bytes("e"), RangeAsc)
 	require.NoError(t, err)
 
 	var fwd []Bytes
@@ -341,7 +406,7 @@ func TestSSTableIRange_PrepareErrorPropagation(t *testing.T) {
 	sst, _, err := flush(ctx, cfg, mem, fs)
 	require.NoError(t, err)
 
-	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"))
+	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"), RangeAsc)
 	require.NoError(t, err)
 	iter := iterIface.(*sstableIRange)
 
@@ -374,7 +439,7 @@ func TestSSTableIRange_PrevOffsetEOFError(t *testing.T) {
 	sst, _, err := flush(ctx, cfg, mem, fs)
 	require.NoError(t, err)
 
-	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"))
+	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"), RangeAsc)
 	require.NoError(t, err)
 	iter := iterIface.(*sstableIRange)
 
