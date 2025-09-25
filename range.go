@@ -146,13 +146,18 @@ func (r *RangeIterator) primeNext() {
 			}
 		}
 
+		peeked := recFromPeek
+		if recFromPeek {
+			r.consumePeekedReverse()
+		}
+
 		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
 		if sameKey {
 			if r.allowAnchorOnNext() && r.matchesCrossingAnchor(rec) {
 				r.crossingAnchorSet = false
 			} else {
-				if recFromPeek {
-					r.consumePeekedReverse()
+				if peeked {
+					r.forward = false
 				}
 				continue
 			}
@@ -160,14 +165,12 @@ func (r *RangeIterator) primeNext() {
 		r.lastKey = rec.GetKey().Clone()
 		r.lastKeySet = true
 		if rec.GetType() == TypeDeletion {
-			if recFromPeek {
-				r.consumePeekedReverse()
+			if peeked {
 				r.forward = false
 			}
 			continue
 		}
-		if recFromPeek {
-			r.consumePeekedReverse()
+		if peeked {
 			r.forward = false
 		}
 		r.next = rec
@@ -250,11 +253,7 @@ func (r *RangeIterator) Next() (Record, error) {
 		return empty, EOI
 	}
 	r.nextPrepared = false
-	if r.order == RangeDesc {
-		r.forward = false
-	} else {
-		r.forward = true
-	}
+	r.forward = r.order != RangeDesc
 	rec := r.next
 	r.crossingAnchor = rec
 	r.crossingAnchorSet = true
@@ -280,11 +279,7 @@ func (r *RangeIterator) Prev() (Record, error) {
 		return empty, EOI
 	}
 	r.prevPrepared = false
-	if r.order == RangeDesc {
-		r.forward = true
-	} else {
-		r.forward = false
-	}
+	r.forward = r.order == RangeDesc
 	rec := r.prev
 	r.crossingAnchor = rec
 	r.crossingAnchorSet = true

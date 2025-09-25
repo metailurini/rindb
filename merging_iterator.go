@@ -24,8 +24,12 @@ type MergingIterator struct {
 	prevPrepared bool
 	prevItem     pqItem
 
+	// forward tracks the last direction of travel so boundary handling can
+	// decide whether to suppress the crossing anchor.
 	forward bool
 
+	// crossingAnchor stores the last surfaced record so oscillating between Next
+	// and Prev does not surface the same record twice.
 	crossingAnchor    pqItem
 	crossingAnchorSet bool
 
@@ -176,13 +180,15 @@ func (m *MergingIterator) commitPeekedReverse() {
 	if !m.reversePrimed {
 		return
 	}
+	defer func() {
+		m.reversePrimed = false
+		m.cachedReverse = pqItem{}
+		m.reverseErr = nil
+	}()
 	if m.reverseErr != nil {
 		if !errors.Is(m.reverseErr, EOI) {
 			m.err = m.reverseErr
 		}
-		m.reversePrimed = false
-		m.cachedReverse = pqItem{}
-		m.reverseErr = nil
 		return
 	}
 
@@ -200,9 +206,6 @@ func (m *MergingIterator) commitPeekedReverse() {
 		}
 	}
 	m.forward = false
-	m.reversePrimed = false
-	m.cachedReverse = pqItem{}
-	m.reverseErr = nil
 }
 
 // HasNext implements Iterator[Record].
