@@ -56,8 +56,8 @@ func (s SStable) IRange(start, end Bytes, order RangeOrder, seq ...uint64) (Iter
 			sri.offset = nextOffset
 			sri.cursor = nextOffset
 		} else {
-			sri.offset = 0
-			sri.cursor = 0
+			sri.offset = dataEnd
+			sri.cursor = dataEnd
 		}
 	}
 
@@ -73,7 +73,7 @@ func (s SStable) findOffsetLE(end Bytes) (int64, int64, bool) {
 	})
 	switch {
 	case idx == 0:
-		return 0, s.SparseIndex[0].offset, false
+		return 0, s.SparseIndex[0].offset, true
 	case idx < len(s.SparseIndex):
 		return s.SparseIndex[idx-1].offset, s.SparseIndex[idx].offset, true
 	default:
