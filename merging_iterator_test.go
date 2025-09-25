@@ -79,6 +79,34 @@ func (l *lastErrorIterator) Last() (Record, error) {
 	return empty, l.err
 }
 
+type faultyIterator struct {
+	err        error
+	lastCalled bool
+}
+
+func (f *faultyIterator) HasNext() bool { return false }
+
+func (f *faultyIterator) Next() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
+func (f *faultyIterator) HasPrev() bool { return false }
+
+func (f *faultyIterator) Prev() (Record, error) {
+	var empty Record
+	return empty, EOI
+}
+
+func (f *faultyIterator) Last() (Record, error) {
+	f.lastCalled = true
+	var empty Record
+	if f.err != nil {
+		return empty, f.err
+	}
+	return empty, EOI
+}
+
 func mkRec(k, v string, seq uint64, typ RecordType) Record {
 	var nv Bytes
 	if v != "" {
@@ -135,6 +163,20 @@ func TestMergingIterator_LastErrorSurfaced(t *testing.T) {
 	boom := errors.New("tail boom")
 	_, err := NewMergingIterator([]Iterator[Record]{&lastErrorIterator{err: boom}}, nil, RangeDesc)
 	assert.EqualError(t, err, "tail boom")
+}
+
+func TestMergingIterator_SeedReverseFailure(t *testing.T) {
+	t.Parallel()
+
+	boom := errors.New("boom")
+	bad := &faultyIterator{err: boom}
+	called := 0
+	cleanup := func() { called++ }
+
+	_, err := NewMergingIterator([]Iterator[Record]{bad}, cleanup, RangeDesc)
+	require.EqualError(t, err, "boom")
+	assert.Equal(t, 1, called)
+	assert.True(t, bad.lastCalled)
 }
 
 func TestMergingIterator_LastReturnsMaxAndPrimesPrev(t *testing.T) {
