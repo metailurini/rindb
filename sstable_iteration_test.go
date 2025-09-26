@@ -227,10 +227,18 @@ func TestSSTableIRange_DescendingPriming(t *testing.T) {
 
 	rec, err = it.Next()
 	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Next()
+	require.NoError(t, err)
 	assert.Equal(t, Bytes("a"), rec.GetKey())
 
 	_, err = it.Next()
 	require.ErrorIs(t, err, EOI)
+
+	rec, err = it.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
 }
 
 func TestSSTableIRange_DescendingOscillation(t *testing.T) {
@@ -261,6 +269,10 @@ func TestSSTableIRange_DescendingOscillation(t *testing.T) {
 	assert.Equal(t, Bytes("b"), rec.GetKey())
 
 	rec, err = it.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Next()
 	require.NoError(t, err)
 	assert.Equal(t, Bytes("b"), rec.GetKey())
 

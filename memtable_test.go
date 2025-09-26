@@ -556,22 +556,27 @@ func TestMemtableIRange_DescendingNext(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("c"), rec.GetKey())
 
-	it = mem.IRange(Bytes("a"), Bytes("c"), 3, RangeDesc)
+	rec, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
 
-	var keys []Bytes
-	for it.HasNext() {
-		rec, err := it.Next()
-		assert.NoError(t, err)
-		keys = append(keys, rec.GetKey())
-	}
-	assert.Equal(t, []Bytes{Bytes("a"), Bytes("b"), Bytes("c")}, keys)
+	rec, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
 
-	_, err = it.Next()
-	assert.ErrorIs(t, err, EOI)
+	rec, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
 
 	rec, err = it.Prev()
 	assert.NoError(t, err)
-	assert.Equal(t, Bytes("c"), rec.GetKey())
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	_, err = it.Prev()
+	assert.ErrorIs(t, err, EOI)
+
+	_, err = it.Next()
+	assert.ErrorIs(t, err, EOI)
 }
 
 func TestMemtableIRange_DescendingSequenceFilter(t *testing.T) {

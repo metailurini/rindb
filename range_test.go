@@ -455,6 +455,7 @@ func TestRangeIterator_DescendingOscillation(t *testing.T) {
 	mustNextValue(t, iter, "k3", "v3")
 	mustNextValue(t, iter, "k2", "v2")
 	mustPrevValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k2", "v2")
 	mustNextValue(t, iter, "k1", "v1")
 }
 

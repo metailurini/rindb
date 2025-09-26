@@ -103,6 +103,9 @@ func (r *RangeIterator) consumePeekedReverse() {
 }
 
 func (r *RangeIterator) allowAnchorOnNext() bool {
+	if r.order == RangeDesc {
+		return r.forward
+	}
 	return !r.forward
 }
 
