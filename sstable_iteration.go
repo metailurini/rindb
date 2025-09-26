@@ -196,6 +196,8 @@ type sstableIRange struct {
 	prepared         bool
 	order            RangeOrder
 	descendingPrimed bool
+	replayNext       Record
+	replayPrimed     bool
 }
 
 func (sri *sstableIRange) prepare() {
@@ -251,6 +253,13 @@ func (sri *sstableIRange) primeNextDescending() {
 	if !sri.descendingPrimed {
 		sri.primeDescending()
 	}
+	if sri.replayPrimed {
+		sri.next = sri.replayNext
+		sri.prepared = true
+		sri.replayPrimed = false
+		sri.replayNext = nil
+		return
+	}
 	for !sri.prepared && sri.err == nil {
 		if sri.offset <= 0 {
 			sri.err = EOI
@@ -272,7 +281,7 @@ func (sri *sstableIRange) primeNextDescending() {
 		switch {
 		case err == nil:
 		case errors.Is(err, EOI), errors.Is(err, io.EOF):
-			sri.offset = start
+			sri.offset = reader.Offset()
 			sri.cursor = start
 			continue
 		default:
@@ -419,6 +428,8 @@ func (sri *sstableIRange) Prev() (Record, error) {
 		sri.prepared = false
 		sri.err = nil
 		sri.next = nil
+		sri.replayNext = rec
+		sri.replayPrimed = true
 		return rec, nil
 	}
 }

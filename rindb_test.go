@@ -331,10 +331,18 @@ func TestRindb_IRangeDescending(t *testing.T) {
 
 	rec, err = iter.Next()
 	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
 	assert.Equal(t, Bytes("a"), rec.GetKey())
 
 	_, err = iter.Next()
 	require.ErrorIs(t, err, EOI)
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
 }
 
 // TestRindb_Remove tests the Remove operation of Rindb.
