@@ -201,6 +201,23 @@ func TestMergingIterator_LastReturnsMaxAndPrimesPrev(t *testing.T) {
 	assert.Equal(t, mkRec("b", "vb", 1, TypeValue), prev2)
 }
 
+func TestMergingIterator_PeekReverseReprimesAfterEmpty(t *testing.T) {
+	t.Parallel()
+
+	mi, err := NewMergingIterator(nil, nil, RangeDesc)
+	require.NoError(t, err)
+
+	_, err = mi.peekReverse()
+	require.ErrorIs(t, err, EOI)
+
+	rec := mkRec("k", "v", 1, TypeValue)
+	mi.rev.PushItem(pqItem{rec: rec, iter: &errIterator{records: []Record{rec}, failIdx: -1, idx: 1}})
+
+	got, err := mi.peekReverse()
+	require.NoError(t, err)
+	assert.Equal(t, rec, got, "peekReverse should observe newly queued elements after an empty peek")
+}
+
 func TestMergingIterator_LastEmpty(t *testing.T) {
 	t.Parallel()
 	iterators := []Iterator[Record]{&errIterator{records: nil, failIdx: -1}}
