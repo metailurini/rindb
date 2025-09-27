@@ -269,11 +269,16 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOptio
 		opt(&cfg)
 	}
 
-	if start.Compare(end) == CmpGreater {
+	if cfg.order != RangeDesc && start.Compare(end) == CmpGreater {
 		return newEmptyRangeIterator(), nil
 	}
 
-	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.order, cfg.snapshotSeq)
+	rangeStart, rangeEnd := start, end
+	if cfg.order == RangeDesc && rangeStart.Compare(rangeEnd) == CmpGreater {
+		rangeStart, rangeEnd = rangeEnd, rangeStart
+	}
+
+	iterators, cleanup, err := r.buildSources(ctx, rangeStart, rangeEnd, cfg.order, cfg.snapshotSeq)
 	if err != nil {
 		return nil, err
 	}

@@ -226,15 +226,6 @@ func (r *RangeIterator) primePrev() {
 
 // HasNext implements Iterator[Record].
 func (r *RangeIterator) HasNext() bool {
-	if r.order == RangeDesc {
-		if !r.reversePrimed && r.reverseErr == nil {
-			r.ensureReversePrimed()
-		}
-		if r.reverseErr != nil && r.err == nil && !errors.Is(r.reverseErr, EOI) {
-			r.err = r.reverseErr
-		}
-		return r.reversePrimed && r.err == nil
-	}
 	r.primeNext()
 	return r.nextPrepared
 }
@@ -310,6 +301,48 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.reversePrimed = false
 	r.reverseCached = nil
 	r.reverseErr = nil
+
+	if r.order == RangeDesc {
+		var lastValid Record
+		for {
+			sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
+			if sameKey || rec.GetType() == TypeDeletion {
+				prev, err := r.mi.Prev()
+				switch {
+				case err == nil:
+					rec = prev
+					continue
+				case errors.Is(err, EOI):
+					if lastValid == nil {
+						return empty, EOI
+					}
+					r.lastKey = lastValid.GetKey().Clone()
+					r.lastKeySet = true
+					r.crossingAnchor = lastValid
+					r.crossingAnchorSet = true
+					return lastValid, nil
+				default:
+					return empty, err
+				}
+			}
+
+			r.lastKey = rec.GetKey().Clone()
+			r.lastKeySet = true
+			lastValid = rec
+
+			prev, err := r.mi.Prev()
+			switch {
+			case err == nil:
+				rec = prev
+			case errors.Is(err, EOI):
+				r.crossingAnchor = lastValid
+				r.crossingAnchorSet = true
+				return lastValid, nil
+			default:
+				return empty, err
+			}
+		}
+	}
 
 	for {
 		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
