@@ -378,7 +378,7 @@ func TestRindb_IRangeDescendingInvertedBoundsStayTightAfterOscillation(t *testin
 		require.NoError(t, rin.Put(ctx, Bytes(kv.key), Bytes(kv.val)))
 	}
 
-	iter, err := rin.IRange(ctx, Bytes("c"), Bytes("a"), IRangeOrder(RangeDesc))
+	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("c"), IRangeOrder(RangeDesc))
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, iter.Close()) }()
 

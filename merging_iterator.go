@@ -160,19 +160,30 @@ func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
 }
 
 func (m *MergingIterator) peekReverse() (Record, error) {
-	if !m.reversePrimed {
-		if m.rev.Len() == 0 {
-			m.reverseErr = EOI
+	if m.reversePrimed {
+		if m.reverseErr != nil {
+			if errors.Is(m.reverseErr, EOI) && m.rev.Len() > 0 {
+				m.reversePrimed = false
+				m.reverseErr = nil
+			} else {
+				var empty Record
+				return empty, m.reverseErr
+			}
 		} else {
-			m.cachedReverse = m.rev.PeekItem()
-			m.reverseErr = nil
+			return m.cachedReverse.rec, nil
 		}
-		m.reversePrimed = true
 	}
-	if m.reverseErr != nil {
+
+	if m.rev.Len() == 0 {
+		m.reverseErr = EOI
+		m.reversePrimed = true
 		var empty Record
 		return empty, m.reverseErr
 	}
+
+	m.cachedReverse = m.rev.PeekItem()
+	m.reverseErr = nil
+	m.reversePrimed = true
 	return m.cachedReverse.rec, nil
 }
 
@@ -369,8 +380,11 @@ func (m *MergingIterator) prepareNext() {
 		// Keep the popped element in the reverse heap so Prev() can walk
 		// back across it later.
 		m.rev.PushItem(item)
+		m.reversePrimed = false
+		m.reverseErr = nil
 
-		if item.iter.HasNext() {
+		skipAdvance := m.order == RangeDesc && !m.forward
+		if !skipAdvance && item.iter.HasNext() {
 			rec, err := item.iter.Next()
 			switch {
 			case err == nil:
