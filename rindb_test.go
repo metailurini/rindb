@@ -369,6 +369,60 @@ func TestRindb_IRangeDescendingHighToLowBounds(t *testing.T) {
 	require.Equal(t, []string{"c", "b", "a"}, keys)
 }
 
+func TestRindb_IRangeDescendingInvertedBoundsDoNotSilentlyExpand(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+
+	iter, err := rin.IRange(ctx, Bytes("c"), Bytes("a"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	assert.False(t, iter.HasNext(), "descending ranges with inverted bounds should not silently widen the span")
+
+	_, err = iter.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestRindb_IRangeDescendingInvertedBoundsStayTightAfterOscillation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	for _, kv := range []struct {
+		key string
+		val string
+	}{{"a", "va"}, {"b", "vb"}, {"c", "vc"}, {"d", "vd"}} {
+		require.NoError(t, rin.Put(ctx, Bytes(kv.key), Bytes(kv.val)))
+	}
+
+	iter, err := rin.IRange(ctx, Bytes("c"), Bytes("a"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey(), "direction flips should not advance beyond the original upper bound")
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey(), "iterator should not leak records above the caller's requested window")
+}
+
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
 	t.Parallel()
