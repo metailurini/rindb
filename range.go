@@ -192,6 +192,9 @@ func (r *RangeIterator) primePrev() {
 		)
 		if r.order == RangeDesc {
 			rec, err = r.mi.Next()
+			if errors.Is(r.reverseErr, EOI) {
+				r.reverseErr = nil
+			}
 		} else {
 			rec, err = r.mi.Prev()
 		}

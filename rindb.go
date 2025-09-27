@@ -269,16 +269,11 @@ func (r *Rindb) IRange(ctx context.Context, start, end Bytes, opts ...RangeOptio
 		opt(&cfg)
 	}
 
-	if cfg.order != RangeDesc && start.Compare(end) == CmpGreater {
+	if start.Compare(end) == CmpGreater {
 		return newEmptyRangeIterator(), nil
 	}
 
-	rangeStart, rangeEnd := start, end
-	if cfg.order == RangeDesc && rangeStart.Compare(rangeEnd) == CmpGreater {
-		rangeStart, rangeEnd = rangeEnd, rangeStart
-	}
-
-	iterators, cleanup, err := r.buildSources(ctx, rangeStart, rangeEnd, cfg.order, cfg.snapshotSeq)
+	iterators, cleanup, err := r.buildSources(ctx, start, end, cfg.order, cfg.snapshotSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +292,8 @@ func (r *Rindb) buildSources(ctx context.Context, start, end Bytes, order RangeO
 		maxSeq = *snapshotSeq
 	}
 
-	iterators := []Iterator[Record]{r.Memtable.IRange(start, end, maxSeq, order)}
+	memIter := r.Memtable.IRange(start, end, maxSeq, order)
+	iterators := []Iterator[Record]{memIter}
 
 	entries, err := r.SSTableManager.GetRelevantSSTables(ctx, start, end)
 	if err != nil {
