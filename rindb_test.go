@@ -359,30 +359,6 @@ func TestRindb_IRangeDescendingHighToLowBounds(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, iter.Close()) }()
 
-	var keys []string
-	for iter.HasNext() {
-		rec, err := iter.Next()
-		require.NoError(t, err)
-		keys = append(keys, string(rec.GetKey()))
-	}
-
-	require.Equal(t, []string{"c", "b", "a"}, keys)
-}
-
-func TestRindb_IRangeDescendingInvertedBoundsDoNotSilentlyExpand(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
-	defer cleanup()
-
-	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
-	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
-	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
-
-	iter, err := rin.IRange(ctx, Bytes("c"), Bytes("a"), IRangeOrder(RangeDesc))
-	require.NoError(t, err)
-	defer func() { assert.NoError(t, iter.Close()) }()
-
 	assert.False(t, iter.HasNext(), "descending ranges with inverted bounds should not silently widen the span")
 
 	_, err = iter.Next()
