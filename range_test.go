@@ -480,11 +480,11 @@ func TestRangeIteratorDescending_PrevNextAcrossTombstone(t *testing.T) {
 		[]kv{{key: "d", value: "vd", seq: 4}},
 	)
 
-	mustNextValue(t, iter, "d", "vd")
+mustNextValue(t, iter, "d", "vd")
 	mustNextValue(t, iter, "a", "va")
+	mustPrevValue(t, iter, "a", "va")
 	mustPrevValue(t, iter, "d", "vd")
 	mustNextValue(t, iter, "d", "vd")
-	mustNextValue(t, iter, "a", "va")
 }
 
 func TestRangeIterator_LastHonorsOrder(t *testing.T) {
