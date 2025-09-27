@@ -470,6 +470,26 @@ func TestRangeIterator_DescendingOscillation(t *testing.T) {
 	mustNextValue(t, iter, "k1", "v1")
 }
 
+func TestRangeIterator_DescendingHasNextRecoversAfterPrev(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "k1", value: "v1", seq: 1}},
+		[]kv{{key: "k2", value: "v2", seq: 2}},
+		[]kv{{key: "k3", value: "v3", seq: 3}},
+	)
+
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
+
+	assert.False(t, iter.HasNext(), "boundary probe should report exhaustion")
+
+	mustPrevValue(t, iter, "k1", "v1")
+
+	assert.True(t, iter.HasNext(), "descending HasNext should recover once Prev requeues data")
+}
+
 func TestRangeIteratorDescending_PrevNextAcrossTombstone(t *testing.T) {
 	t.Parallel()
 
@@ -480,7 +500,7 @@ func TestRangeIteratorDescending_PrevNextAcrossTombstone(t *testing.T) {
 		[]kv{{key: "d", value: "vd", seq: 4}},
 	)
 
-mustNextValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "d", "vd")
 	mustNextValue(t, iter, "a", "va")
 	mustPrevValue(t, iter, "a", "va")
 	mustPrevValue(t, iter, "d", "vd")

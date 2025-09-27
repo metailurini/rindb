@@ -535,3 +535,44 @@ func TestSSTableIRange_PrevReadEOFError(t *testing.T) {
 	_, err = iter.Prev()
 	require.ErrorIs(t, err, EOI)
 }
+
+func TestSSTableIRange_DescendingReplayAdvancesCursor(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc"), 3))
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	it, err := sst.IRange(Bytes("a"), Bytes("c"), RangeDesc)
+	require.NoError(t, err)
+
+	rec, err := it.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = it.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "prev should surface the boundary record once when switching directions")
+
+	rec, err = it.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "next should replay the boundary record after rewinding")
+
+	rec, err = it.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "prev should not skip the replayed boundary record")
+}
