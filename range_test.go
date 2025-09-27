@@ -447,6 +447,17 @@ func TestRangeIterator_DescendingFirstNext(t *testing.T) {
 	mustNextEOI(t, iter)
 }
 
+func TestRangeIteratorDescending_HasNextSkipsTombstones(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k", seq: 1, typ: TypeDeletion}})
+
+	assert.False(t, iter.HasNext(), "descending HasNext should not report tombstones as live records")
+
+	_, err := iter.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
 func TestRangeIterator_DescendingOscillation(t *testing.T) {
 	t.Parallel()
 
@@ -457,6 +468,38 @@ func TestRangeIterator_DescendingOscillation(t *testing.T) {
 	mustPrevValue(t, iter, "k2", "v2")
 	mustNextValue(t, iter, "k2", "v2")
 	mustNextValue(t, iter, "k1", "v1")
+}
+
+func TestRangeIteratorDescending_PrevNextAcrossTombstone(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "c", value: "vc", seq: 2}},
+		[]kv{{key: "c", typ: TypeDeletion, seq: 3}},
+		[]kv{{key: "d", value: "vd", seq: 4}},
+	)
+
+	mustNextValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "a", "va")
+	mustPrevValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "a", "va")
+}
+
+func TestRangeIterator_LastHonorsOrder(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", value: "vb", seq: 2}},
+		[]kv{{key: "c", value: "vc", seq: 3}},
+	)
+
+	rec, err := iter.Last()
+	require.NoError(t, err)
+	assert.Equal(t, "a", string(rec.GetKey()))
+	assert.Equal(t, "va", string(rec.GetValue()))
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
