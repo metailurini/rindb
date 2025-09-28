@@ -154,6 +154,17 @@ func (r *RangeIterator) allowAnchorOnPrevForOrder(order RangeOrder) bool {
 
 func (r *RangeIterator) primeNext() {
 	if r.order == RangeDesc && r.forward && r.crossingAnchorSet {
+		if !r.reversePrimed && r.reverseErr == nil {
+			r.ensureReversePrimed()
+		}
+		if r.reversePrimed && r.reverseCached != nil && recordsEqual(r.reverseCached, r.crossingAnchor) {
+			r.consumePeekedReverse()
+		}
+		r.reversePrimed = false
+		r.reverseCached = nil
+		if !errors.Is(r.reverseErr, EOI) {
+			r.reverseErr = nil
+		}
 		r.next = r.crossingAnchor
 		r.nextPrepared = true
 		r.crossingAnchorSet = false
@@ -239,6 +250,13 @@ func (r *RangeIterator) primePrev() {
 }
 
 func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
+	if order == RangeDesc {
+		r.reversePrimed = false
+		r.reverseCached = nil
+		if !errors.Is(r.reverseErr, EOI) {
+			r.reverseErr = nil
+		}
+	}
 	if order == RangeDesc && !r.forward && r.crossingAnchorSet {
 		r.prev = r.crossingAnchor
 		r.prevPrepared = true

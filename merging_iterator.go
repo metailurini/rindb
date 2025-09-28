@@ -383,7 +383,7 @@ func (m *MergingIterator) prepareNext() {
 		// to expose to callers.
 		item := m.fwd.PopItem()
 		if m.matchesCrossingAnchor(item) {
-			if !m.forward {
+			if !m.forward || m.order == RangeDesc {
 				// Allow the boundary element to surface once when
 				// changing direction.
 				m.crossingAnchorSet = false
@@ -398,7 +398,7 @@ func (m *MergingIterator) prepareNext() {
 		m.reversePrimed = false
 		m.reverseErr = nil
 
-		skipAdvance := m.order == RangeDesc && !m.forward
+		skipAdvance := m.order == RangeDesc
 		if !skipAdvance && item.iter.HasNext() {
 			rec, err := item.iter.Next()
 			switch {
