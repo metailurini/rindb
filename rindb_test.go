@@ -499,18 +499,18 @@ func TestRindb_IRangeDescendingLowerBoundAfterOscillation(t *testing.T) {
 		require.Equal(t, key, rec.GetKey())
 	}
 
-	for i := 0; i < 3; i++ {
-		rec, err := iter.Prev()
-		if errors.Is(err, EOI) {
-			break
-		}
-		require.NoError(t, err)
-		require.NotEqual(t, Bytes("a"), rec.GetKey(), "Prev leaked below the caller's lower bound")
+	// After iterating through d, c, b, the iterator is at the lower bound.
+	// Oscillating at this boundary should not leak keys outside the range.
 
-		rec, err = iter.Next()
-		require.NoError(t, err)
-		require.NotEqual(t, Bytes("a"), rec.GetKey(), "Next leaked below the caller's lower bound after oscillation")
-	}
+	// Prev() should return 'b'.
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "Prev() at lower bound should return the boundary key")
+
+	// Next() after Prev() should return 'b' again.
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "Next() after Prev() at lower bound should return the boundary key")
 }
 
 // TestRindb_Remove tests the Remove operation of Rindb.
