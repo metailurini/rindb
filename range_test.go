@@ -666,7 +666,7 @@ func TestRangeIterator_DescendingHasNextRecoversAfterPrev(t *testing.T) {
 	assert.True(t, iter.HasNext(), "descending HasNext should recover once Prev requeues data")
 }
 
-func TestRangeIteratorDescending_PrevNextAcrossTombstone(t *testing.T) {
+func TestRangeIterator_Descending_PrevNextAcrossTombstone(t *testing.T) {
 	t.Parallel()
 
 	iter := buildRangeIterOrder(t, RangeDesc,
