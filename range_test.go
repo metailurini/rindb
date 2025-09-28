@@ -228,6 +228,35 @@ func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
 	mustPrevEOI(t, iter)
 }
 
+func TestRangeIteratorPrev_HidesTombstoneOnDirectionChange(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIter(t,
+		[]kv{{key: "k", seq: 3, typ: TypeDeletion}},
+		[]kv{{key: "k", value: "v2", seq: 2}},
+	)
+
+	mustNextValue(t, iter, "k", "v2")
+	mustPrevValue(t, iter, "k", "v2")
+	mustPrevEOI(t, iter)
+}
+
+func TestRangeIteratorPrev_HidesTombstoneWithinSource(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "k", seq: 3, typ: TypeDeletion},
+			{key: "k", value: "v2", seq: 2},
+			{key: "k", value: "v1", seq: 1},
+		},
+	)
+
+	mustNextValue(t, iter, "k", "v2")
+	mustPrevValue(t, iter, "k", "v2")
+	mustPrevEOI(t, iter)
+}
+
 func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	t.Parallel()
 	iters := []Iterator[Record]{
