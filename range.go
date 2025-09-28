@@ -210,6 +210,10 @@ func (r *RangeIterator) primePrev() {
 		if sameKey {
 			if r.allowAnchorOnPrev() && r.matchesCrossingAnchor(rec) {
 				r.crossingAnchorSet = false
+			} else if r.nextPrepared && recordsEqual(rec, r.next) {
+				// A forward peek staged this record; treat it as the anchor so Prev can surface it.
+				r.crossingAnchor = rec
+				r.crossingAnchorSet = true
 			} else {
 				continue
 			}
@@ -394,6 +398,15 @@ func (r *RangeIterator) matchesCrossingAnchor(rec Record) bool {
 		rec.GetSequenceNumber() == r.crossingAnchor.GetSequenceNumber() &&
 		rec.GetType() == r.crossingAnchor.GetType() &&
 		rec.GetKey().Compare(r.crossingAnchor.GetKey()) == CmpEqual
+}
+
+func recordsEqual(a, b Record) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.GetSequenceNumber() == b.GetSequenceNumber() &&
+		a.GetType() == b.GetType() &&
+		a.GetKey().Compare(b.GetKey()) == CmpEqual
 }
 
 func newEmptyRangeIterator() *RangeIterator {
