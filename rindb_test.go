@@ -345,6 +345,31 @@ func TestRindb_IRangeDescending(t *testing.T) {
 	assert.Equal(t, Bytes("a"), rec.GetKey())
 }
 
+func TestRindb_IRangeDescendingSkipsTombstonedKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	require.NoError(t, rin.Remove(ctx, Bytes("b")))
+	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+
+	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("z"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	var keys []string
+	for iter.HasNext() {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		keys = append(keys, string(rec.GetKey()))
+	}
+
+	assert.Equal(t, []string{"c", "a"}, keys)
+}
+
 func TestRindb_IRangeDescendingHighToLowBounds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
