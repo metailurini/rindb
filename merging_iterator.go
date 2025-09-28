@@ -187,9 +187,9 @@ func (m *MergingIterator) peekReverse() (Record, error) {
 	return m.cachedReverse.rec, nil
 }
 
-func (m *MergingIterator) commitPeekedReverse() {
+func (m *MergingIterator) consumePeekedReverse() (pqItem, bool) {
 	if !m.reversePrimed {
-		return
+		return pqItem{}, false
 	}
 	defer func() {
 		m.reversePrimed = false
@@ -200,11 +200,10 @@ func (m *MergingIterator) commitPeekedReverse() {
 		if !errors.Is(m.reverseErr, EOI) {
 			m.err = m.reverseErr
 		}
-		return
+		return pqItem{}, false
 	}
 
 	item := m.rev.PopItem()
-	m.fwd.PushItem(item)
 	if item.iter.HasPrev() {
 		key := item.rec.GetKey()
 		for item.iter.HasPrev() {
@@ -213,17 +212,27 @@ func (m *MergingIterator) commitPeekedReverse() {
 			case err == nil:
 				m.rev.PushItem(pqItem{rec: prev, iter: item.iter})
 				if prev.GetKey().Compare(key) != CmpEqual {
-					return
+					m.forward = false
+					return item, true
 				}
 			case errors.Is(err, EOI):
-				return
+				m.forward = false
+				return item, true
 			default:
 				m.err = err
-				return
+				return pqItem{}, false
 			}
 		}
 	}
 	m.forward = false
+	return item, true
+}
+
+func (m *MergingIterator) stageForPrev(item pqItem) {
+	if item.rec == nil || item.iter == nil {
+		return
+	}
+	m.fwd.PushItem(item)
 }
 
 // HasNext implements Iterator[Record].
