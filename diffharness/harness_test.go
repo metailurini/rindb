@@ -231,10 +231,9 @@ func TestHarness_RangeHistoricalSnapshot(t *testing.T) {
 
 	resDesc, err := h.My.Range(ctx, []byte("a"), []byte("z"), RangeDesc, snap, 10)
 	require.NoError(t, err)
-	require.Equal(t, len(resAsc), len(resDesc))
-	for i := range resAsc {
-		require.Equal(t, resAsc[i], resDesc[len(resDesc)-1-i])
-	}
+	expDesc := slices.Clone(resAsc)
+	slices.Reverse(expDesc)
+	require.Equal(t, expDesc, resDesc)
 }
 
 func TestHarness_RunChecksInvariants(t *testing.T) {
