@@ -646,6 +646,24 @@ func TestRangeIterator_DescendingLastSkipsTombstone(t *testing.T) {
 	})
 }
 
+func TestRangeIterator_DescendingPrevNextAdvancesToLowerKey(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", value: "vb", seq: 2}},
+		[]kv{{key: "c", value: "vc", seq: 3}},
+	)
+
+	mustNextValue(t, iter, "c", "vc")
+	mustNextValue(t, iter, "b", "vb")
+	mustPrevValue(t, iter, "b", "vb")
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "a", string(rec.GetKey()), "descending Next after Prev should advance to the next lower key")
+}
+
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
 	t.Helper()
 

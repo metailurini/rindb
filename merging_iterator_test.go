@@ -267,6 +267,37 @@ func TestMergingIterator_LastEmpty(t *testing.T) {
 	assert.ErrorIs(t, err, EOI)
 }
 
+func TestMergingIterator_DescendingPrevNextAdvancesToLowerKey(t *testing.T) {
+	t.Parallel()
+
+	iterators := []Iterator[Record]{
+		&errIterator{records: []Record{
+			mkRec("a", "va", 1, TypeValue),
+			mkRec("b", "vb", 2, TypeValue),
+			mkRec("c", "vc", 3, TypeValue),
+		}, failIdx: -1},
+	}
+
+	mi, err := NewMergingIterator(iterators, nil, RangeDesc)
+	require.NoError(t, err)
+
+	rec, err := mi.Next()
+	require.NoError(t, err)
+	require.Equal(t, mkRec("c", "vc", 3, TypeValue), rec)
+
+	rec, err = mi.Next()
+	require.NoError(t, err)
+	require.Equal(t, mkRec("b", "vb", 2, TypeValue), rec)
+
+	rec, err = mi.Prev()
+	require.NoError(t, err)
+	require.Equal(t, mkRec("b", "vb", 2, TypeValue), rec)
+
+	rec, err = mi.Next()
+	require.NoError(t, err)
+	require.Equal(t, mkRec("a", "va", 1, TypeValue), rec, "descending Next after Prev should advance to the next lower key")
+}
+
 func TestMergingIterator_MergesRecords(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
