@@ -294,54 +294,44 @@ func (m *MergingIterator) Last() (Record, error) {
 	if m.err != nil {
 		return empty, m.err
 	}
-	m.nextPrepared = false
-	m.prevPrepared = false
-	m.forward = false
-	m.crossingAnchorSet = false
-	m.nextItem = pqItem{}
-	m.prevItem = pqItem{}
 
-	if m.fwd != nil {
-		m.fwd.Clear()
-	}
-	if m.rev != nil {
-		m.rev.Clear()
-	}
+	var (
+		lastItem pqItem
+		lastRec  Record
+	)
 
-	m.descendingPrimed = true
-
-	for _, it := range m.iters {
-		if it == nil {
-			continue
-		}
-		rec, err := it.Last()
-		switch {
-		case err == nil:
-			m.rev.PushItem(pqItem{rec: rec, iter: it})
-		case errors.Is(err, EOI):
-			continue
-		default:
-			m.err = err
+	for m.HasNext() {
+		rec, err := m.Next()
+		if err != nil {
 			return empty, err
 		}
+		lastRec = rec
+	}
+
+	if m.err != nil {
+		return empty, m.err
 	}
 
 	if m.rev.Len() == 0 {
 		return empty, EOI
 	}
 
-	lastItem := m.rev.PopItem()
-	if prev, err := lastItem.iter.Prev(); err == nil {
-		m.rev.PushItem(pqItem{rec: prev, iter: lastItem.iter})
-	} else if !errors.Is(err, EOI) {
-		m.err = err
-		return empty, err
-	}
+	lastItem = m.rev.PeekItem()
+	lastRec = lastItem.rec
 
+	m.nextPrepared = false
+	m.prevPrepared = false
+	m.nextItem = pqItem{}
+	m.prevItem = pqItem{}
+	m.forward = false
 	m.crossingAnchor = lastItem
 	m.crossingAnchorSet = true
+	m.descendingPrimed = true
+	m.reversePrimed = false
+	m.reverseErr = nil
+	m.cachedReverse = pqItem{}
 
-	return lastItem.rec, nil
+	return lastRec, nil
 }
 
 // prepareNext stages the next item so that HasNext is idempotent.
