@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -818,6 +819,55 @@ func TestRangeIterator_DescendingNextPrevOscillation(t *testing.T) {
 
 	_, err = iter.Prev()
 	require.ErrorIs(t, err, EOI)
+}
+
+func TestRangeIterator_DescendingSnapshotBeforeTombstone(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := InitRinDB(ctx, WithDatabaseDir(filepath.Join(dir, "db")))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	put := func(key, value string) {
+		require.NoError(t, db.Put(ctx, Bytes(key), Bytes(value)))
+	}
+	del := func(key string) {
+		require.NoError(t, db.Remove(ctx, Bytes(key)))
+	}
+
+	put("k09", "svKc5jdbimDZLIkOuTqj6cf3kZ2Grs128Y0TOev") // seq 1
+	put("k11", "svDmka3zav2cVE21UREP6xCwg7xO5S6zg2ev")    // seq 2
+	put("k09", "svv4MvnZlPf8g6Ch76lvwuhGZb1faYZ5hzHYiUuSxev")
+	del("k04")
+	del("k06")
+	del("k08")
+	del("k09")
+	put("k02", "svaCcjRwv8bBNjlrgA1W1YimdKEzP67qHIjwR9YTVtrc5bY4fKFH9pjev")
+	del("k01")
+	put("k11", "svKXg1VreSQkdSyk7q0ls9zRs95ev")
+	put("k02", "svJnwZ4s1Vy1Kei5V56Y2BVlGU7mMBzZcUkWYlrnNioVgDbqFWiSLedFG1eoZblHhCYIc4dk3Mcvjev")
+	put("k03", "svPVNxhpZNchkeLqOJI7zZyyhi7nopDvm40url4I18kmc6Mb9b0NsB6oglPvflnszyvWOzYDfPPn8iEpaev")
+	put("k07", "svNzayUXM0Y1Y1EwJ5xI9qvmmLAeqtrH0MejaUfIlpKCiMP5spKe5IrxelUgKBtDgJtS00Wt0Kd7LqlbFev")
+	del("k11") // seq 14 tombstone
+	put("k02", "svDQE4kvGuVL5BFHmttHDOsI6W1noIjaJZZByKY9tHh8oVQkC2vpMjhIvvUOnEFaqxd4QSev")
+	put("k07", "svyZFVaXG4YFd3uQYyj5tMYC7DMEZmuXKv6oGev")
+	put("k03", "svczWK529B3ngaVWcDgveGiaC0HQFBYFkpgqXceKkW0oEP5i9t6cDWiKACrt1Zvev")
+	put("k05", "svlI9V9xPfV4GZImqPFeFzWD0NrnNgeY478zNev")
+
+	iter, err := db.IRange(
+		ctx,
+		Bytes("k10"),
+		Bytes("k12"),
+		IRangeOrder(RangeDesc),
+		IRangeSnapshot(7),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k11", string(rec.GetKey()))
+	require.Equal(t, "svDmka3zav2cVE21UREP6xCwg7xO5S6zg2ev", string(rec.GetValue()))
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
