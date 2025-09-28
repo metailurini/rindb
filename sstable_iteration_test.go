@@ -409,7 +409,7 @@ func TestSSTableIRange_PrevRespectsSequenceFilter(t *testing.T) {
 	sst, _, err := flush(ctx, cfg, mem, fs)
 	require.NoError(t, err)
 
-	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"), 1)
+	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"), RangeAsc, 1)
 	require.NoError(t, err)
 	iter := iterIface.(*sstableIRange)
 

@@ -317,8 +317,10 @@ func TestRangeIterator_PrevAfterHasNext(t *testing.T) {
 
 	require.True(t, iter.HasNext())
 
-	_, err := iter.Prev()
-	require.ErrorIs(t, err, EOI)
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "a", string(rec.GetKey()))
+	require.Equal(t, "va", string(rec.GetValue()))
 }
 
 func TestRangeIterator_EmptyIterator(t *testing.T) {
