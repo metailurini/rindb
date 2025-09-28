@@ -95,16 +95,21 @@ func (r *RangeIterator) ensureReversePrimed() {
 	}
 }
 
-func (r *RangeIterator) consumePeekedReverse() {
-	r.mi.commitPeekedReverse()
+func (r *RangeIterator) consumePeekedReverse() (pqItem, bool) {
+	item, ok := r.mi.consumePeekedReverse()
 	r.reversePrimed = false
 	r.reverseCached = nil
 	r.reverseErr = nil
+	if !ok {
+		return pqItem{}, false
+	}
+	return item, true
 }
 
-func (r *RangeIterator) collapseDescendingRun(seed Record) (Record, bool) {
+func (r *RangeIterator) collapseDescendingRun(seed Record, seedItem pqItem) (Record, pqItem, bool) {
 	key := seed.GetKey()
 	candidate := seed
+	candidateItem := seedItem
 
 	// Consume all other versions of this key, tracking the one with the highest
 	// sequence number.
@@ -126,16 +131,20 @@ func (r *RangeIterator) collapseDescendingRun(seed Record) (Record, bool) {
 			break
 		}
 
-		if next.GetSequenceNumber() > candidate.GetSequenceNumber() {
+		candidateUpdated := next.GetSequenceNumber() > candidate.GetSequenceNumber()
+		if candidateUpdated {
 			candidate = next
 		}
-		r.consumePeekedReverse()
+		item, ok := r.consumePeekedReverse()
+		if candidateUpdated && ok {
+			candidateItem = item
+		}
 	}
 
 	if candidate.GetType() == TypeDeletion {
-		return nil, false
+		return nil, pqItem{}, false
 	}
-	return candidate, true
+	return candidate, candidateItem, true
 }
 
 func (r *RangeIterator) allowAnchorOnNext() bool {
@@ -192,12 +201,18 @@ func (r *RangeIterator) primeNext() {
 		}
 
 		peeked := recFromPeek
+		var stagedItem pqItem
 		if recFromPeek {
-			r.consumePeekedReverse()
+			item, ok := r.consumePeekedReverse()
+			if !ok {
+				r.forward = false
+				continue
+			}
+			stagedItem = item
 			if r.order == RangeDesc && r.err == nil && !r.forward {
-				var ok bool
-				rec, ok = r.collapseDescendingRun(rec)
-				if !ok {
+				var collapseOK bool
+				rec, stagedItem, collapseOK = r.collapseDescendingRun(rec, item)
+				if !collapseOK {
 					r.forward = false
 					continue
 				}
@@ -224,6 +239,7 @@ func (r *RangeIterator) primeNext() {
 			continue
 		}
 		if peeked {
+			r.mi.stageForPrev(stagedItem)
 			r.forward = false
 		}
 		r.next = rec
@@ -374,9 +390,15 @@ func (r *RangeIterator) Last() (Record, error) {
 			case peekErr != nil:
 				return empty, peekErr
 			default:
-				collapsed, ok := r.collapseDescendingRun(peeked)
+				item, ok := r.consumePeekedReverse()
+				if !ok {
+					rec = nil
+					break
+				}
+				collapsed, stagedItem, ok := r.collapseDescendingRun(peeked, item)
 				if ok {
 					rec = collapsed
+					r.mi.stageForPrev(stagedItem)
 				} else {
 					rec = nil
 				}
