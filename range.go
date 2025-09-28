@@ -321,10 +321,7 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.reverseCached = nil
 	r.reverseErr = nil
 
-	searchOrder := r.order
-	if searchOrder == RangeDesc {
-		searchOrder = RangeAsc
-	}
+	searchOrder := RangeAsc
 
 	lastValid := Record(nil)
 	r.stagePrevCandidate(rec, searchOrder)
