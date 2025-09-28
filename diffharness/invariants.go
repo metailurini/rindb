@@ -177,7 +177,7 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 				return err
 			}
 			if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
-				return fmt.Errorf("Next mismatch at %d, expected %q got %q", idx, want[idx].K, rec.GetKey())
+				return fmt.Errorf("Next mismatch at %d, order %v, expected %q got %q", idx, order, want[idx].K, rec.GetKey())
 			}
 			idx++
 			eoi = 0
@@ -195,7 +195,7 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 			}
 			idx--
 			if !bytes.Equal(rec.GetKey(), want[idx].K) || !bytes.Equal(rec.GetValue(), want[idx].V) {
-				return fmt.Errorf("Prev mismatch at %d, expected %q got %q", idx, want[idx].K, rec.GetKey())
+				return fmt.Errorf("Prev mismatch at %d, order %v, expected %q got %q", idx, order, want[idx].K, rec.GetKey())
 			}
 			eoi = 0
 		}
