@@ -102,6 +102,48 @@ func (r *RangeIterator) consumePeekedReverse() {
 	r.reverseErr = nil
 }
 
+func (r *RangeIterator) collapseDescendingRun(seed Record) (Record, bool) {
+	key := seed.GetKey()
+	candidate := seed
+	tombstoned := seed.GetType() == TypeDeletion
+
+	for r.err == nil {
+		if !r.reversePrimed && r.reverseErr == nil {
+			r.ensureReversePrimed()
+		}
+		if r.reverseErr != nil {
+			if !errors.Is(r.reverseErr, EOI) {
+				r.err = r.reverseErr
+			}
+			break
+		}
+		if !r.reversePrimed || r.reverseCached == nil {
+			break
+		}
+		next := r.reverseCached
+		if next.GetKey().Compare(key) != CmpEqual {
+			break
+		}
+
+		r.consumePeekedReverse()
+		if next.GetType() == TypeDeletion {
+			tombstoned = true
+			continue
+		}
+		if tombstoned {
+			continue
+		}
+		if candidate == nil || next.GetSequenceNumber() > candidate.GetSequenceNumber() {
+			candidate = next
+		}
+	}
+
+	if tombstoned || candidate == nil {
+		return nil, false
+	}
+	return candidate, true
+}
+
 func (r *RangeIterator) allowAnchorOnNext() bool {
 	if r.order == RangeDesc {
 		return r.forward
@@ -159,14 +201,11 @@ func (r *RangeIterator) primeNext() {
 		if recFromPeek {
 			r.consumePeekedReverse()
 			if r.order == RangeDesc && r.err == nil && !r.forward {
-				if !r.reversePrimed && r.reverseErr == nil {
-					r.ensureReversePrimed()
-				}
-				if r.reversePrimed && r.reverseCached != nil {
-					next := r.reverseCached
-					if next.GetKey().Compare(rec.GetKey()) == CmpEqual && next.GetSequenceNumber() > rec.GetSequenceNumber() {
-						continue
-					}
+				var ok bool
+				rec, ok = r.collapseDescendingRun(rec)
+				if !ok {
+					r.forward = false
+					continue
 				}
 			}
 		}
