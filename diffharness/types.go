@@ -20,6 +20,7 @@ type Op struct {
 	V       []byte
 	Lo      []byte
 	Hi      []byte
+	Order   RangeOrder
 	SnapSeq uint64
 	Limit   int
 }
@@ -52,15 +53,31 @@ type Harness struct {
 
 // Cfg controls random operation generation.
 type Cfg struct {
-	KeyLen    int
-	ValLenMin int
-	ValLenMax int
-	RangeMax  int
-	IterWalk  int // max elements to walk when testing iterators
-	Weights   map[OpKind]int
+	KeyLen      int
+	ValLenMin   int
+	ValLenMax   int
+	RangeMax    int
+	IterWalk    int // max elements to walk when testing iterators
+	RangeOrders []RangeOrder
+	Weights     map[OpKind]int
 
 	CrashEvery         int
 	TelemetryEvery     int
 	MaxKnownKeys       int
 	SnapshotReuseEvery int
+}
+
+// RangeOrder represents the direction of range scans exercised by the harness.
+type RangeOrder int
+
+const (
+	RangeAsc RangeOrder = iota
+	RangeDesc
+)
+
+func (cfg Cfg) rangeOrders() []RangeOrder {
+	if len(cfg.RangeOrders) == 0 {
+		return []RangeOrder{RangeAsc, RangeDesc}
+	}
+	return cfg.RangeOrders
 }

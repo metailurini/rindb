@@ -193,11 +193,12 @@ func runOne(ctx context.Context, dir string, runCfg runConfig) error {
 	}()
 
 	cfg := diffharness.Cfg{
-		KeyLen:    10,
-		ValLenMin: 10,
-		ValLenMax: 100,
-		RangeMax:  64,
-		IterWalk:  runCfg.iterWalk,
+		KeyLen:      10,
+		ValLenMin:   10,
+		ValLenMax:   100,
+		RangeMax:    64,
+		IterWalk:    runCfg.iterWalk,
+		RangeOrders: []diffharness.RangeOrder{diffharness.RangeAsc, diffharness.RangeDesc},
 		Weights: map[diffharness.OpKind]int{
 			diffharness.OpPut:   5,
 			diffharness.OpDel:   1,

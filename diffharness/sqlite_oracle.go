@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	_ "modernc.org/sqlite"
 )
@@ -105,10 +106,14 @@ func (o *SQLiteOracle) GetWithSeq(k []byte, snapshot uint64) ([]byte, bool, erro
 }
 
 // RangeWithSeq returns all key/value pairs within [lo, hi] at the provided
-// snapshot sequence, up to the specified limit. Keys deleted at the snapshot
-// are omitted.
-func (o *SQLiteOracle) RangeWithSeq(lo, hi []byte, snapshot uint64, limit int) ([]KV, error) {
-	rows, err := o.db.Query(`
+// snapshot sequence, up to the specified limit, ordered according to the
+// supplied direction. Keys deleted at the snapshot are omitted.
+func (o *SQLiteOracle) RangeWithSeq(lo, hi []byte, order RangeOrder, snapshot uint64, limit int) ([]KV, error) {
+	dir := "ASC"
+	if order == RangeDesc {
+		dir = "DESC"
+	}
+	query := fmt.Sprintf(`
 SELECT kv.k, kv.v
 FROM kv
 JOIN (
@@ -118,9 +123,10 @@ JOIN (
         GROUP BY k
 ) latest ON kv.k = latest.k AND kv.seq = latest.mseq
 WHERE kv.del = 0
-ORDER BY kv.k
+ORDER BY kv.k %s
 LIMIT ?
-`, lo, hi, snapshot, limit)
+`, dir)
+	rows, err := o.db.Query(query, lo, hi, snapshot, limit)
 	if err != nil {
 		return nil, err
 	}

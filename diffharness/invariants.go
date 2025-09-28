@@ -84,25 +84,32 @@ func checkRangeConcat(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) er
 		mid = randKey(r, cfg.KeyLen)
 	}
 	snap := pickSnapshot(r, h.Seq, h.Snapshots, cfg.SnapshotReuseEvery)
-	left, err := h.My.Range(ctx, lo, mid, snap, cfg.RangeMax)
+	orders := cfg.rangeOrders()
+	order := orders[r.Intn(len(orders))]
+	left, err := h.My.Range(ctx, lo, mid, order, snap, cfg.RangeMax)
 	if err != nil {
 		return err
 	}
-	right, err := h.My.Range(ctx, mid, hi, snap, cfg.RangeMax)
+	right, err := h.My.Range(ctx, mid, hi, order, snap, cfg.RangeMax)
 	if err != nil {
 		return err
 	}
 	if len(left) < cfg.RangeMax && len(right) < cfg.RangeMax {
 		limit := len(left) + len(right) + 1
-		full, err := h.My.Range(ctx, lo, hi, snap, limit)
+		full, err := h.My.Range(ctx, lo, hi, order, snap, limit)
 		if err != nil {
 			return err
 		}
-		concat := append(append([]KV{}, left...), right...)
+		var concat []KV
+		if order == RangeDesc {
+			concat = append(append([]KV{}, right...), left...)
+		} else {
+			concat = append(append([]KV{}, left...), right...)
+		}
 		if err := compareKVLists(concat, full); err != nil {
 			return fmt.Errorf("range concat mismatch: lo=%q mid=%q hi=%q snap=%d: %w", lo, mid, hi, snap, err)
 		}
-		f2, err := h.Ref.RangeWithSeq(lo, hi, snap, limit)
+		f2, err := h.Ref.RangeWithSeq(lo, hi, order, snap, limit)
 		if err != nil {
 			return err
 		}
@@ -110,14 +117,14 @@ func checkRangeConcat(ctx context.Context, h *Harness, r *rand.Rand, cfg Cfg) er
 			return fmt.Errorf("range full mismatch: lo=%q hi=%q snap=%d: %w", lo, hi, snap, err)
 		}
 	}
-	l2, err := h.Ref.RangeWithSeq(lo, mid, snap, cfg.RangeMax)
+	l2, err := h.Ref.RangeWithSeq(lo, mid, order, snap, cfg.RangeMax)
 	if err != nil {
 		return err
 	}
 	if err := compareKVLists(left, l2); err != nil {
 		return fmt.Errorf("range left mismatch: lo=%q mid=%q snap=%d: %w", lo, mid, snap, err)
 	}
-	r2, err := h.Ref.RangeWithSeq(mid, hi, snap, cfg.RangeMax)
+	r2, err := h.Ref.RangeWithSeq(mid, hi, order, snap, cfg.RangeMax)
 	if err != nil {
 		return err
 	}
@@ -141,12 +148,14 @@ func checkRangeIterNextPrev(ctx context.Context, h *Harness, r *rand.Rand, cfg C
 	snap := pickSnapshot(r, h.Seq, h.Snapshots, cfg.SnapshotReuseEvery)
 
 	limit := max(cfg.RangeMax, cfg.IterWalk)
-	want, err := h.Ref.RangeWithSeq(lo, hi, snap, limit)
+	orders := cfg.rangeOrders()
+	order := orders[r.Intn(len(orders))]
+	want, err := h.Ref.RangeWithSeq(lo, hi, order, snap, limit)
 	if err != nil {
 		return err
 	}
 
-	it, err := eng.IterRange(ctx, lo, hi, snap)
+	it, err := eng.IterRange(ctx, lo, hi, snap, order)
 	if err != nil {
 		return err
 	}

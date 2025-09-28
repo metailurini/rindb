@@ -30,7 +30,7 @@ func TestSQLiteOracle_BasicOperations(t *testing.T) {
 	require.NoError(t, o.PutWithSeq([]byte("a"), []byte("va2"), 3))
 	require.NoError(t, o.PutWithSeq([]byte("b"), []byte("vb"), 4))
 
-	res, err := o.RangeWithSeq([]byte("a"), []byte("z"), 4, 10)
+	res, err := o.RangeWithSeq([]byte("a"), []byte("z"), RangeAsc, 4, 10)
 	require.NoError(t, err)
 	require.Len(t, res, 2)
 	require.Equal(t, []byte("a"), res[0].K)
@@ -38,12 +38,18 @@ func TestSQLiteOracle_BasicOperations(t *testing.T) {
 	require.Equal(t, []byte("b"), res[1].K)
 	require.Equal(t, []byte("vb"), res[1].V)
 
-	res, err = o.RangeWithSeq([]byte("a"), []byte("z"), 2, 10)
+	res, err = o.RangeWithSeq([]byte("a"), []byte("z"), RangeAsc, 2, 10)
 	require.NoError(t, err)
 	require.Len(t, res, 0)
 
-	res, err = o.RangeWithSeq([]byte("a"), []byte("z"), 4, 1)
+	res, err = o.RangeWithSeq([]byte("a"), []byte("z"), RangeAsc, 4, 1)
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 	require.Equal(t, []byte("a"), res[0].K)
+
+	res, err = o.RangeWithSeq([]byte("a"), []byte("z"), RangeDesc, 4, 10)
+	require.NoError(t, err)
+	require.Len(t, res, 2)
+	require.Equal(t, []byte("b"), res[0].K)
+	require.Equal(t, []byte("a"), res[1].K)
 }
