@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/metailurini/rindb/compare/v0.15.0...v0.15.1) (2025-09-28)
+
+
+### Bug Fixes
+
+* target master branch in benchmark workflow ([7240d33](https://github.com/metailurini/rindb/commit/7240d337733af3c84e3f25150dd7ec9f842d0072))
+
 ## [0.15.0](https://github.com/metailurini/rindb/compare/v0.14.2...v0.15.0) (2025-09-28)
 
 
