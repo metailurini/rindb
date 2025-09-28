@@ -109,13 +109,6 @@ func (r *RangeIterator) allowAnchorOnNext() bool {
 	return !r.forward
 }
 
-func (r *RangeIterator) allowAnchorOnPrev() bool {
-	if r.order == RangeDesc {
-		return !r.forward
-	}
-	return r.forward
-}
-
 func (r *RangeIterator) allowAnchorOnPrevForOrder(order RangeOrder) bool {
 	if order == RangeDesc {
 		return !r.forward
@@ -368,23 +361,21 @@ func (r *RangeIterator) Last() (Record, error) {
 		}
 	}
 
-	for {
-		if !prepared {
-			r.primePrev()
-			if !r.prevPrepared {
-				if r.err != nil {
-					return empty, r.err
-				}
-				return empty, EOI
+	if !prepared {
+		r.primePrev()
+		if !r.prevPrepared {
+			if r.err != nil {
+				return empty, r.err
 			}
+			return empty, EOI
 		}
-
-		current, err := r.Prev()
-		if err != nil {
-			return empty, err
-		}
-		return current, nil
 	}
+
+	current, err := r.Prev()
+	if err != nil {
+		return empty, err
+	}
+	return current, nil
 }
 
 // Close releases any resources held by the iterator.

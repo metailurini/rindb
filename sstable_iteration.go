@@ -470,12 +470,12 @@ func (sri *sstableIRange) Prev() (Record, error) {
 			return empty, sri.prevErr
 		}
 		return empty, EOI
-        }
-        rec := sri.prev
-        sri.prev = nil
-        sri.prevPrepared = false
-        sri.prevErr = nil
-        return rec, nil
+	}
+	rec := sri.prev
+	sri.prev = nil
+	sri.prevPrepared = false
+	sri.prevErr = nil
+	return rec, nil
 }
 
 // Last implements Iterator.
@@ -513,17 +513,15 @@ func (sri *sstableIRange) Last() (Record, error) {
 	sri.replayPrimed = false
 	sri.replayCursor = 0
 
-	for {
-		sri.primePrev()
-		if sri.prevPrepared {
-			rec := sri.prev
-			sri.prev = nil
-			sri.prevPrepared = false
-			return rec, nil
-		}
-		if sri.prevErr != nil {
-			return empty, sri.prevErr
-		}
-		return empty, EOI
+	sri.primePrev()
+	if sri.prevPrepared {
+		rec := sri.prev
+		sri.prev = nil
+		sri.prevPrepared = false
+		return rec, nil
 	}
+	if sri.prevErr != nil {
+		return empty, sri.prevErr
+	}
+	return empty, EOI
 }
