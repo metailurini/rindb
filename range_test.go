@@ -567,20 +567,39 @@ func TestRangeIterator_LastHonorsOrder(t *testing.T) {
 func TestRangeIterator_DescendingLastThenPrev(t *testing.T) {
 	t.Parallel()
 
-	iter := buildRangeIterOrder(t, RangeDesc,
-		[]kv{{key: "a", value: "va", seq: 1}},
-		[]kv{{key: "b", value: "vb", seq: 2}},
-		[]kv{{key: "c", value: "vc", seq: 3}},
-	)
+	t.Run("basic", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", value: "vb", seq: 2}},
+			[]kv{{key: "c", value: "vc", seq: 3}},
+		)
 
-	rec, err := iter.Last()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
-	require.Equal(t, "va", string(rec.GetValue()))
+		rec, err := iter.Last()
+		require.NoError(t, err)
+		require.Equal(t, "a", string(rec.GetKey()))
+		require.Equal(t, "va", string(rec.GetValue()))
 
-	mustPrevValue(t, iter, "b", "vb")
-	mustPrevValue(t, iter, "c", "vc")
-	mustPrevEOI(t, iter)
+		mustPrevValue(t, iter, "b", "vb")
+		mustPrevValue(t, iter, "c", "vc")
+		mustPrevEOI(t, iter)
+	})
+
+	t.Run("with duplicates", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", value: "vb2", seq: 3}, {key: "b", value: "vb1", seq: 2}},
+			[]kv{{key: "c", value: "vc", seq: 4}},
+		)
+
+		rec, err := iter.Last()
+		require.NoError(t, err)
+		require.Equal(t, "a", string(rec.GetKey()))
+		require.Equal(t, "va", string(rec.GetValue()))
+
+		mustPrevValue(t, iter, "b", "vb2")
+		mustPrevValue(t, iter, "c", "vc")
+		mustPrevEOI(t, iter)
+	})
 }
 
 func TestRangeIterator_DescendingSkipsTombstonedKey(t *testing.T) {
@@ -604,15 +623,27 @@ func TestRangeIterator_DescendingSkipsTombstonedKey(t *testing.T) {
 func TestRangeIterator_DescendingLastSkipsTombstone(t *testing.T) {
 	t.Parallel()
 
-	iter := buildRangeIterOrder(t, RangeDesc,
-		[]kv{{key: "a", value: "va", seq: 1}},
-		[]kv{{key: "b", seq: 3, typ: TypeDeletion}, {key: "b", value: "vb", seq: 2}},
-	)
+	t.Run("skips newest tombstone", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", seq: 3, typ: TypeDeletion}, {key: "b", value: "vb", seq: 2}},
+		)
 
-	rec, err := iter.Last()
-	require.NoError(t, err)
-	require.Equal(t, "a", string(rec.GetKey()))
-	require.Equal(t, "va", string(rec.GetValue()))
+		rec, err := iter.Last()
+		require.NoError(t, err)
+		require.Equal(t, "a", string(rec.GetKey()))
+		require.Equal(t, "va", string(rec.GetValue()))
+	})
+
+	t.Run("all keys tombstoned", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", seq: 2, typ: TypeDeletion}, {key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", seq: 4, typ: TypeDeletion}, {key: "b", value: "vb", seq: 3}},
+		)
+
+		_, err := iter.Last()
+		require.ErrorIs(t, err, EOI)
+	})
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
