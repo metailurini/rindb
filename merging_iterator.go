@@ -206,11 +206,15 @@ func (m *MergingIterator) commitPeekedReverse() {
 	item := m.rev.PopItem()
 	m.fwd.PushItem(item)
 	if item.iter.HasPrev() {
+		key := item.rec.GetKey()
 		for item.iter.HasPrev() {
 			prev, err := item.iter.Prev()
 			switch {
 			case err == nil:
 				m.rev.PushItem(pqItem{rec: prev, iter: item.iter})
+				if prev.GetKey().Compare(key) != CmpEqual {
+					return
+				}
 			case errors.Is(err, EOI):
 				return
 			default:
