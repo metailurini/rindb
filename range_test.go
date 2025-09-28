@@ -290,7 +290,7 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	}
 }
 
-func TestRangeIterator_NextAfterHasPrevPeeking(t *testing.T) {
+func TestRangeIterator_HasPrevAfterHasNextPeek(t *testing.T) {
 	t.Parallel()
 
 	iter := buildRangeIter(t,
