@@ -46,9 +46,3 @@ func (pq *PriorityQueue[T]) PopItem() T { return heap.Pop(pq).(T) }
 
 // PeekItem returns, but does not remove, the highest priority item from the queue.
 func (pq PriorityQueue[T]) PeekItem() T { return pq.items[0] }
-
-// Clear removes all items from the queue while preserving the comparator.
-func (pq *PriorityQueue[T]) Clear() {
-	pq.items = pq.items[:0]
-	heap.Init(pq)
-}
