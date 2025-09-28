@@ -365,6 +365,31 @@ func (r *RangeIterator) Last() (Record, error) {
 		return empty, err
 	}
 
+	if r.order == RangeDesc {
+		for {
+			peeked, peekErr := r.mi.peekReverse()
+			switch {
+			case errors.Is(peekErr, EOI):
+				rec = nil
+			case peekErr != nil:
+				return empty, peekErr
+			default:
+				collapsed, ok := r.collapseDescendingRun(peeked)
+				if ok {
+					rec = collapsed
+				} else {
+					rec = nil
+				}
+			}
+			if rec != nil {
+				break
+			}
+			if errors.Is(peekErr, EOI) {
+				break
+			}
+		}
+	}
+
 	r.prevPrepared = false
 	r.nextPrepared = false
 	r.forward = false
@@ -380,7 +405,9 @@ func (r *RangeIterator) Last() (Record, error) {
 	searchOrder := RangeAsc
 
 	lastValid := Record(nil)
-	r.stagePrevCandidate(rec, searchOrder)
+	if rec != nil {
+		r.stagePrevCandidate(rec, searchOrder)
+	}
 
 	for {
 		if !r.prevPrepared {
