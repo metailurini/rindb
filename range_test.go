@@ -779,6 +779,47 @@ func TestRangeIterator_DescendingLastSkipsTombstone(t *testing.T) {
 	})
 }
 
+func TestRangeIterator_DescendingNextPrevOscillation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, err := InitRinDB(ctx, WithDatabaseDir(t.TempDir()), WithMaxMemtableSize(1000))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	require.NoError(t, db.Put(ctx, Bytes("k4"), Bytes("v")))
+	require.NoError(t, db.Put(ctx, Bytes("k3"), Bytes("v")))
+	require.NoError(t, db.Put(ctx, Bytes("k4"), Bytes("v")))
+	require.NoError(t, db.Put(ctx, Bytes("k4"), Bytes("v")))
+	require.NoError(t, db.Put(ctx, Bytes("k2"), Bytes("v")))
+	require.NoError(t, db.Remove(ctx, Bytes("k1")))
+	require.NoError(t, db.Put(ctx, Bytes("k5"), Bytes("v")))
+	require.NoError(t, db.Put(ctx, Bytes("k2"), Bytes("v")))
+
+	iter, err := db.IRange(ctx, Bytes("k1"), Bytes("k5"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k5", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k4", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k4", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k5", string(rec.GetKey()))
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+}
+
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
 	t.Helper()
 
