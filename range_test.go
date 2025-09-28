@@ -290,6 +290,46 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	}
 }
 
+func TestRangeIterator_DescendingPrevNextRegression(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "k1", value: "v1", seq: 1}},
+		[]kv{{key: "k2", value: "v2", seq: 2}},
+		[]kv{{key: "k3", value: "v3", seq: 3}},
+	)
+
+	_, err := iter.Prev()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k3", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k3", string(rec.GetKey()))
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k3", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+}
+
 func TestRangeIterator_HasPrevAfterHasNextPeek(t *testing.T) {
 	t.Parallel()
 
