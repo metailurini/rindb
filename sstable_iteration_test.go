@@ -429,7 +429,8 @@ func TestSSTableIRange_PrevRespectsSequenceFilter(t *testing.T) {
 	require.True(t, iter.HasPrev())
 	rec, err = iter.Prev()
 	require.NoError(t, err)
-	require.Equal(t, Bytes("a"), rec.GetKey(), "Prev leaked a version that should have been filtered by the seq bound")
+	require.Equal(t, Bytes("a"), rec.GetKey(), "Prev should return the correct record ('a') and not a version filtered by the seq bound")
+
 	require.False(t, iter.HasPrev())
 }
 
