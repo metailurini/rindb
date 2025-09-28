@@ -399,6 +399,44 @@ func TestRindb_IRangeDescendingInvertedBoundsStayTightAfterOscillation(t *testin
 	require.Equal(t, Bytes("c"), rec.GetKey(), "iterator should not leak records above the caller's requested window")
 }
 
+func TestRindb_IRangeDescendingLowerBoundAfterOscillation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	for _, kv := range []struct {
+		key string
+		val string
+	}{{"a", "va"}, {"b", "vb"}, {"c", "vc"}, {"d", "vd"}} {
+		require.NoError(t, rin.Put(ctx, Bytes(kv.key), Bytes(kv.val)))
+	}
+
+	iter, err := rin.IRange(ctx, Bytes("b"), Bytes("d"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	mustNext := []Bytes{Bytes("d"), Bytes("c"), Bytes("b")}
+	for _, key := range mustNext {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		require.Equal(t, key, rec.GetKey())
+	}
+
+	for i := 0; i < 3; i++ {
+		rec, err := iter.Prev()
+		if errors.Is(err, EOI) {
+			break
+		}
+		require.NoError(t, err)
+		require.NotEqual(t, Bytes("a"), rec.GetKey(), "Prev leaked below the caller's lower bound")
+
+		rec, err = iter.Next()
+		require.NoError(t, err)
+		require.NotEqual(t, Bytes("a"), rec.GetKey(), "Next leaked below the caller's lower bound after oscillation")
+	}
+}
+
 // TestRindb_Remove tests the Remove operation of Rindb.
 func TestRindb_Remove(t *testing.T) {
 	t.Parallel()

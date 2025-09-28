@@ -555,6 +555,24 @@ func TestRangeIterator_LastHonorsOrder(t *testing.T) {
 	assert.Equal(t, "va", string(rec.GetValue()))
 }
 
+func TestRangeIterator_DescendingSkipsTombstonedKey(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 2}, {key: "c", value: "vc", seq: 2}},
+		[]kv{{key: "a", seq: 4, typ: TypeDeletion}, {key: "a", value: "va", seq: 2}, {key: "b", value: "vb", seq: 3}, {key: "d", value: "vd", seq: 3}},
+	)
+
+	mustNextValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "c", "vc")
+	mustNextValue(t, iter, "b", "vb")
+	rec, err := iter.Next()
+	if err == nil {
+		t.Fatalf("unexpected record %s@%d", rec.GetKey(), rec.GetSequenceNumber())
+	}
+	require.ErrorIs(t, err, EOI)
+}
+
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
 	t.Helper()
 
