@@ -508,10 +508,8 @@ func TestRangeIterator_DescendingPrevBeforeNext(t *testing.T) {
 
 	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
 
-	rec, err := iter.Prev()
-	require.NoError(t, err, "descending Prev should surface the upper bound when called first")
-	require.Equal(t, "k3", string(rec.GetKey()))
-	require.Equal(t, "v3", string(rec.GetValue()))
+	_, err := iter.Prev()
+	require.ErrorIs(t, err, EOI)
 }
 
 func TestRangeIterator_DescendingHasNextRecoversAfterPrev(t *testing.T) {

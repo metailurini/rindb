@@ -117,6 +117,12 @@ func (r *RangeIterator) allowAnchorOnPrevForOrder(order RangeOrder) bool {
 }
 
 func (r *RangeIterator) primeNext() {
+	if r.order == RangeDesc && r.forward && r.crossingAnchorSet {
+		r.next = r.crossingAnchor
+		r.nextPrepared = true
+		r.crossingAnchorSet = false
+		return
+	}
 	for !r.nextPrepared && r.err == nil {
 		var (
 			rec         Record
@@ -152,6 +158,17 @@ func (r *RangeIterator) primeNext() {
 		peeked := recFromPeek
 		if recFromPeek {
 			r.consumePeekedReverse()
+			if r.order == RangeDesc && r.err == nil && !r.forward {
+				if !r.reversePrimed && r.reverseErr == nil {
+					r.ensureReversePrimed()
+				}
+				if r.reversePrimed && r.reverseCached != nil {
+					next := r.reverseCached
+					if next.GetKey().Compare(rec.GetKey()) == CmpEqual && next.GetSequenceNumber() > rec.GetSequenceNumber() {
+						continue
+					}
+				}
+			}
 		}
 
 		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
@@ -189,6 +206,12 @@ func (r *RangeIterator) primePrev() {
 }
 
 func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
+	if order == RangeDesc && !r.forward && r.crossingAnchorSet {
+		r.prev = r.crossingAnchor
+		r.prevPrepared = true
+		r.crossingAnchorSet = false
+		return
+	}
 	for !r.prevPrepared && r.err == nil {
 		var (
 			rec Record
