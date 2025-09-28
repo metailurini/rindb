@@ -213,6 +213,45 @@ func TestSSTableIRange_PrevFullTraversal(t *testing.T) {
 	assert.False(t, it.HasPrev())
 }
 
+func TestSSTableIRange_PrevRespectsSequenceFilter(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+	fs := fss[0]
+
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb"), 4))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc"), 1))
+
+	sst, _, err := flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+
+	iterIface, err := sst.IRange(Bytes("a"), Bytes("z"), 1)
+	require.NoError(t, err)
+	iter := iterIface.(*sstableIRange)
+
+	var forward []Bytes
+	for iter.HasNext() {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		forward = append(forward, rec.GetKey())
+	}
+	require.Equal(t, []Bytes{Bytes("a"), Bytes("c")}, forward)
+
+	require.True(t, iter.HasPrev())
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey())
+
+	require.True(t, iter.HasPrev())
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("a"), rec.GetKey(), "Prev leaked a version that should have been filtered by the seq bound")
+}
+
 func TestSSTableIterator_PrevOffsetErrorPropagation(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
