@@ -105,8 +105,9 @@ func (r *RangeIterator) consumePeekedReverse() {
 func (r *RangeIterator) collapseDescendingRun(seed Record) (Record, bool) {
 	key := seed.GetKey()
 	candidate := seed
-	tombstoned := seed.GetType() == TypeDeletion
 
+	// Consume all other versions of this key, tracking the one with the highest
+	// sequence number.
 	for r.err == nil {
 		if !r.reversePrimed && r.reverseErr == nil {
 			r.ensureReversePrimed()
@@ -125,20 +126,13 @@ func (r *RangeIterator) collapseDescendingRun(seed Record) (Record, bool) {
 			break
 		}
 
-		r.consumePeekedReverse()
-		if next.GetType() == TypeDeletion {
-			tombstoned = true
-			continue
-		}
-		if tombstoned {
-			continue
-		}
-		if candidate == nil || next.GetSequenceNumber() > candidate.GetSequenceNumber() {
+		if next.GetSequenceNumber() > candidate.GetSequenceNumber() {
 			candidate = next
 		}
+		r.consumePeekedReverse()
 	}
 
-	if tombstoned || candidate == nil {
+	if candidate.GetType() == TypeDeletion {
 		return nil, false
 	}
 	return candidate, true
