@@ -321,61 +321,39 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.reverseCached = nil
 	r.reverseErr = nil
 
-	initialOrder := r.order
-	if r.order == RangeDesc {
-		initialOrder = RangeAsc
+	searchOrder := r.order
+	if searchOrder == RangeDesc {
+		searchOrder = RangeAsc
 	}
 
-	prepared := r.stagePrevCandidate(rec, initialOrder)
-	if r.order == RangeDesc {
-		var lastValid Record
-		if prepared {
-			current, err := r.Prev()
-			if err != nil {
-				return empty, err
-			}
-			lastValid = current
-			prepared = false
-		}
+	lastValid := Record(nil)
+	r.stagePrevCandidate(rec, searchOrder)
 
-		for {
-			if !prepared {
-				r.primePrevWithOrder(RangeAsc)
-				if !r.prevPrepared {
-					if r.err != nil {
-						return empty, r.err
-					}
-					if lastValid != nil {
-						return lastValid, nil
-					}
-					return empty, EOI
-				}
-			}
-
-			current, err := r.Prev()
-			if err != nil {
-				return empty, err
-			}
-			lastValid = current
-			prepared = false
-		}
-	}
-
-	if !prepared {
-		r.primePrev()
+	for {
 		if !r.prevPrepared {
-			if r.err != nil {
-				return empty, r.err
+			r.primePrevWithOrder(searchOrder)
+			if !r.prevPrepared {
+				if r.err != nil {
+					return empty, r.err
+				}
+				if r.order == RangeDesc && lastValid != nil {
+					return lastValid, nil
+				}
+				return empty, EOI
 			}
-			return empty, EOI
 		}
-	}
 
-	current, err := r.Prev()
-	if err != nil {
-		return empty, err
+		current, err := r.Prev()
+		if err != nil {
+			return empty, err
+		}
+
+		if r.order != RangeDesc {
+			return current, nil
+		}
+
+		lastValid = current
 	}
-	return current, nil
 }
 
 // Close releases any resources held by the iterator.
