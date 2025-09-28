@@ -76,34 +76,44 @@ func TestHarness_RangeIteratorPrev(t *testing.T) {
 	_, err = h.Step(ctx, PutOp{K: []byte("c"), V: []byte("3")})
 	require.NoError(t, err)
 
-	iterEng, ok := h.My.(IteratorEngine)
-	require.True(t, ok)
-	it, err := iterEng.IterRange(ctx, []byte("a"), []byte("z"), h.Seq)
-	require.NoError(t, err)
+	orders := []struct {
+		name  string
+		order RangeOrder
+	}{{"asc", RangeAsc}, {"desc", RangeDesc}}
 
-	var forward [][]byte
-	for {
-		rec, err := it.Next()
-		if errors.Is(err, rindb.EOI) {
-			break
-		}
-		require.NoError(t, err)
-		forward = append(forward, slices.Clone(rec.GetKey()))
+	for _, tc := range orders {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			iterEng, ok := h.My.(IteratorEngine)
+			require.True(t, ok)
+			it, err := iterEng.IterRange(ctx, []byte("a"), []byte("z"), h.Seq, tc.order)
+			require.NoError(t, err)
+			defer it.Close()
+
+			var forward [][]byte
+			for {
+				rec, err := it.Next()
+				if errors.Is(err, rindb.EOI) {
+					break
+				}
+				require.NoError(t, err)
+				forward = append(forward, slices.Clone(rec.GetKey()))
+			}
+
+			var backward [][]byte
+			for range forward {
+				rec, err := it.Prev()
+				if errors.Is(err, rindb.EOI) {
+					break
+				}
+				require.NoError(t, err)
+				backward = append(backward, slices.Clone(rec.GetKey()))
+			}
+
+			slices.Reverse(forward)
+			require.Equal(t, forward, backward)
+		})
 	}
-
-	var backward [][]byte
-	for range forward {
-		rec, err := it.Prev()
-		if errors.Is(err, rindb.EOI) {
-			break
-		}
-		require.NoError(t, err)
-		backward = append(backward, slices.Clone(rec.GetKey()))
-	}
-
-	slices.Reverse(forward)
-	require.Equal(t, forward, backward)
-	require.NoError(t, it.Close())
 }
 
 // sqliteEngine adapts SQLiteOracle to the Engine interface for testing.
@@ -124,8 +134,8 @@ func (e *sqliteEngine) Get(ctx context.Context, k []byte, snapshot uint64) ([]by
 	return e.o.GetWithSeq(k, snapshot)
 }
 
-func (e *sqliteEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64, limit int) ([]KV, error) {
-	return e.o.RangeWithSeq(lo, hi, snapshot, limit)
+func (e *sqliteEngine) Range(ctx context.Context, lo, hi []byte, order RangeOrder, snapshot uint64, limit int) ([]KV, error) {
+	return e.o.RangeWithSeq(lo, hi, order, snapshot, limit)
 }
 
 func (e *sqliteEngine) NewSnapshot(ctx context.Context) (uint64, error) {
@@ -214,10 +224,17 @@ func TestHarness_RangeHistoricalSnapshot(t *testing.T) {
 	_, err = h.Step(ctx, DelOp{K: []byte("c")})
 	require.NoError(t, err)
 
-	res, err := h.My.Range(ctx, []byte("a"), []byte("z"), snap, 10)
+	resAsc, err := h.My.Range(ctx, []byte("a"), []byte("z"), RangeAsc, snap, 10)
 	require.NoError(t, err)
 	exp := []KV{{K: []byte("a"), V: []byte("1")}, {K: []byte("b"), V: []byte("2")}, {K: []byte("c"), V: []byte("3")}}
-	require.Equal(t, exp, res)
+	require.Equal(t, exp, resAsc)
+
+	resDesc, err := h.My.Range(ctx, []byte("a"), []byte("z"), RangeDesc, snap, 10)
+	require.NoError(t, err)
+	require.Equal(t, len(resAsc), len(resDesc))
+	for i := range resAsc {
+		require.Equal(t, resAsc[i], resDesc[len(resDesc)-1-i])
+	}
 }
 
 func TestHarness_RunChecksInvariants(t *testing.T) {

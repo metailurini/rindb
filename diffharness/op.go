@@ -199,13 +199,14 @@ func (g GetOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, er
 // RangeOp scans keys in a range.
 type RangeOp struct {
 	Lo, Hi  []byte
+	Order   RangeOrder
 	SnapSeq uint64
 	Limit   int
 	start   Phase
 }
 
 func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, error) {
-	op := Op{Kind: OpRange, Lo: r.Lo, Hi: r.Hi, SnapSeq: r.SnapSeq, Limit: r.Limit}
+	op := Op{Kind: OpRange, Lo: r.Lo, Hi: r.Hi, Order: r.Order, SnapSeq: r.SnapSeq, Limit: r.Limit}
 	if r.start == "" {
 		if err := log.Log(op, h.Seq, PhasePrepared, h.ops); err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
@@ -215,7 +216,7 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 	var mres []KV
 	switch r.start {
 	case PhasePrepared:
-		res, err := h.My.Range(ctx, r.Lo, r.Hi, r.SnapSeq, r.Limit)
+		res, err := h.My.Range(ctx, r.Lo, r.Hi, r.Order, r.SnapSeq, r.Limit)
 		if err != nil {
 			return false, wrapErr(op, PhasePrepared, err)
 		}
@@ -226,7 +227,7 @@ func (r RangeOp) Apply(ctx context.Context, h *Harness, log PhaseLogger) (bool, 
 		fallthrough
 	case PhaseMyDone:
 		if h.Ref != nil {
-			sres, err := h.Ref.RangeWithSeq(r.Lo, r.Hi, r.SnapSeq, r.Limit)
+			sres, err := h.Ref.RangeWithSeq(r.Lo, r.Hi, r.Order, r.SnapSeq, r.Limit)
 			if err != nil {
 				return false, wrapErr(op, PhaseMyDone, err)
 			}
@@ -303,7 +304,7 @@ func opFrom(o Op, start Phase) Operation {
 	case OpGet:
 		return GetOp{K: o.K, SnapSeq: o.SnapSeq, start: start}
 	case OpRange:
-		return RangeOp{Lo: o.Lo, Hi: o.Hi, SnapSeq: o.SnapSeq, Limit: o.Limit, start: start}
+		return RangeOp{Lo: o.Lo, Hi: o.Hi, Order: o.Order, SnapSeq: o.SnapSeq, Limit: o.Limit, start: start}
 	case OpSnap:
 		return SnapOp{start: start}
 	default:
