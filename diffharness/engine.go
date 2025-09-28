@@ -17,7 +17,7 @@ type Engine interface {
 	Put(ctx context.Context, k, v []byte) error // insert or replace key with value
 	Delete(ctx context.Context, k []byte) error // delete key (tombstone)
 	Get(ctx context.Context, k []byte, snapshot uint64) ([]byte, bool, error)
-	Range(ctx context.Context, lo, hi []byte, snapshot uint64, limit int) ([]KV, error)
+	Range(ctx context.Context, lo, hi []byte, order RangeOrder, snapshot uint64, limit int) ([]KV, error)
 	NewSnapshot(ctx context.Context) (uint64, error)
 	ReleaseSnapshot(ctx context.Context, seq uint64) error
 	Close() error
@@ -27,5 +27,5 @@ type Engine interface {
 // Engine abstraction. Engines implementing this interface allow invariants to
 // drive iterators directly.
 type IteratorEngine interface {
-	IterRange(ctx context.Context, lo, hi []byte, snap uint64) (*rindb.RangeIterator, error)
+	IterRange(ctx context.Context, lo, hi []byte, snap uint64, order RangeOrder) (*rindb.RangeIterator, error)
 }

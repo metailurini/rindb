@@ -158,7 +158,9 @@ func (ro RandOps) Next(r *rand.Rand, kt *KeyTracker, seq uint64, snaps []uint64)
 			hi = randKey(r, ro.cfg.KeyLen)
 		}
 		s := pickSnapshot(r, seq, snaps, ro.cfg.SnapshotReuseEvery)
-		return RangeOp{Lo: lo, Hi: hi, SnapSeq: s, Limit: ro.cfg.RangeMax}
+		orders := ro.cfg.rangeOrders()
+		order := orders[r.Intn(len(orders))]
+		return RangeOp{Lo: lo, Hi: hi, Order: order, SnapSeq: s, Limit: ro.cfg.RangeMax}
 	case OpSnap:
 		return SnapOp{}
 	default:

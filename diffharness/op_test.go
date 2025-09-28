@@ -21,7 +21,7 @@ func (d dummyEngine) Delete(context.Context, []byte) error      { return nil }
 func (d dummyEngine) Get(context.Context, []byte, uint64) ([]byte, bool, error) {
 	return nil, false, nil
 }
-func (d dummyEngine) Range(context.Context, []byte, []byte, uint64, int) ([]KV, error) {
+func (d dummyEngine) Range(context.Context, []byte, []byte, RangeOrder, uint64, int) ([]KV, error) {
 	return nil, nil
 }
 func (d dummyEngine) NewSnapshot(context.Context) (uint64, error)   { return 0, nil }

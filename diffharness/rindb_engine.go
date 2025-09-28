@@ -43,8 +43,8 @@ func (e *RinDBEngine) Get(ctx context.Context, k []byte, snapshot uint64) ([]byt
 	return append([]byte(nil), []byte(v)...), true, nil
 }
 
-func (e *RinDBEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64, limit int) ([]KV, error) {
-	it, err := e.db.IRange(ctx, rindb.Bytes(lo), rindb.Bytes(hi), rindb.IRangeSnapshot(snapshot))
+func (e *RinDBEngine) Range(ctx context.Context, lo, hi []byte, order RangeOrder, snapshot uint64, limit int) ([]KV, error) {
+	it, err := e.db.IRange(ctx, rindb.Bytes(lo), rindb.Bytes(hi), rindb.IRangeOrder(rindb.RangeOrder(order)), rindb.IRangeSnapshot(snapshot))
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +61,8 @@ func (e *RinDBEngine) Range(ctx context.Context, lo, hi []byte, snapshot uint64,
 }
 
 // IterRange exposes the raw RangeIterator without additional filtering.
-func (e *RinDBEngine) IterRange(ctx context.Context, lo, hi []byte, snap uint64) (*rindb.RangeIterator, error) {
-	return e.db.IRange(ctx, rindb.Bytes(lo), rindb.Bytes(hi), rindb.IRangeSnapshot(snap))
+func (e *RinDBEngine) IterRange(ctx context.Context, lo, hi []byte, snap uint64, order RangeOrder) (*rindb.RangeIterator, error) {
+	return e.db.IRange(ctx, rindb.Bytes(lo), rindb.Bytes(hi), rindb.IRangeOrder(rindb.RangeOrder(order)), rindb.IRangeSnapshot(snap))
 }
 
 func (e *RinDBEngine) NewSnapshot(ctx context.Context) (uint64, error) {
