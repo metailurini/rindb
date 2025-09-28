@@ -226,6 +226,41 @@ func TestSkipList_Remove(t *testing.T) {
 	}
 }
 
+func TestSkipList_RemoveTailUpdates(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+
+	t.Run("single element clears tail", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		list.Put(1, 1)
+		assert.NotNil(t, list.tail)
+
+		err = list.Remove(1)
+		assert.NoError(t, err)
+		assert.Nil(t, list.tail)
+	})
+
+	t.Run("multiple elements retarget tail", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for i := 1; i <= 3; i++ {
+			list.Put(i, i)
+		}
+
+		assert.NotNil(t, list.tail)
+		assert.Equal(t, 3, list.tail.Key)
+
+		err = list.Remove(3)
+		assert.NoError(t, err)
+		if assert.NotNil(t, list.tail) {
+			assert.Equal(t, 2, list.tail.Key)
+		}
+	})
+}
+
 func TestSkipList_IteratorReverse(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
@@ -339,6 +374,30 @@ func TestSkipList_IteratorLast(t *testing.T) {
 	prev, err := it.Prev()
 	assert.NoError(t, err)
 	assert.Equal(t, 3, prev)
+}
+
+func TestSLIterator_LastEmpty(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+
+	t.Run("nil iterator", func(t *testing.T) {
+		it := &slIterator[int, int]{}
+		last, err := it.Last()
+		assert.Zero(t, last)
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		it, ok := list.Iterator().(*slIterator[int, int])
+		assert.True(t, ok)
+
+		last, err := it.Last()
+		assert.Zero(t, last)
+		assert.ErrorIs(t, err, EOI)
+	})
 }
 
 func TestSkipList_IteratorConcurrentMutations(t *testing.T) {
@@ -470,6 +529,97 @@ func TestSkipList_IRangeDescendingPrev(t *testing.T) {
 	}
 
 	assert.Equal(t, []int{5, 4, 3, 2, 1}, values)
+}
+
+func TestSLIRange_HasPrevClampsDescending(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(2, 4, RangeDesc).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	lower := list.Head().Next()
+	if assert.NotNil(t, lower) {
+		it.desc = lower
+		assert.False(t, it.HasPrev())
+		assert.Nil(t, it.desc)
+	}
+}
+
+func TestSLIRange_PrevDescendingNoValues(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	for i := 1; i <= 5; i++ {
+		list.Put(i, i)
+	}
+
+	it, ok := list.IRange(4, 3, RangeDesc).(*slIRange[int, int])
+	assert.True(t, ok)
+
+	value, err := it.Prev()
+	assert.Zero(t, value)
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestSLIRange_LastEdgeCases(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+
+	t.Run("nil list", func(t *testing.T) {
+		it := &slIRange[int, int]{}
+		value, err := it.Last()
+		assert.Zero(t, value)
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("no node before end", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for _, v := range []int{5, 6} {
+			list.Put(v, v)
+		}
+
+		it := &slIRange[int, int]{
+			list:     list,
+			startKey: 1,
+			endKey:   0,
+		}
+
+		value, err := it.Last()
+		assert.Zero(t, value)
+		assert.ErrorIs(t, err, EOI)
+	})
+
+	t.Run("node before start", func(t *testing.T) {
+		list, err := InitSkipList[int, int](cfg)
+		assert.NoError(t, err)
+
+		for i := 1; i <= 5; i++ {
+			list.Put(i, i)
+		}
+
+		it := &slIRange[int, int]{
+			list:     list,
+			startKey: 4,
+			endKey:   3,
+		}
+
+		value, err := it.Last()
+		assert.Zero(t, value)
+		assert.ErrorIs(t, err, EOI)
+	})
 }
 
 func TestSkipList_IRangeDescendingLast(t *testing.T) {
