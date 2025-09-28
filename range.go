@@ -116,6 +116,13 @@ func (r *RangeIterator) allowAnchorOnPrev() bool {
 	return r.forward
 }
 
+func (r *RangeIterator) allowAnchorOnPrevForOrder(order RangeOrder) bool {
+	if order == RangeDesc {
+		return !r.forward
+	}
+	return r.forward
+}
+
 func (r *RangeIterator) primeNext() {
 	for !r.nextPrepared && r.err == nil {
 		var (
@@ -185,14 +192,18 @@ func (r *RangeIterator) primeNext() {
 }
 
 func (r *RangeIterator) primePrev() {
+	r.primePrevWithOrder(r.order)
+}
+
+func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 	for !r.prevPrepared && r.err == nil {
 		var (
 			rec Record
 			err error
 		)
-		if r.order == RangeDesc {
+		if order == RangeDesc {
 			rec, err = r.mi.Next()
-			if errors.Is(r.reverseErr, EOI) {
+			if order == r.order && errors.Is(r.reverseErr, EOI) {
 				r.reverseErr = nil
 			}
 		} else {
@@ -206,29 +217,37 @@ func (r *RangeIterator) primePrev() {
 			return
 		}
 
-		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
-		if sameKey {
-			if r.allowAnchorOnPrev() && r.matchesCrossingAnchor(rec) {
-				r.crossingAnchorSet = false
-			} else if r.nextPrepared && recordsEqual(rec, r.next) {
-				// A forward peek staged this record; treat it as the anchor so Prev can surface it.
-				r.crossingAnchor = rec
-				r.crossingAnchorSet = true
-			} else {
-				continue
-			}
-		}
-		r.lastKey = rec.GetKey().Clone()
-		r.lastKeySet = true
-		if rec.GetType() == TypeDeletion {
+		if !r.stagePrevCandidate(rec, order) {
 			continue
 		}
-		r.prev = rec
-		r.prevPrepared = true
 	}
 	if r.prevPrepared {
 		r.nextPrepared = false
 	}
+}
+
+func (r *RangeIterator) stagePrevCandidate(rec Record, order RangeOrder) bool {
+	sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
+	if sameKey {
+		if r.allowAnchorOnPrevForOrder(order) && r.matchesCrossingAnchor(rec) {
+			r.crossingAnchorSet = false
+		} else if r.nextPrepared && recordsEqual(rec, r.next) {
+			// A forward peek staged this record; treat it as the anchor so Prev can surface it.
+			r.crossingAnchor = rec
+			r.crossingAnchorSet = true
+		} else {
+			return false
+		}
+	}
+	r.lastKey = rec.GetKey().Clone()
+	r.lastKeySet = true
+	if rec.GetType() == TypeDeletion {
+		return false
+	}
+	r.prev = rec
+	r.prevPrepared = true
+	r.nextPrepared = false
+	return true
 }
 
 // HasNext implements Iterator[Record].
@@ -309,81 +328,62 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.reverseCached = nil
 	r.reverseErr = nil
 
+	initialOrder := r.order
+	if r.order == RangeDesc {
+		initialOrder = RangeAsc
+	}
+
+	prepared := r.stagePrevCandidate(rec, initialOrder)
 	if r.order == RangeDesc {
 		var lastValid Record
+		if prepared {
+			current, err := r.Prev()
+			if err != nil {
+				return empty, err
+			}
+			lastValid = current
+			prepared = false
+		}
+
 		for {
-			sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
-			if sameKey || rec.GetType() == TypeDeletion {
-				prev, err := r.mi.Prev()
-				switch {
-				case err == nil:
-					rec = prev
-					continue
-				case errors.Is(err, EOI):
-					if lastValid == nil {
-						return empty, EOI
+			if !prepared {
+				r.primePrevWithOrder(RangeAsc)
+				if !r.prevPrepared {
+					if r.err != nil {
+						return empty, r.err
 					}
-					r.lastKey = lastValid.GetKey().Clone()
-					r.lastKeySet = true
-					r.crossingAnchor = lastValid
-					r.crossingAnchorSet = true
-					return lastValid, nil
-				default:
-					return empty, err
+					if lastValid != nil {
+						return lastValid, nil
+					}
+					return empty, EOI
 				}
 			}
 
-			r.lastKey = rec.GetKey().Clone()
-			r.lastKeySet = true
-			lastValid = rec
-
-			prev, err := r.mi.Prev()
-			switch {
-			case err == nil:
-				rec = prev
-			case errors.Is(err, EOI):
-				r.crossingAnchor = lastValid
-				r.crossingAnchorSet = true
-				return lastValid, nil
-			default:
+			current, err := r.Prev()
+			if err != nil {
 				return empty, err
 			}
+			lastValid = current
+			prepared = false
 		}
 	}
 
 	for {
-		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
-		if sameKey {
-			prev, err := r.mi.Prev()
-			switch {
-			case err == nil:
-				rec = prev
-			case errors.Is(err, EOI):
+		if !prepared {
+			r.primePrev()
+			if !r.prevPrepared {
+				if r.err != nil {
+					return empty, r.err
+				}
 				return empty, EOI
-			default:
-				return empty, err
 			}
-			continue
 		}
 
-		r.lastKey = rec.GetKey().Clone()
-		r.lastKeySet = true
-		if rec.GetType() == TypeDeletion {
-			prev, err := r.mi.Prev()
-			switch {
-			case err == nil:
-				rec = prev
-			case errors.Is(err, EOI):
-				return empty, EOI
-			default:
-				return empty, err
-			}
-			continue
+		current, err := r.Prev()
+		if err != nil {
+			return empty, err
 		}
-
-		r.crossingAnchor = rec
-		r.crossingAnchorSet = true
-		return rec, nil
+		return current, nil
 	}
 }
 
