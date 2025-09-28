@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -622,6 +623,134 @@ func TestMemtableIRange_Last(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, Bytes("b"), prev.GetKey())
 	assert.Equal(t, uint64(2), prev.GetSequenceNumber())
+}
+
+type stubPrevResponse struct {
+	rec Record
+	err error
+}
+
+type stubRecordIterator struct {
+	lastRecord       Record
+	lastErr          error
+	hasPrevResponses []bool
+	prevResponses    []stubPrevResponse
+	hasNextResponses []bool
+	nextResponses    []Record
+	nextErrResponses []error
+}
+
+var _ Iterator[Record] = (*stubRecordIterator)(nil)
+
+func (s *stubRecordIterator) HasNext() bool {
+	if len(s.hasNextResponses) == 0 {
+		return false
+	}
+	resp := s.hasNextResponses[0]
+	s.hasNextResponses = s.hasNextResponses[1:]
+	return resp
+}
+
+func (s *stubRecordIterator) Next() (Record, error) {
+	if len(s.nextResponses) == 0 {
+		var empty Record
+		return empty, EOI
+	}
+	rec := s.nextResponses[0]
+	s.nextResponses = s.nextResponses[1:]
+	var err error
+	if len(s.nextErrResponses) > 0 {
+		err = s.nextErrResponses[0]
+		s.nextErrResponses = s.nextErrResponses[1:]
+	}
+	return rec, err
+}
+
+func (s *stubRecordIterator) HasPrev() bool {
+	if len(s.hasPrevResponses) == 0 {
+		return false
+	}
+	resp := s.hasPrevResponses[0]
+	s.hasPrevResponses = s.hasPrevResponses[1:]
+	return resp
+}
+
+func (s *stubRecordIterator) Prev() (Record, error) {
+	if len(s.prevResponses) == 0 {
+		var empty Record
+		return empty, EOI
+	}
+	resp := s.prevResponses[0]
+	s.prevResponses = s.prevResponses[1:]
+	return resp.rec, resp.err
+}
+
+func (s *stubRecordIterator) Last() (Record, error) {
+	return s.lastRecord, s.lastErr
+}
+
+func TestMemtableIRange_LastIteratorError(t *testing.T) {
+	t.Parallel()
+
+	iterErr := errors.New("iterator last failed")
+	mi := &memtableIRange{
+		it: &stubRecordIterator{lastErr: iterErr},
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, iterErr)
+}
+
+func TestMemtableIRange_LastNoPreviousRecord(t *testing.T) {
+	t.Parallel()
+
+	mi := &memtableIRange{
+		it: &stubRecordIterator{
+			lastRecord:       newRecord(Bytes("k"), Bytes("v"), 5),
+			hasPrevResponses: []bool{false},
+		},
+		seq: 3,
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRange_LastPrevReturnsEOI(t *testing.T) {
+	t.Parallel()
+
+	mi := &memtableIRange{
+		it: &stubRecordIterator{
+			lastRecord:       newRecord(Bytes("k"), Bytes("v"), 5),
+			hasPrevResponses: []bool{true},
+			prevResponses: []stubPrevResponse{
+				{err: EOI},
+			},
+		},
+		seq: 3,
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRange_LastPrevReturnsOtherError(t *testing.T) {
+	t.Parallel()
+
+	prevErr := errors.New("prev failed")
+	mi := &memtableIRange{
+		it: &stubRecordIterator{
+			lastRecord:       newRecord(Bytes("k"), Bytes("v"), 5),
+			hasPrevResponses: []bool{true},
+			prevResponses: []stubPrevResponse{
+				{err: prevErr},
+			},
+		},
+		seq: 3,
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, prevErr)
 }
 
 func TestMemtableIRange_PrevBeforeNext(t *testing.T) {
