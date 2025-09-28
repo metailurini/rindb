@@ -393,11 +393,7 @@ func (r *RangeIterator) Close() error {
 }
 
 func (r *RangeIterator) matchesCrossingAnchor(rec Record) bool {
-	return r.crossingAnchorSet &&
-		r.crossingAnchor != nil &&
-		rec.GetSequenceNumber() == r.crossingAnchor.GetSequenceNumber() &&
-		rec.GetType() == r.crossingAnchor.GetType() &&
-		rec.GetKey().Compare(r.crossingAnchor.GetKey()) == CmpEqual
+	return r.crossingAnchorSet && recordsEqual(rec, r.crossingAnchor)
 }
 
 func recordsEqual(a, b Record) bool {
