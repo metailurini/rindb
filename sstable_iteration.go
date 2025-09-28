@@ -288,9 +288,10 @@ func (sri *sstableIRange) primeNextDescending() {
 		switch {
 		case err == nil:
 		case errors.Is(err, EOI), errors.Is(err, io.EOF):
-			sri.offset = reader.Offset()
+			sri.offset = start
 			sri.cursor = start
-			continue
+			sri.err = EOI
+			return
 		default:
 			sri.err = err
 			return
