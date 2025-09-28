@@ -512,6 +512,21 @@ func TestRangeIterator_DescendingPrevBeforeNext(t *testing.T) {
 	require.ErrorIs(t, err, EOI)
 }
 
+func TestRangeIterator_DescendingPrevStartsFromGreatestKey(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", value: "vb", seq: 2}},
+		[]kv{{key: "c", value: "vc", seq: 3}},
+	)
+
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "c", string(rec.GetKey()))
+	require.Equal(t, "vc", string(rec.GetValue()))
+}
+
 func TestRangeIterator_DescendingHasNextRecoversAfterPrev(t *testing.T) {
 	t.Parallel()
 
@@ -644,6 +659,24 @@ func TestRangeIterator_DescendingLastSkipsTombstone(t *testing.T) {
 		_, err := iter.Last()
 		require.ErrorIs(t, err, EOI)
 	})
+}
+
+func TestRangeIterator_DescendingLastNextReturnsEOI(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", value: "vb", seq: 2}},
+		[]kv{{key: "c", value: "vc", seq: 3}},
+	)
+
+	rec, err := iter.Last()
+	require.NoError(t, err)
+	require.Equal(t, "a", string(rec.GetKey()))
+	require.Equal(t, "va", string(rec.GetValue()))
+
+	_, err = iter.Next()
+	require.ErrorIs(t, err, EOI)
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
