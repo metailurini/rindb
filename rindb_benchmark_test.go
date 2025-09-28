@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+const (
+	benchmarkMemtableSize          = 64 << 20 // 64 MiB
+	benchmarkLevel0CompactionFiles = 1 << 20  // A large number to effectively disable L0 compaction
+)
+
 var (
 	benchBytesSink  Bytes
 	benchRecordSink Record
@@ -32,8 +37,8 @@ func setupBenchmarkDB(b *testing.B, opts ...Option) (*Rindb, func()) {
 
 	benchmarkOpts := append([]Option{}, benchmarkOptions(b)...)
 	benchmarkOpts = append(benchmarkOpts,
-		WithMaxMemtableSize(64<<20),
-		WithLevel0CompactionThreshold(1<<20),
+		WithMaxMemtableSize(benchmarkMemtableSize),
+		WithLevel0CompactionThreshold(benchmarkLevel0CompactionFiles),
 	)
 	benchmarkOpts = append(benchmarkOpts, opts...)
 
@@ -57,6 +62,29 @@ func makeBenchKey(i int) Bytes {
 	return Bytes(key)
 }
 
+func setupBenchmarkDBWithData(b *testing.B, keyCount int) (*Rindb, []Bytes, func()) {
+	b.Helper()
+
+	rin, cleanup := setupBenchmarkDB(b)
+
+	ctx := context.Background()
+	keys := make([]Bytes, keyCount)
+	value := Bytes([]byte("value"))
+
+	for i := range keys {
+		key := makeBenchKey(i)
+		keys[i] = key
+		if err := rin.Put(ctx, key, value); err != nil {
+			if closeErr := rin.Close(); closeErr != nil && !errors.Is(closeErr, ErrDatabaseClosed) {
+				b.Logf("failed to close RinDB during setup: %v", closeErr)
+			}
+			b.Fatalf("failed to prepare key %d: %v", i, err)
+		}
+	}
+
+	return rin, keys, cleanup
+}
+
 func BenchmarkRindb_Put(b *testing.B) {
 	ctx := context.Background()
 	rin, cleanup := setupBenchmarkDB(b)
@@ -77,18 +105,8 @@ func BenchmarkRindb_Put(b *testing.B) {
 func BenchmarkRindb_Get(b *testing.B) {
 	const keyCount = 8192
 	ctx := context.Background()
-	rin, cleanup := setupBenchmarkDB(b)
+	rin, keys, cleanup := setupBenchmarkDBWithData(b, keyCount)
 	b.Cleanup(cleanup)
-
-	keys := make([]Bytes, keyCount)
-	value := Bytes([]byte("value"))
-	for i := range keys {
-		key := makeBenchKey(i)
-		keys[i] = key
-		if err := rin.Put(ctx, key, value); err != nil {
-			b.Fatalf("failed to prepare key %d: %v", i, err)
-		}
-	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -106,24 +124,22 @@ func BenchmarkRindb_Get(b *testing.B) {
 func BenchmarkRindb_Remove(b *testing.B) {
 	const keyCount = 8192
 	ctx := context.Background()
-	rin, cleanup := setupBenchmarkDB(b)
+	rin, keys, cleanup := setupBenchmarkDBWithData(b, keyCount)
 	b.Cleanup(cleanup)
 
-	keys := make([]Bytes, keyCount)
 	value := Bytes([]byte("value"))
-	for i := range keys {
-		key := makeBenchKey(i)
-		keys[i] = key
-		if err := rin.Put(ctx, key, value); err != nil {
-			b.Fatalf("failed to prepare key %d: %v", i, err)
-		}
-	}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		key := keys[i%keyCount]
+		b.StopTimer()
+		if err := rin.Put(ctx, key, value); err != nil {
+			b.Fatalf("Put failed during setup: %v", err)
+		}
+		b.StartTimer()
+
 		if err := rin.Remove(ctx, key); err != nil {
 			b.Fatalf("Remove failed: %v", err)
 		}
@@ -137,18 +153,8 @@ func BenchmarkRindb_IRangeAscending(b *testing.B) {
 		endIndex   = 6143
 	)
 	ctx := context.Background()
-	rin, cleanup := setupBenchmarkDB(b)
+	rin, keys, cleanup := setupBenchmarkDBWithData(b, keyCount)
 	b.Cleanup(cleanup)
-
-	keys := make([]Bytes, keyCount)
-	value := Bytes([]byte("value"))
-	for i := range keys {
-		key := makeBenchKey(i)
-		keys[i] = key
-		if err := rin.Put(ctx, key, value); err != nil {
-			b.Fatalf("failed to prepare key %d: %v", i, err)
-		}
-	}
 
 	startKey := keys[startIndex]
 	endKey := keys[endIndex]
@@ -168,7 +174,9 @@ func BenchmarkRindb_IRangeAscending(b *testing.B) {
 				break
 			}
 			if err != nil {
-				_ = iter.Close()
+				if closeErr := iter.Close(); closeErr != nil {
+					b.Logf("error closing iterator after a Next() error: %v", closeErr)
+				}
 				b.Fatalf("IRange iteration failed: %v", err)
 			}
 			benchRecordSink = rec
@@ -187,18 +195,8 @@ func BenchmarkRindb_IRangeDescending(b *testing.B) {
 		endIndex   = 6143
 	)
 	ctx := context.Background()
-	rin, cleanup := setupBenchmarkDB(b)
+	rin, keys, cleanup := setupBenchmarkDBWithData(b, keyCount)
 	b.Cleanup(cleanup)
-
-	keys := make([]Bytes, keyCount)
-	value := Bytes([]byte("value"))
-	for i := range keys {
-		key := makeBenchKey(i)
-		keys[i] = key
-		if err := rin.Put(ctx, key, value); err != nil {
-			b.Fatalf("failed to prepare key %d: %v", i, err)
-		}
-	}
 
 	startKey := keys[startIndex]
 	endKey := keys[endIndex]
@@ -218,7 +216,9 @@ func BenchmarkRindb_IRangeDescending(b *testing.B) {
 				break
 			}
 			if err != nil {
-				_ = iter.Close()
+				if closeErr := iter.Close(); closeErr != nil {
+					b.Logf("error closing iterator after a Next() error: %v", closeErr)
+				}
 				b.Fatalf("IRange iteration failed: %v", err)
 			}
 			benchRecordSink = rec
