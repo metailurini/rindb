@@ -201,6 +201,45 @@ func TestMergingIterator_LastReturnsMaxAndPrimesPrev(t *testing.T) {
 	assert.Equal(t, mkRec("b", "vb", 1, TypeValue), prev2)
 }
 
+func TestMergingIterator_LastKeepsForwardIterationViable(t *testing.T) {
+	t.Parallel()
+
+	iterators := []Iterator[Record]{
+		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue), mkRec("b", "vb", 2, TypeValue)}, failIdx: -1},
+		&errIterator{records: []Record{mkRec("c", "vc", 3, TypeValue)}, failIdx: -1},
+	}
+
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
+	require.NoError(t, err)
+
+	first, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("a", "va", 1, TypeValue), first)
+
+	last, err := mi.Last()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("c", "vc", 3, TypeValue), last)
+
+	var backwards []Record
+	for mi.HasPrev() {
+		rec, err := mi.Prev()
+		require.NoError(t, err)
+		backwards = append(backwards, rec)
+	}
+	assert.Equal(t, []Record{mkRec("b", "vb", 2, TypeValue), mkRec("a", "va", 1, TypeValue)}, backwards)
+
+	next1, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("a", "va", 1, TypeValue), next1)
+
+	next2, err := mi.Next()
+	require.NoError(t, err)
+	assert.Equal(t, mkRec("b", "vb", 2, TypeValue), next2)
+
+	_, err = mi.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
 func TestMergingIterator_PeekReverseReprimesAfterEmpty(t *testing.T) {
 	t.Parallel()
 
