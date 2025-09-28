@@ -266,6 +266,37 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	}
 }
 
+func TestRangeIterator_NextAfterHasPrevPeeking(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "a", value: "va", seq: 1},
+			{key: "b", value: "vb", seq: 2},
+		},
+	)
+
+	require.True(t, iter.HasNext(), "expected HasNext to report data present")
+
+	assert.True(t, iter.HasPrev(), "peeking backward after a forward peek should surface the staged element")
+}
+
+func TestRangeIterator_PrevAfterHasNext(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "a", value: "va", seq: 1},
+			{key: "b", value: "vb", seq: 2},
+		},
+	)
+
+	require.True(t, iter.HasNext())
+
+	_, err := iter.Prev()
+	require.ErrorIs(t, err, EOI)
+}
+
 func TestRangeIterator_EmptyIterator(t *testing.T) {
 	t.Parallel()
 	mi, err := NewMergingIterator([]Iterator[Record]{}, nil)
