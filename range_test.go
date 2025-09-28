@@ -492,26 +492,26 @@ func TestRangeIteratorDescending_HasNextSkipsTombstones(t *testing.T) {
 }
 
 func TestRangeIterator_DescendingOscillation(t *testing.T) {
-        t.Parallel()
+	t.Parallel()
 
-        iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
 
-        mustNextValue(t, iter, "k3", "v3")
-        mustNextValue(t, iter, "k2", "v2")
-        mustPrevValue(t, iter, "k2", "v2")
-        mustNextValue(t, iter, "k2", "v2")
-        mustNextValue(t, iter, "k1", "v1")
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustPrevValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
 }
 
 func TestRangeIterator_DescendingPrevBeforeNext(t *testing.T) {
-        t.Parallel()
+	t.Parallel()
 
-        iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
 
-        rec, err := iter.Prev()
-        require.NoError(t, err, "descending Prev should surface the upper bound when called first")
-        require.Equal(t, "k3", string(rec.GetKey()))
-        require.Equal(t, "v3", string(rec.GetValue()))
+	rec, err := iter.Prev()
+	require.NoError(t, err, "descending Prev should surface the upper bound when called first")
+	require.Equal(t, "k3", string(rec.GetKey()))
+	require.Equal(t, "v3", string(rec.GetValue()))
 }
 
 func TestRangeIterator_DescendingHasNextRecoversAfterPrev(t *testing.T) {
