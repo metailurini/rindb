@@ -355,19 +355,70 @@ func TestRindb_IRangeDescendingSkipsTombstonedKeys(t *testing.T) {
 	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
 	require.NoError(t, rin.Remove(ctx, Bytes("b")))
 	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+	require.NoError(t, rin.Put(ctx, Bytes("d"), Bytes("vd")))
+	require.NoError(t, rin.Remove(ctx, Bytes("d")))
+	require.NoError(t, rin.Put(ctx, Bytes("e"), Bytes("ve")))
 
-	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("z"), IRangeOrder(RangeDesc))
-	require.NoError(t, err)
-	defer func() { assert.NoError(t, iter.Close()) }()
-
-	var keys []string
-	for iter.HasNext() {
-		rec, err := iter.Next()
-		require.NoError(t, err)
-		keys = append(keys, string(rec.GetKey()))
+	tests := []struct {
+		name     string
+		start    []byte
+		end      []byte
+		expected []string
+	}{
+		{
+			name:     "range with tombstone in middle",
+			start:    Bytes("a"),
+			end:      Bytes("c"),
+			expected: []string{"c", "a"},
+		},
+		{
+			name:     "range ending on a tombstone",
+			start:    Bytes("c"),
+			end:      Bytes("d"),
+			expected: []string{"c"},
+		},
+		{
+			name:     "range starting on a tombstone",
+			start:    Bytes("d"),
+			end:      Bytes("e"),
+			expected: []string{"e"},
+		},
+		{
+			name:     "full range with multiple tombstones",
+			start:    Bytes("a"),
+			end:      Bytes("z"),
+			expected: []string{"e", "c", "a"},
+		},
+		{
+			name:     "range over a single tombstone",
+			start:    Bytes("b"),
+			end:      Bytes("b"),
+			expected: nil,
+		},
 	}
 
-	assert.Equal(t, []string{"c", "a"}, keys)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			iter, err := rin.IRange(ctx, tt.start, tt.end, IRangeOrder(RangeDesc))
+			require.NoError(t, err)
+			defer func() { assert.NoError(t, iter.Close()) }()
+
+			var keys []string
+			for iter.HasNext() {
+				rec, err := iter.Next()
+				require.NoError(t, err)
+				keys = append(keys, string(rec.GetKey()))
+			}
+
+			if tt.expected == nil {
+				assert.Empty(t, keys)
+				return
+			}
+
+			assert.Equal(t, tt.expected, keys)
+		})
+	}
 }
 
 func TestRindb_IRangeDescendingHighToLowBounds(t *testing.T) {
