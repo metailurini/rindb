@@ -295,28 +295,47 @@ func (m *MergingIterator) Last() (Record, error) {
 		return empty, m.err
 	}
 
-	var (
-		lastItem pqItem
-		lastRec  Record
-	)
-
-	for m.HasNext() {
-		_, err := m.Next()
-		if err != nil {
+	candidates := make([]pqItem, 0, len(m.iters))
+	for _, child := range m.iters {
+		if child == nil {
+			continue
+		}
+		rec, err := child.Last()
+		switch {
+		case errors.Is(err, EOI):
+			continue
+		case err != nil:
 			return empty, err
+		default:
+			candidates = append(candidates, pqItem{rec: rec, iter: child})
 		}
 	}
 
-	if m.err != nil {
-		return empty, m.err
-	}
-
-	if m.rev.Len() == 0 {
+	if len(candidates) == 0 {
 		return empty, EOI
 	}
 
-	lastItem = m.rev.PeekItem()
-	lastRec = lastItem.rec
+	lessFwd := m.fwd.less
+	lessRev := m.rev.less
+	m.fwd = NewPriorityQueue(lessFwd)
+	m.rev = NewPriorityQueue(lessRev)
+
+	for _, item := range candidates {
+		m.rev.PushItem(item)
+	}
+
+	lastItem := m.rev.PeekItem()
+	if lastItem.iter.HasPrev() {
+		prevRec, err := lastItem.iter.Prev()
+		switch {
+		case err == nil:
+			m.rev.PushItem(pqItem{rec: prevRec, iter: lastItem.iter})
+		case errors.Is(err, EOI):
+			// No predecessor; nothing additional to seed.
+		default:
+			return empty, err
+		}
+	}
 
 	m.nextPrepared = false
 	m.prevPrepared = false
@@ -330,7 +349,7 @@ func (m *MergingIterator) Last() (Record, error) {
 	m.reverseErr = nil
 	m.cachedReverse = pqItem{}
 
-	return lastRec, nil
+	return lastItem.rec, nil
 }
 
 // prepareNext stages the next item so that HasNext is idempotent.
