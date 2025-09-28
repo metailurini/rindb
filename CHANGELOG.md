@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.15.0](https://github.com/metailurini/rindb/compare/v0.14.2...v0.15.0) (2025-09-28)
+
+
+### Features
+
+* Add descending range iteration support ([18b20d9](https://github.com/metailurini/rindb/commit/18b20d909aa8a3c9ee209489f6a13122b9d5d468))
+* add descending seed for sstable IRange ([533e14c](https://github.com/metailurini/rindb/commit/533e14cb7a0cac110b7791504cacc6d4f45f27cf))
+* add descending skiplist and memtable cursors ([b1939f1](https://github.com/metailurini/rindb/commit/b1939f1e0d7069e9e6f1af5eb13cb07e0143a0f1))
+* add range order options ([e31bd4c](https://github.com/metailurini/rindb/commit/e31bd4ca5a926d3575cd6af0388abe40b112a3e1))
+* document descending range order ([ad315d7](https://github.com/metailurini/rindb/commit/ad315d7e925b27a51f3d71cda69274d2bc10d0e7))
+* support descending range iteration ([686badc](https://github.com/metailurini/rindb/commit/686badce451a5bbe36f8661acaab0bb4e135a1be))
+
+
+### Bug Fixes
+
+* align iterator tail priming ([11a0d75](https://github.com/metailurini/rindb/commit/11a0d7524e5d75d62b70115341cc39e4a2adeffa))
+* align range peek backward behaviour ([c4c5b19](https://github.com/metailurini/rindb/commit/c4c5b19e5e5b5a86223d7dcb19e8994838635287))
+* avoid duplicate cleanup in range iterator setup ([6d97dbd](https://github.com/metailurini/rindb/commit/6d97dbd29c7cec7f6fe4bf686a026e455b37a7d1))
+* collapse descending runs without rewinding entire iter ([b0fbfef](https://github.com/metailurini/rindb/commit/b0fbfefc6cc54c61cdd31667595cef59d118a426))
+* Correct RangeIterator behavior for RangeDesc order ([d57bb77](https://github.com/metailurini/rindb/commit/d57bb77ff65c41d46f6a61c2fa3852ca31aae0da))
+* Correctly handle tombstoned records in RangeIterator.collapseDescendingRun ([ad247c4](https://github.com/metailurini/rindb/commit/ad247c49aeca6dab7e366344fcf147453befe1e7))
+* ensure descending Last skips tombstoned keys ([46a2cfc](https://github.com/metailurini/rindb/commit/46a2cfcef42d165b8e0173cf8690f4abc173dbba))
+* make merging iterator last non-destructive ([1cdef45](https://github.com/metailurini/rindb/commit/1cdef45c0a62c300f216bf7f6692ee39cf95dd01))
+* make merging iterator Last non-destructive ([d9d078e](https://github.com/metailurini/rindb/commit/d9d078e202706fea46e4d703cf8fe6e2ec1d9df0))
+* normalize table cache errors ([60350f8](https://github.com/metailurini/rindb/commit/60350f803c94e2d601ce051959abb42c7ee5215b))
+* optimize iterator tail priming ([6645183](https://github.com/metailurini/rindb/commit/66451839343e6eb7ce103a6ec07e8e691334878a))
+* remove unused table cache error ([460cb89](https://github.com/metailurini/rindb/commit/460cb894130f3b27d1844340e0d62ff70308d697))
+* satisfy staticcheck after range iterator cleanup ([942faa8](https://github.com/metailurini/rindb/commit/942faa8bd0b64315a3cd412e9636c2a629cf831d))
+* seed descending sstable ranges correctly ([32fe1d9](https://github.com/metailurini/rindb/commit/32fe1d9bd4b0c72cf428e3baa8cdf67476d8d509))
+* stabilize descending iterator anchors ([edbc4b0](https://github.com/metailurini/rindb/commit/edbc4b0f748ddb728e0485371d00e9046f7ae6de))
+* stabilize descending range iteration ([aa38775](https://github.com/metailurini/rindb/commit/aa387753fd3536086457b38d13dbe9fb2e63fc72))
+* stabilize descending range iteration ([5bda6ef](https://github.com/metailurini/rindb/commit/5bda6efe075e2a5cfef2f0bbb0522b20982fab2d))
+* stop descending range on EOF ([b12a900](https://github.com/metailurini/rindb/commit/b12a900f2e010f5734ee24ea079262e62a93796e))
+* tidy reverse iteration review feedback ([b8b8f7a](https://github.com/metailurini/rindb/commit/b8b8f7a8bcecb5da5bdbaedc4165030d441bc6b1))
+
 ## [0.14.2](https://github.com/metailurini/rindb/compare/v0.14.1...v0.14.2) (2025-09-23)
 
 
