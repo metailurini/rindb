@@ -842,6 +842,9 @@ func TestRangeIterator_DescendingSnapshotBeforeTombstone(t *testing.T) {
 	del("k06")
 	del("k08")
 	del("k09")
+	snap, err := db.NewSnapshot(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, snap.Release(ctx)) })
 	put("k02", "svaCcjRwv8bBNjlrgA1W1YimdKEzP67qHIjwR9YTVtrc5bY4fKFH9pjev")
 	del("k01")
 	put("k11", "svKXg1VreSQkdSyk7q0ls9zRs95ev")
@@ -859,7 +862,7 @@ func TestRangeIterator_DescendingSnapshotBeforeTombstone(t *testing.T) {
 		Bytes("k10"),
 		Bytes("k12"),
 		IRangeOrder(RangeDesc),
-		IRangeSnapshot(7),
+		IRangeSnapshot(snap.Sequence()),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, iter.Close()) })
