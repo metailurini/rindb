@@ -301,11 +301,10 @@ func (m *MergingIterator) Last() (Record, error) {
 	)
 
 	for m.HasNext() {
-		rec, err := m.Next()
+		_, err := m.Next()
 		if err != nil {
 			return empty, err
 		}
-		lastRec = rec
 	}
 
 	if m.err != nil {
