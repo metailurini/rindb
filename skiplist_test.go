@@ -574,7 +574,6 @@ func TestSLIRange_PrevDescendingNoValues(t *testing.T) {
 
 func TestSLIRange_LastEdgeCases(t *testing.T) {
 	t.Parallel()
-	cfg := testConfig(t)
 
 	t.Run("nil list", func(t *testing.T) {
 		it := &slIRange[int, int]{}
@@ -583,43 +582,50 @@ func TestSLIRange_LastEdgeCases(t *testing.T) {
 		assert.ErrorIs(t, err, EOI)
 	})
 
-	t.Run("no node before end", func(t *testing.T) {
-		list, err := InitSkipList[int, int](cfg)
-		assert.NoError(t, err)
-
-		for _, v := range []int{5, 6} {
-			list.Put(v, v)
-		}
-
-		it := &slIRange[int, int]{
-			list:     list,
+	testCases := []struct {
+		name     string
+		keys     []int
+		startKey int
+		endKey   int
+	}{
+		{
+			name:     "no node before end",
+			keys:     []int{5, 6},
 			startKey: 1,
 			endKey:   0,
-		}
-
-		value, err := it.Last()
-		assert.Zero(t, value)
-		assert.ErrorIs(t, err, EOI)
-	})
-
-	t.Run("node before start", func(t *testing.T) {
-		list, err := InitSkipList[int, int](cfg)
-		assert.NoError(t, err)
-
-		for i := 1; i <= 5; i++ {
-			list.Put(i, i)
-		}
-
-		it := &slIRange[int, int]{
-			list:     list,
+		},
+		{
+			name:     "node before start",
+			keys:     []int{1, 2, 3, 4, 5},
 			startKey: 4,
 			endKey:   3,
-		}
+		},
+	}
 
-		value, err := it.Last()
-		assert.Zero(t, value)
-		assert.ErrorIs(t, err, EOI)
-	})
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := testConfig(t)
+
+			list, err := InitSkipList[int, int](cfg)
+			assert.NoError(t, err)
+
+			for _, v := range tc.keys {
+				list.Put(v, v)
+			}
+
+			it := &slIRange[int, int]{
+				list:     list,
+				startKey: tc.startKey,
+				endKey:   tc.endKey,
+			}
+
+			value, err := it.Last()
+			assert.Zero(t, value)
+			assert.ErrorIs(t, err, EOI)
+		})
+	}
 }
 
 func TestSkipList_IRangeDescendingLast(t *testing.T) {
