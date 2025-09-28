@@ -630,14 +630,18 @@ type stubPrevResponse struct {
 	err error
 }
 
+type stubNextResponse struct {
+	rec Record
+	err error
+}
+
 type stubRecordIterator struct {
 	lastRecord       Record
 	lastErr          error
 	hasPrevResponses []bool
 	prevResponses    []stubPrevResponse
 	hasNextResponses []bool
-	nextResponses    []Record
-	nextErrResponses []error
+	nextResponses    []stubNextResponse
 }
 
 var _ Iterator[Record] = (*stubRecordIterator)(nil)
@@ -656,14 +660,9 @@ func (s *stubRecordIterator) Next() (Record, error) {
 		var empty Record
 		return empty, EOI
 	}
-	rec := s.nextResponses[0]
+	resp := s.nextResponses[0]
 	s.nextResponses = s.nextResponses[1:]
-	var err error
-	if len(s.nextErrResponses) > 0 {
-		err = s.nextErrResponses[0]
-		s.nextErrResponses = s.nextErrResponses[1:]
-	}
-	return rec, err
+	return resp.rec, resp.err
 }
 
 func (s *stubRecordIterator) HasPrev() bool {
