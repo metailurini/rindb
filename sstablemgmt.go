@@ -747,8 +747,10 @@ func mergeSSTablesV2(ctx context.Context, config Config, target *FileSystem, sou
 		seq := rec.GetSequenceNumber()
 		if seq <= minSeq {
 			if rec.GetType() == TypeDeletion && bottommost && seq < minSeq {
+				// Drop the tombstone but continue scanning older versions so snapshots can surface
+				// the newest live value. Mark the key as complete so older versions are skipped.
 				skipRest = true
-				continue // GC tombstone only at bottommost when older than snapshots
+				continue
 			}
 			skipRest = true
 		}

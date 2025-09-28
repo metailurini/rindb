@@ -64,7 +64,7 @@ func (s *Snapshot) Release(ctx context.Context) error {
 // r.mu must be held before calling this method.
 func (r *Rindb) minSnapshotSeq() uint64 {
 	if len(r.activeSnapshots) == 0 {
-		return r.sequenceNumber
+		return math.MaxUint64
 	}
 	// activeSnapshots is maintained in ascending order, so the first element
 	// is always the smallest sequence number.

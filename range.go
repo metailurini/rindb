@@ -267,6 +267,9 @@ func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 			err error
 		)
 		if order == RangeDesc {
+			if r.mi != nil {
+				r.mi.forward = false
+			}
 			rec, err = r.mi.Next()
 			if order == r.order && errors.Is(r.reverseErr, EOI) {
 				r.reverseErr = nil
