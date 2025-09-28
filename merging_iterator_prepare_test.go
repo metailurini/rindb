@@ -12,7 +12,7 @@ func TestMergingIterator_HasNext_PrepareIdempotent(t *testing.T) {
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
 	}
-	mi, err := NewMergingIterator(iterators, nil)
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 	assert.NoError(t, err)
 
 	// Call HasNext multiple times; it should not advance.
@@ -34,7 +34,7 @@ func TestMergingIterator_HasPrev_PrepareIdempotent(t *testing.T) {
 		&errIterator{records: []Record{mkRec("a", "va", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{mkRec("b", "vb", 1, TypeValue)}, failIdx: -1},
 	}
-	mi, err := NewMergingIterator(iterators, nil)
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 	assert.NoError(t, err)
 
 	// Move forward once to establish a current element.
@@ -61,7 +61,7 @@ func TestMergingIterator_HasNext_PrefetchErrorSurfacedAfterConsume(t *testing.T)
 	r1 := mkRec("a", "1", 1, TypeValue)
 	r2 := mkRec("b", "2", 2, TypeValue)
 	it := &errIterator{records: []Record{r1, r2}, failIdx: 1}
-	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil, RangeAsc)
 	assert.NoError(t, err)
 
 	// Prepare next; this will attempt to prefetch and encounter an error,

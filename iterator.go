@@ -25,4 +25,9 @@ type Iterator[T any] interface {
 	// Prev returns the current element and moves the iterator one step
 	// backward. It returns EOI when no more elements remain.
 	Prev() (T, error)
+	// Last positions the iterator at the final element and returns it. The
+	// subsequent Prev call should yield the element that precedes the value
+	// returned by Last, mirroring how Next leaves the cursor after the
+	// current record.
+	Last() (T, error)
 }

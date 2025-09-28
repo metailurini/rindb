@@ -117,6 +117,39 @@ func TestRangeIterator_AlternatingNextPrevAcrossLevels(t *testing.T) {
 	require.ErrorIs(t, err, rindb.EOI)
 }
 
+func TestRangeIterator_DescendingNextPrevAcrossLevels(t *testing.T) {
+	t.Parallel()
+	db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(100))
+	t.Cleanup(cleanup)
+	ctx := context.Background()
+
+	large := strings.Repeat("x", 40)
+
+	require.NoError(t, db.Put(ctx, rindb.Bytes("a"), rindb.Bytes(large)))
+	require.NoError(t, db.Put(ctx, rindb.Bytes("b"), rindb.Bytes(large)))
+	require.NoError(t, db.Put(ctx, rindb.Bytes("c"), rindb.Bytes(large)))
+
+	require.NoError(t, db.Remove(ctx, rindb.Bytes("b")))
+	require.NoError(t, db.Put(ctx, rindb.Bytes("d"), rindb.Bytes("1")))
+	require.NoError(t, db.Put(ctx, rindb.Bytes("e"), rindb.Bytes("2")))
+
+	iter, err := db.IRange(ctx, rindb.Bytes("a"), rindb.Bytes("z"), rindb.IRangeOrder(rindb.RangeDesc))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+	runRangeIterSequence(t, iter, []rangeIterStep{
+		{dir: iterPrev, eoi: true},
+		{dir: iterNext, key: "e", value: "2"},
+		{dir: iterNext, key: "d", value: "1"},
+		{dir: iterPrev, key: "d", value: "1"},
+		{dir: iterNext, key: "d", value: "1"},
+		{dir: iterNext, key: "c", value: large},
+		{dir: iterNext, key: "a", value: large},
+		{dir: iterNext, eoi: true},
+		{dir: iterPrev, key: "a", value: large},
+	})
+}
+
 func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {
 	t.Parallel()
 	t.Run("single-key-latest-version-only", func(t *testing.T) {
@@ -197,6 +230,56 @@ func TestRangeIterator_AlternatingNextPrevSequences(t *testing.T) {
 			{dir: iterPrev, key: keyC, value: valueC3},
 			{dir: iterNext, key: keyC, value: valueC3},
 			{dir: iterNext, eoi: true},
+		})
+	})
+
+	t.Run("multi-key-span-desc", func(t *testing.T) {
+		db, cleanup := initTestDB(t, rindb.WithMaxMemtableSize(300))
+		t.Cleanup(cleanup)
+		ctx := context.Background()
+
+		const (
+			keyA = "a"
+			keyB = "b"
+			keyC = "c"
+		)
+
+		valueA1 := strings.Repeat("a1", 90)
+		valueA2 := strings.Repeat("a2", 90)
+		valueB1 := strings.Repeat("b1", 90)
+		valueB2 := strings.Repeat("b2", 90)
+		valueC1 := strings.Repeat("c1", 90)
+		valueC2 := strings.Repeat("c2", 90)
+		valueA3 := "a3"
+		valueB3 := "b3"
+		valueC3 := "c3"
+
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyA), rindb.Bytes(valueA1)))
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyA), rindb.Bytes(valueA2)))
+
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyB), rindb.Bytes(valueB1)))
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyB), rindb.Bytes(valueB2)))
+
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyC), rindb.Bytes(valueC1)))
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyC), rindb.Bytes(valueC2)))
+
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyA), rindb.Bytes(valueA3)))
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyB), rindb.Bytes(valueB3)))
+		require.NoError(t, db.Put(ctx, rindb.Bytes(keyC), rindb.Bytes(valueC3)))
+
+		iter, err := db.IRange(ctx, rindb.Bytes(keyA), rindb.Bytes("z"), rindb.IRangeOrder(rindb.RangeDesc))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+		runRangeIterSequence(t, iter, []rangeIterStep{
+			{dir: iterPrev, eoi: true},
+			{dir: iterNext, key: keyC, value: valueC3},
+			{dir: iterNext, key: keyB, value: valueB3},
+			{dir: iterPrev, key: keyB, value: valueB3},
+			{dir: iterNext, key: keyB, value: valueB3},
+			{dir: iterNext, key: keyA, value: valueA3},
+			{dir: iterNext, eoi: true},
+			{dir: iterPrev, key: keyA, value: valueA3},
 		})
 	})
 

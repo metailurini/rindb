@@ -34,6 +34,7 @@ type SkipList[K Comparable, V any] struct {
 	level    uint
 	length   uint
 	headNote *SLNode[K, V]
+	tail     *SLNode[K, V]
 	config   Config
 }
 
@@ -99,6 +100,8 @@ func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 		newNode.backward = pred
 		if succ != nil {
 			succ.backward = newNode
+		} else {
+			list.tail = newNode
 		}
 
 		list.length++
@@ -145,6 +148,21 @@ func (list *SkipList[K, V]) FindGreaterOrEqual(searchKey K) (*SLNode[K, V], erro
 	return rn, nil
 }
 
+func (list *SkipList[K, V]) findLessOrEqual(searchKey K) (*SLNode[K, V], bool) {
+	rn := list.Head()
+	rl := list.level
+	for rl > 0 {
+		rl--
+		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) != CmpGreater {
+			rn = rn.forwards[rl]
+		}
+	}
+	if rn == list.Head() {
+		return nil, false
+	}
+	return rn, true
+}
+
 // Head returns the head sentinel node of the list.
 func (list *SkipList[K, V]) Head() *SLNode[K, V] {
 	if list == nil || list.headNote == nil {
@@ -184,6 +202,13 @@ func (list *SkipList[K, V]) Remove(searchKey K) error {
 			succ.backward = pred
 		}
 		rn.backward = nil
+		if list.tail == rn {
+			if pred != nil && pred != list.Head() {
+				list.tail = pred
+			} else {
+				list.tail = nil
+			}
+		}
 		for list.level > 1 && list.Head().forwards[list.level-1] == nil {
 			list.level--
 		}
@@ -208,6 +233,7 @@ func (list *SkipList[K, V]) Clear() {
 	list.level = newList.level
 	list.length = newList.length
 	list.headNote = newList.headNote
+	list.tail = nil
 }
 
 // Len returns the number of elements currently stored in the list.
@@ -223,6 +249,7 @@ var _ Iterator[any] = (*slIterator[Comparable, any])(nil)
 type slIterator[K Comparable, V any] struct {
 	head *SLNode[K, V]
 	curr *SLNode[K, V]
+	list *SkipList[K, V]
 }
 
 // HasNext implements Iterator.
@@ -256,12 +283,24 @@ func (s *slIterator[K, V]) Prev() (V, error) {
 	return value, nil
 }
 
+// Last implements Iterator.
+func (s *slIterator[K, V]) Last() (V, error) {
+	var empty V
+	if s.list == nil || s.list.tail == nil {
+		return empty, EOI
+	}
+	tail := s.list.tail
+	s.curr = tail.backward
+	return tail.Value, nil
+}
+
 // Iterator returns a bidirectional iterator over the list's values.
 func (list *SkipList[K, V]) Iterator() Iterator[V] {
 	h := list.Head()
 	return &slIterator[K, V]{
 		head: h,
 		curr: h,
+		list: list,
 	}
 }
 
@@ -270,6 +309,16 @@ type slIRange[K Comparable, V any] struct {
 	curr     *SLNode[K, V]
 	startKey K
 	endKey   K
+	list     *SkipList[K, V]
+	order    RangeOrder
+	desc     *SLNode[K, V]
+}
+
+func (s *slIRange[K, V]) clipBackward(node *SLNode[K, V]) *SLNode[K, V] {
+	if node != nil && Compare(node.Key, s.startKey) == CmpLess {
+		return nil
+	}
+	return node
 }
 
 // HasNext implements Iterator.
@@ -289,11 +338,33 @@ func (s *slIRange[K, V]) Next() (V, error) {
 
 // HasPrev implements Iterator.
 func (s *slIRange[K, V]) HasPrev() bool {
+	if s.order == RangeDesc {
+		if s.desc == nil {
+			return false
+		}
+		if Compare(s.desc.Key, s.startKey) == CmpLess {
+			s.desc = nil
+			return false
+		}
+		return true
+	}
 	return s.curr != nil && Compare(s.curr.Key, s.startKey) != CmpLess
 }
 
 // Prev implements Iterator.
 func (s *slIRange[K, V]) Prev() (V, error) {
+	if s.order == RangeDesc {
+		if !s.HasPrev() {
+			var empty V
+			return empty, EOI
+		}
+		node := s.desc
+		value := node.Value
+		prev := s.clipBackward(node.backward)
+		s.curr = prev
+		s.desc = prev
+		return value, nil
+	}
 	if !s.HasPrev() {
 		var empty V
 		return empty, EOI
@@ -303,8 +374,28 @@ func (s *slIRange[K, V]) Prev() (V, error) {
 	return value, nil
 }
 
+// Last implements Iterator.
+func (s *slIRange[K, V]) Last() (V, error) {
+	var empty V
+	if s.list == nil {
+		return empty, EOI
+	}
+	node, ok := s.list.findLessOrEqual(s.endKey)
+	if !ok {
+		return empty, EOI
+	}
+	if Compare(node.Key, s.startKey) == CmpLess {
+		return empty, EOI
+	}
+	s.curr = node.backward
+	if s.order == RangeDesc {
+		s.desc = s.clipBackward(node.backward)
+	}
+	return node.Value, nil
+}
+
 // IRange returns an iterator over records with keys in [start, end].
-func (list *SkipList[K, V]) IRange(start, end K) Iterator[V] {
+func (list *SkipList[K, V]) IRange(start, end K, order RangeOrder) Iterator[V] {
 	rn := list.Head()
 	rl := list.level
 	for rl > 0 {
@@ -314,10 +405,19 @@ func (list *SkipList[K, V]) IRange(start, end K) Iterator[V] {
 		}
 	}
 	curr := rn
+	var desc *SLNode[K, V]
+	if order == RangeDesc {
+		if node, ok := list.findLessOrEqual(end); ok && Compare(node.Key, start) != CmpLess {
+			desc = node
+		}
+	}
 	return &slIRange[K, V]{
 		curr:     curr,
 		startKey: start,
 		endKey:   end,
+		list:     list,
+		order:    order,
+		desc:     desc,
 	}
 }
 

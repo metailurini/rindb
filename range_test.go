@@ -57,9 +57,9 @@ func TestRangeIterator_Next(t *testing.T) {
 			for _, spec := range tt.iters {
 				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 			}
-			mi, err := NewMergingIterator(iterators, nil)
+			mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 			assert.NoError(t, err)
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, RangeAsc)
 
 			var got []exp
 			for iter.HasNext() {
@@ -122,9 +122,9 @@ func TestRangeIterator_FilterTombstonesAndDuplicates(t *testing.T) {
 			for _, spec := range tt.iters {
 				iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 			}
-			mi, err := NewMergingIterator(iterators, nil)
+			mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 			assert.NoError(t, err)
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, RangeAsc)
 
 			var got []exp
 			for iter.HasNext() {
@@ -162,9 +162,9 @@ func TestRangeIterator_ReverseIteration(t *testing.T) {
 	for _, spec := range iters {
 		iterators = append(iterators, &errIterator{records: spec.records, failIdx: spec.failIdx})
 	}
-	mi, err := NewMergingIterator(iterators, nil)
+	mi, err := NewMergingIterator(iterators, nil, RangeAsc)
 	assert.NoError(t, err)
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 
 	var forward []exp
 	for iter.HasNext() {
@@ -189,10 +189,10 @@ func TestRangeIterator_ReverseIteration(t *testing.T) {
 func TestRangeIterator_PrevBeforeNext(t *testing.T) {
 	t.Parallel()
 	it := &errIterator{records: []Record{rec("a", "va", 1, TypeValue)}, failIdx: -1}
-	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+	mi, err := NewMergingIterator([]Iterator[Record]{it}, nil, RangeAsc)
 	assert.NoError(t, err)
 
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 	_, err = iter.Prev()
 	assert.ErrorIs(t, err, EOI)
 }
@@ -228,6 +228,30 @@ func TestRangeIteratorPrev_ReturnsLatestAfterDirectionChange(t *testing.T) {
 	mustPrevEOI(t, iter)
 }
 
+func TestRangeIterator_LastPositionsPrevBeforeTail(t *testing.T) {
+	t.Parallel()
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "a", value: "va1", seq: 1},
+			{key: "c", value: "vc5", seq: 5},
+		},
+		[]kv{
+			{key: "b", value: "vb2", seq: 2},
+			{key: "c", value: "vc3", seq: 3},
+		},
+	)
+
+	last, err := iter.Last()
+	require.NoError(t, err)
+	assert.Equal(t, "c", string(last.GetKey()))
+	assert.Equal(t, "vc5", string(last.GetValue()))
+
+	prev, err := iter.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, "b", string(prev.GetKey()))
+	assert.Equal(t, "vb2", string(prev.GetValue()))
+}
+
 func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	t.Parallel()
 	iters := []Iterator[Record]{
@@ -235,9 +259,9 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 		&errIterator{records: []Record{rec("b", "vb", 1, TypeValue)}, failIdx: -1},
 		&errIterator{records: []Record{rec("c", "vc", 1, TypeValue)}, failIdx: -1},
 	}
-	mi, err := NewMergingIterator(iters, nil)
+	mi, err := NewMergingIterator(iters, nil, RangeAsc)
 	assert.NoError(t, err)
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 
 	type exp struct{ k, v string }
 	ops := []struct {
@@ -266,12 +290,45 @@ func TestRangeIterator_AlternatingNextPrev(t *testing.T) {
 	}
 }
 
+func TestRangeIterator_HasPrevAfterHasNextPeek(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "a", value: "va", seq: 1},
+			{key: "b", value: "vb", seq: 2},
+		},
+	)
+
+	require.True(t, iter.HasNext(), "expected HasNext to report data present")
+
+	assert.True(t, iter.HasPrev(), "peeking backward after a forward peek should surface the staged element")
+}
+
+func TestRangeIterator_PrevAfterHasNext(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIter(t,
+		[]kv{
+			{key: "a", value: "va", seq: 1},
+			{key: "b", value: "vb", seq: 2},
+		},
+	)
+
+	require.True(t, iter.HasNext())
+
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "a", string(rec.GetKey()))
+	require.Equal(t, "va", string(rec.GetValue()))
+}
+
 func TestRangeIterator_EmptyIterator(t *testing.T) {
 	t.Parallel()
-	mi, err := NewMergingIterator([]Iterator[Record]{}, nil)
+	mi, err := NewMergingIterator([]Iterator[Record]{}, nil, RangeAsc)
 	assert.NoError(t, err)
 
-	iter := NewRangeIterator(mi)
+	iter := NewRangeIterator(mi, RangeAsc)
 	assert.False(t, iter.HasNext())
 	assert.False(t, iter.HasPrev())
 	_, err = iter.Next()
@@ -355,21 +412,21 @@ func TestRangeIterator_Prepare(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			it := &errIterator{records: tt.records, failIdx: tt.failIdx}
-			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil)
+			mi, err := NewMergingIterator([]Iterator[Record]{it}, nil, RangeAsc)
 			assert.NoError(t, err)
 
-			iter := NewRangeIterator(mi)
+			iter := NewRangeIterator(mi, RangeAsc)
 			// Emulate internal preparation flow used by HasNext/Next
-			iter.prepareNext()
+			iter.primeNext()
 			_, err = iter.Next()
 			assert.NoError(t, err)
 
 			// Prepare the next element and validate expectations
-			iter.prepareNext()
+			iter.primeNext()
 			if tt.wantErr != "" {
 				assert.EqualError(t, iter.err, tt.wantErr)
 				iter.nextPrepared = false
-				iter.prepareNext()
+				iter.primeNext()
 				assert.False(t, iter.nextPrepared)
 			} else {
 				assert.Equal(t, tt.wantPrepared, iter.nextPrepared)
@@ -388,6 +445,10 @@ type kv struct {
 }
 
 func buildRangeIter(t *testing.T, sources ...[]kv) *RangeIterator {
+	return buildRangeIterOrder(t, RangeAsc, sources...)
+}
+
+func buildRangeIterOrder(t *testing.T, order RangeOrder, sources ...[]kv) *RangeIterator {
 	t.Helper()
 
 	var iterators []Iterator[Record]
@@ -403,9 +464,186 @@ func buildRangeIter(t *testing.T, sources ...[]kv) *RangeIterator {
 		iterators = append(iterators, &errIterator{records: records, failIdx: -1})
 	}
 
-	mi, err := NewMergingIterator(iterators, nil)
+	mi, err := NewMergingIterator(iterators, nil, order)
 	require.NoError(t, err)
-	return NewRangeIterator(mi)
+	return NewRangeIterator(mi, order)
+}
+
+func TestRangeIterator_DescendingFirstNext(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
+	mustNextEOI(t, iter)
+}
+
+func TestRangeIteratorDescending_HasNextSkipsTombstones(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k", seq: 1, typ: TypeDeletion}})
+
+	assert.False(t, iter.HasNext(), "descending HasNext should not report tombstones as live records")
+
+	_, err := iter.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestRangeIterator_DescendingOscillation(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustPrevValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
+}
+
+func TestRangeIterator_DescendingPrevBeforeNext(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc, []kv{{key: "k1", value: "v1", seq: 1}, {key: "k2", value: "v2", seq: 2}, {key: "k3", value: "v3", seq: 3}})
+
+	_, err := iter.Prev()
+	require.ErrorIs(t, err, EOI)
+}
+
+func TestRangeIterator_DescendingHasNextRecoversAfterPrev(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "k1", value: "v1", seq: 1}},
+		[]kv{{key: "k2", value: "v2", seq: 2}},
+		[]kv{{key: "k3", value: "v3", seq: 3}},
+	)
+
+	mustNextValue(t, iter, "k3", "v3")
+	mustNextValue(t, iter, "k2", "v2")
+	mustNextValue(t, iter, "k1", "v1")
+
+	assert.False(t, iter.HasNext(), "boundary probe should report exhaustion")
+
+	mustPrevValue(t, iter, "k1", "v1")
+
+	assert.True(t, iter.HasNext(), "descending HasNext should recover once Prev requeues data")
+}
+
+func TestRangeIteratorDescending_PrevNextAcrossTombstone(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "c", value: "vc", seq: 2}},
+		[]kv{{key: "c", typ: TypeDeletion, seq: 3}},
+		[]kv{{key: "d", value: "vd", seq: 4}},
+	)
+
+	mustNextValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "a", "va")
+	mustPrevValue(t, iter, "a", "va")
+	mustPrevValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "d", "vd")
+}
+
+func TestRangeIterator_LastHonorsOrder(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", value: "vb", seq: 2}},
+		[]kv{{key: "c", value: "vc", seq: 3}},
+	)
+
+	rec, err := iter.Last()
+	require.NoError(t, err)
+	assert.Equal(t, "a", string(rec.GetKey()))
+	assert.Equal(t, "va", string(rec.GetValue()))
+}
+
+func TestRangeIterator_DescendingLastThenPrev(t *testing.T) {
+	t.Parallel()
+
+	t.Run("basic", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", value: "vb", seq: 2}},
+			[]kv{{key: "c", value: "vc", seq: 3}},
+		)
+
+		rec, err := iter.Last()
+		require.NoError(t, err)
+		require.Equal(t, "a", string(rec.GetKey()))
+		require.Equal(t, "va", string(rec.GetValue()))
+
+		mustPrevValue(t, iter, "b", "vb")
+		mustPrevValue(t, iter, "c", "vc")
+		mustPrevEOI(t, iter)
+	})
+
+	t.Run("with duplicates", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", value: "vb2", seq: 3}, {key: "b", value: "vb1", seq: 2}},
+			[]kv{{key: "c", value: "vc", seq: 4}},
+		)
+
+		rec, err := iter.Last()
+		require.NoError(t, err)
+		require.Equal(t, "a", string(rec.GetKey()))
+		require.Equal(t, "va", string(rec.GetValue()))
+
+		mustPrevValue(t, iter, "b", "vb2")
+		mustPrevValue(t, iter, "c", "vc")
+		mustPrevEOI(t, iter)
+	})
+}
+
+func TestRangeIterator_DescendingSkipsTombstonedKey(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 2}, {key: "c", value: "vc", seq: 2}},
+		[]kv{{key: "a", seq: 4, typ: TypeDeletion}, {key: "a", value: "va", seq: 2}, {key: "b", value: "vb", seq: 3}, {key: "d", value: "vd", seq: 3}},
+	)
+
+	mustNextValue(t, iter, "d", "vd")
+	mustNextValue(t, iter, "c", "vc")
+	mustNextValue(t, iter, "b", "vb")
+	rec, err := iter.Next()
+	if err == nil {
+		t.Fatalf("unexpected record %s@%d", rec.GetKey(), rec.GetSequenceNumber())
+	}
+	require.ErrorIs(t, err, EOI)
+}
+
+func TestRangeIterator_DescendingLastSkipsTombstone(t *testing.T) {
+	t.Parallel()
+
+	t.Run("skips newest tombstone", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", seq: 3, typ: TypeDeletion}, {key: "b", value: "vb", seq: 2}},
+		)
+
+		rec, err := iter.Last()
+		require.NoError(t, err)
+		require.Equal(t, "a", string(rec.GetKey()))
+		require.Equal(t, "va", string(rec.GetValue()))
+	})
+
+	t.Run("all keys tombstoned", func(t *testing.T) {
+		iter := buildRangeIterOrder(t, RangeDesc,
+			[]kv{{key: "a", seq: 2, typ: TypeDeletion}, {key: "a", value: "va", seq: 1}},
+			[]kv{{key: "b", seq: 4, typ: TypeDeletion}, {key: "b", value: "vb", seq: 3}},
+		)
+
+		_, err := iter.Last()
+		require.ErrorIs(t, err, EOI)
+	})
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {

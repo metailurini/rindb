@@ -35,10 +35,11 @@ func (s *Snapshot) Get(ctx context.Context, key Bytes) (Bytes, error) {
 
 // IRange returns an iterator over records with keys in [start, end] as of the
 // snapshot's sequence.
-func (s *Snapshot) IRange(ctx context.Context, start, end Bytes) (*RangeIterator, error) {
+func (s *Snapshot) IRange(ctx context.Context, start, end Bytes, opts ...RangeOption) (*RangeIterator, error) {
 	ctx, span := tracer.Start(ctx, "Snapshot.IRange")
 	defer span.End()
-	return s.db.IRange(ctx, start, end, s.sequence)
+	opts = append([]RangeOption{IRangeSnapshot(s.sequence)}, opts...)
+	return s.db.IRange(ctx, start, end, opts...)
 }
 
 // Release removes the snapshot from the list of active snapshots.

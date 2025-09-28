@@ -18,28 +18,33 @@ type MergingIterator struct {
 	cleanup func()
 	err     error
 
-	// prepared next state
 	nextPrepared bool
 	nextItem     pqItem
 
-	// prepared prev state
 	prevPrepared bool
 	prevItem     pqItem
 
-	// forward tracks the last direction of travel. It starts in forward
-	// mode because the iterator is positioned before the first element.
+	// forward tracks the last direction of travel so boundary handling can
+	// decide whether to suppress the crossing anchor.
 	forward bool
 
-	// crossingAnchor holds the last surfaced record so we can detect the
-	// direction change boundary and avoid surfacing the same record more
-	// than once when oscillating between Next and Prev.
+	// crossingAnchor stores the last surfaced record so oscillating between Next
+	// and Prev does not surface the same record twice.
 	crossingAnchor    pqItem
 	crossingAnchorSet bool
+
+	order            RangeOrder
+	iters            []Iterator[Record]
+	descendingPrimed bool
+
+	cachedReverse pqItem
+	reverseErr    error
+	reversePrimed bool
 }
 
 // NewMergingIterator constructs a MergingIterator over provided iterators.
 // The optional cleanup function is called when Close is invoked.
-func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingIterator, error) {
+func NewMergingIterator(iterators []Iterator[Record], cleanup func(), order RangeOrder) (*MergingIterator, error) {
 	// lessFwd describes how items are ordered inside the forward priority queue.
 	// PriorityQueue is backed by container/heap and behaves like a min-heap: the
 	// element considered "less" is promoted to the root and will be the one
@@ -80,26 +85,145 @@ func NewMergingIterator(iterators []Iterator[Record], cleanup func()) (*MergingI
 	}
 	fwd := NewPriorityQueue(lessFwd)
 	rev := NewPriorityQueue(lessRev)
+	active := make([]Iterator[Record], 0, len(iterators))
 	for _, it := range iterators {
-		if it.HasNext() {
-			rec, err := it.Next()
-			switch {
-			case err == nil:
-				// No error, continue processing
-			case errors.Is(err, EOI):
-				// End of iteration, skip to next iterator
-				continue
-			default:
-				// Actual error occurred
-				if cleanup != nil {
-					cleanup()
-				}
-				return nil, err
+		if it == nil {
+			continue
+		}
+		active = append(active, it)
+	}
+
+	m := &MergingIterator{
+		fwd:     fwd,
+		rev:     rev,
+		cleanup: cleanup,
+		forward: order != RangeDesc,
+		order:   order,
+		iters:   active,
+	}
+
+	if err := m.seedForward(active); err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, err
+	}
+	if order == RangeDesc {
+		if err := m.seedReverse(active); err != nil {
+			if cleanup != nil {
+				cleanup()
 			}
-			fwd.PushItem(pqItem{rec: rec, iter: it})
+			return nil, err
 		}
 	}
-	return &MergingIterator{fwd: fwd, rev: rev, cleanup: cleanup, forward: true}, nil
+
+	return m, nil
+}
+
+func (m *MergingIterator) seedForward(children []Iterator[Record]) error {
+	if m.order == RangeDesc {
+		return nil
+	}
+	for _, child := range children {
+		if child == nil {
+			continue
+		}
+		if child.HasNext() {
+			rec, err := child.Next()
+			switch {
+			case err == nil:
+				// continue
+			case errors.Is(err, EOI):
+				continue
+			default:
+				return err
+			}
+			m.fwd.PushItem(pqItem{rec: rec, iter: child})
+		}
+	}
+	return nil
+}
+
+func (m *MergingIterator) seedReverse(children []Iterator[Record]) error {
+	for _, child := range children {
+		rec, err := child.Last()
+		switch {
+		case errors.Is(err, EOI):
+			continue
+		case err != nil:
+			return err
+		default:
+			m.rev.PushItem(pqItem{rec: rec, iter: child})
+		}
+	}
+	return nil
+}
+
+func (m *MergingIterator) peekReverse() (Record, error) {
+	if m.reversePrimed {
+		if m.reverseErr != nil {
+			if errors.Is(m.reverseErr, EOI) && m.rev.Len() > 0 {
+				m.reversePrimed = false
+				m.reverseErr = nil
+			} else {
+				var empty Record
+				return empty, m.reverseErr
+			}
+		} else {
+			return m.cachedReverse.rec, nil
+		}
+	}
+
+	if m.rev.Len() == 0 {
+		m.reverseErr = EOI
+		m.reversePrimed = true
+		var empty Record
+		return empty, m.reverseErr
+	}
+
+	m.cachedReverse = m.rev.PeekItem()
+	m.reverseErr = nil
+	m.reversePrimed = true
+	return m.cachedReverse.rec, nil
+}
+
+func (m *MergingIterator) commitPeekedReverse() {
+	if !m.reversePrimed {
+		return
+	}
+	defer func() {
+		m.reversePrimed = false
+		m.cachedReverse = pqItem{}
+		m.reverseErr = nil
+	}()
+	if m.reverseErr != nil {
+		if !errors.Is(m.reverseErr, EOI) {
+			m.err = m.reverseErr
+		}
+		return
+	}
+
+	item := m.rev.PopItem()
+	m.fwd.PushItem(item)
+	if item.iter.HasPrev() {
+		key := item.rec.GetKey()
+		for item.iter.HasPrev() {
+			prev, err := item.iter.Prev()
+			switch {
+			case err == nil:
+				m.rev.PushItem(pqItem{rec: prev, iter: item.iter})
+				if prev.GetKey().Compare(key) != CmpEqual {
+					return
+				}
+			case errors.Is(err, EOI):
+				return
+			default:
+				m.err = err
+				return
+			}
+		}
+	}
+	m.forward = false
 }
 
 // HasNext implements Iterator[Record].
@@ -171,11 +295,77 @@ func (m *MergingIterator) Prev() (Record, error) {
 	return item.rec, nil
 }
 
+// Last implements Iterator[Record].
+func (m *MergingIterator) Last() (Record, error) {
+	var empty Record
+	if m.err != nil {
+		return empty, m.err
+	}
+
+	candidates := make([]pqItem, 0, len(m.iters))
+	for _, child := range m.iters {
+		if child == nil {
+			continue
+		}
+		rec, err := child.Last()
+		switch {
+		case errors.Is(err, EOI):
+			continue
+		case err != nil:
+			return empty, err
+		default:
+			candidates = append(candidates, pqItem{rec: rec, iter: child})
+		}
+	}
+
+	if len(candidates) == 0 {
+		return empty, EOI
+	}
+
+	lessFwd := m.fwd.less
+	lessRev := m.rev.less
+	m.fwd = NewPriorityQueue(lessFwd)
+	m.rev = NewPriorityQueue(lessRev)
+
+	for _, item := range candidates {
+		m.rev.PushItem(item)
+	}
+
+	lastItem := m.rev.PeekItem()
+	if lastItem.iter.HasPrev() {
+		prevRec, err := lastItem.iter.Prev()
+		switch {
+		case err == nil:
+			m.rev.PushItem(pqItem{rec: prevRec, iter: lastItem.iter})
+		case errors.Is(err, EOI):
+			// No predecessor; nothing additional to seed.
+		default:
+			return empty, err
+		}
+	}
+
+	m.nextPrepared = false
+	m.prevPrepared = false
+	m.nextItem = pqItem{}
+	m.prevItem = pqItem{}
+	m.forward = false
+	m.crossingAnchor = lastItem
+	m.crossingAnchorSet = true
+	m.descendingPrimed = true
+	m.reversePrimed = false
+	m.reverseErr = nil
+	m.cachedReverse = pqItem{}
+
+	return lastItem.rec, nil
+}
+
 // prepareNext stages the next item so that HasNext is idempotent.
 func (m *MergingIterator) prepareNext() {
 	if m.nextPrepared {
 		return
 	}
+
+	m.descendingPrimed = false
 
 	// When moving forward, any previously prepared backward state is invalidated.
 	m.prevPrepared = false
@@ -205,8 +395,11 @@ func (m *MergingIterator) prepareNext() {
 		// Keep the popped element in the reverse heap so Prev() can walk
 		// back across it later.
 		m.rev.PushItem(item)
+		m.reversePrimed = false
+		m.reverseErr = nil
 
-		if item.iter.HasNext() {
+		skipAdvance := m.order == RangeDesc && !m.forward
+		if !skipAdvance && item.iter.HasNext() {
 			rec, err := item.iter.Next()
 			switch {
 			case err == nil:
@@ -257,21 +450,34 @@ func (m *MergingIterator) preparePrev() {
 		}
 
 		// Prev returns the current element and rewinds the iterator by one
-		// position so another Prev call can continue walking backwards. The
-		// returned record is ignored because curItem already holds it.
-		_, err := curItem.iter.Prev()
-		if err != nil && !errors.Is(err, EOI) {
-			m.err = err
-			m.prevItem = curItem
-			m.prevPrepared = true
-			return
+		// position so another Prev call can continue walking backwards. When
+		// descendingPrimed is set, the returned record represents the next
+		// candidate for reverse iteration and is pushed onto the reverse heap.
+		if m.descendingPrimed {
+			prevRec, err := curItem.iter.Prev()
+			switch {
+			case err == nil:
+				m.rev.PushItem(pqItem{rec: prevRec, iter: curItem.iter})
+			case errors.Is(err, EOI):
+				// No more records from this iterator when walking backwards.
+			default:
+				m.err = err
+				m.prevItem = curItem
+				m.prevPrepared = true
+				return
+			}
+		} else {
+			if _, err := curItem.iter.Prev(); err != nil && !errors.Is(err, EOI) {
+				m.err = err
+				m.prevItem = curItem
+				m.prevPrepared = true
+				return
+			}
 		}
 
-		// If Prev() succeeds, the underlying iterator moved back. If it returns EOI,
-		// it's at the beginning. In both cases, the current item should be requeued so
-		// that subsequent Next calls can surface it again.
-		// Pushing into the forward heap preserves the contract where Prev
-		// immediately followed by Next yields the same record.
+		// Requeue the current item so a subsequent forward traversal can surface it
+		// again. This maintains the invariant that Prev followed by Next returns the
+		// same record.
 		m.fwd.PushItem(curItem)
 
 		// Store the prepared item for Prev().

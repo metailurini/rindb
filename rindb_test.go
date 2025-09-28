@@ -234,7 +234,7 @@ func TestRindb_IRange(t *testing.T) {
 			if tt.seq == 0 {
 				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end)
 			} else {
-				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end, tt.seq)
+				iter, err = ts.RinDB.IRange(ctx, tt.start, tt.end, IRangeSnapshot(tt.seq))
 			}
 			assert.NoError(t, err)
 			assertIteratorRecords(t, iter, tt.expected)
@@ -298,6 +298,219 @@ func TestRindb_IRangeDirections(t *testing.T) {
 	assert.ErrorIs(t, err, EOI)
 	_, err = emptyIter.Prev()
 	assert.ErrorIs(t, err, EOI)
+}
+
+func TestRindb_IRangeDescending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+
+	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("z"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	_, err = iter.Next()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+}
+
+func TestRindb_IRangeDescendingSkipsTombstonedKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	require.NoError(t, rin.Remove(ctx, Bytes("b")))
+	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+	require.NoError(t, rin.Put(ctx, Bytes("d"), Bytes("vd")))
+	require.NoError(t, rin.Remove(ctx, Bytes("d")))
+	require.NoError(t, rin.Put(ctx, Bytes("e"), Bytes("ve")))
+
+	tests := []struct {
+		name     string
+		start    []byte
+		end      []byte
+		expected []string
+	}{
+		{
+			name:     "range with tombstone in middle",
+			start:    Bytes("a"),
+			end:      Bytes("c"),
+			expected: []string{"c", "a"},
+		},
+		{
+			name:     "range ending on a tombstone",
+			start:    Bytes("c"),
+			end:      Bytes("d"),
+			expected: []string{"c"},
+		},
+		{
+			name:     "range starting on a tombstone",
+			start:    Bytes("d"),
+			end:      Bytes("e"),
+			expected: []string{"e"},
+		},
+		{
+			name:     "full range with multiple tombstones",
+			start:    Bytes("a"),
+			end:      Bytes("z"),
+			expected: []string{"e", "c", "a"},
+		},
+		{
+			name:     "range over a single tombstone",
+			start:    Bytes("b"),
+			end:      Bytes("b"),
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			iter, err := rin.IRange(ctx, tt.start, tt.end, IRangeOrder(RangeDesc))
+			require.NoError(t, err)
+			defer func() { assert.NoError(t, iter.Close()) }()
+
+			var keys []string
+			for iter.HasNext() {
+				rec, err := iter.Next()
+				require.NoError(t, err)
+				keys = append(keys, string(rec.GetKey()))
+			}
+
+			if tt.expected == nil {
+				assert.Empty(t, keys)
+				return
+			}
+
+			assert.Equal(t, tt.expected, keys)
+		})
+	}
+}
+
+func TestRindb_IRangeDescendingHighToLowBounds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	require.NoError(t, rin.Put(ctx, Bytes("a"), Bytes("va")))
+	require.NoError(t, rin.Put(ctx, Bytes("b"), Bytes("vb")))
+	require.NoError(t, rin.Put(ctx, Bytes("c"), Bytes("vc")))
+
+	iter, err := rin.IRange(ctx, Bytes("c"), Bytes("a"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	assert.False(t, iter.HasNext(), "descending ranges with inverted bounds should not silently widen the span")
+
+	_, err = iter.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestRindb_IRangeDescendingInvertedBoundsStayTightAfterOscillation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	for _, kv := range []struct {
+		key string
+		val string
+	}{{"a", "va"}, {"b", "vb"}, {"c", "vc"}, {"d", "vd"}} {
+		require.NoError(t, rin.Put(ctx, Bytes(kv.key), Bytes(kv.val)))
+	}
+
+	iter, err := rin.IRange(ctx, Bytes("a"), Bytes("c"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey(), "direction flips should not advance beyond the original upper bound")
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("c"), rec.GetKey(), "iterator should not leak records above the caller's requested window")
+}
+
+func TestRindb_IRangeDescendingLowerBoundAfterOscillation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	for _, kv := range []struct {
+		key string
+		val string
+	}{{"a", "va"}, {"b", "vb"}, {"c", "vc"}, {"d", "vd"}} {
+		require.NoError(t, rin.Put(ctx, Bytes(kv.key), Bytes(kv.val)))
+	}
+
+	iter, err := rin.IRange(ctx, Bytes("b"), Bytes("d"), IRangeOrder(RangeDesc))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	mustNext := []Bytes{Bytes("d"), Bytes("c"), Bytes("b")}
+	for _, key := range mustNext {
+		rec, err := iter.Next()
+		require.NoError(t, err)
+		require.Equal(t, key, rec.GetKey())
+	}
+
+	// After iterating through d, c, b, the iterator is at the lower bound.
+	// Oscillating at this boundary should not leak keys outside the range.
+
+	// Prev() should return 'b'.
+	rec, err := iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "Prev() at lower bound should return the boundary key")
+
+	// Next() after Prev() should return 'b' again.
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, Bytes("b"), rec.GetKey(), "Next() after Prev() at lower bound should return the boundary key")
 }
 
 // TestRindb_Remove tests the Remove operation of Rindb.

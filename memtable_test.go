@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -390,7 +391,7 @@ func TestMemtable_CleanupRetainsSnapshotVisibleVersion(t *testing.T) {
 
 		mem.Cleanup(snapshotSeq)
 
-		iter := mem.IRange(Bytes("primary"), Bytes("primary"), snapshotSeq)
+		iter := mem.IRange(Bytes("primary"), Bytes("primary"), snapshotSeq, RangeAsc)
 		require.True(t, iter.HasNext(), "expected snapshot-visible version to remain after cleanup")
 		rec, err := iter.Next()
 		require.NoError(t, err)
@@ -441,7 +442,7 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 	mem.Put(newRecord(Bytes("k"), Bytes("v5"), 5))
 
 	t.Run("skip higher seq", func(t *testing.T) {
-		it := mem.IRange(Bytes("k"), Bytes("k"), 6)
+		it := mem.IRange(Bytes("k"), Bytes("k"), 6, RangeAsc)
 		mi, ok := it.(*memtableIRange)
 		assert.True(t, ok)
 
@@ -452,7 +453,7 @@ func TestMemtableIRange_Prepare(t *testing.T) {
 	})
 
 	t.Run("no matching seq", func(t *testing.T) {
-		it := mem.IRange(Bytes("k"), Bytes("k"), 4)
+		it := mem.IRange(Bytes("k"), Bytes("k"), 4, RangeAsc)
 		mi, ok := it.(*memtableIRange)
 		assert.True(t, ok)
 
@@ -472,7 +473,7 @@ func TestMemtableIRange_HasNextNext(t *testing.T) {
 	mem.Put(newRecord(Bytes("b"), Bytes("vb1"), 1))
 	mem.Put(newRecord(Bytes("c"), Bytes("vc2"), 2))
 
-	it := mem.IRange(Bytes("a"), Bytes("c"), 4)
+	it := mem.IRange(Bytes("a"), Bytes("c"), 4, RangeAsc)
 	mi, ok := it.(*memtableIRange)
 	assert.True(t, ok)
 
@@ -506,7 +507,7 @@ func TestMemtableIRange_Reverse(t *testing.T) {
 	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
 	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
 
-	it := mem.IRange(Bytes("a"), Bytes("c"), 2)
+	it := mem.IRange(Bytes("a"), Bytes("c"), 2, RangeAsc)
 	for it.HasNext() {
 		_, err := it.Next()
 		assert.NoError(t, err)
@@ -522,13 +523,242 @@ func TestMemtableIRange_Reverse(t *testing.T) {
 	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
 }
 
+func TestMemtableIRange_DescendingPrev(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 3, RangeDesc)
+
+	var keys []Bytes
+	for it.HasPrev() {
+		rec, err := it.Prev()
+		assert.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+
+	assert.Equal(t, []Bytes{Bytes("c"), Bytes("b"), Bytes("a")}, keys)
+}
+
+func TestMemtableIRange_DescendingNext(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 3, RangeDesc)
+
+	rec, err := it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), rec.GetKey())
+
+	rec, err = it.Next()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), rec.GetKey())
+
+	rec, err = it.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("a"), rec.GetKey())
+
+	_, err = it.Prev()
+	assert.ErrorIs(t, err, EOI)
+
+	_, err = it.Next()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRange_DescendingSequenceFilter(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb4"), 4))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 2, RangeDesc)
+
+	var keys []Bytes
+	for it.HasPrev() {
+		rec, err := it.Prev()
+		assert.NoError(t, err)
+		keys = append(keys, rec.GetKey())
+	}
+
+	assert.Equal(t, []Bytes{Bytes("b"), Bytes("a")}, keys)
+}
+
+func TestMemtableIRange_Last(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig(t)
+	mem := InitMemtable(cfg)
+	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
+	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc3"), 3))
+	mem.Put(newRecord(Bytes("c"), Bytes("vc4"), 4))
+
+	it := mem.IRange(Bytes("a"), Bytes("c"), 3, RangeAsc)
+	mi, ok := it.(*memtableIRange)
+	assert.True(t, ok)
+
+	last, err := mi.Last()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("c"), last.GetKey())
+	assert.Equal(t, uint64(3), last.GetSequenceNumber())
+
+	prev, err := mi.Prev()
+	assert.NoError(t, err)
+	assert.Equal(t, Bytes("b"), prev.GetKey())
+	assert.Equal(t, uint64(2), prev.GetSequenceNumber())
+}
+
+type stubPrevResponse struct {
+	rec Record
+	err error
+}
+
+type stubNextResponse struct {
+	rec Record
+	err error
+}
+
+type stubRecordIterator struct {
+	lastRecord       Record
+	lastErr          error
+	hasPrevResponses []bool
+	prevResponses    []stubPrevResponse
+	hasNextResponses []bool
+	nextResponses    []stubNextResponse
+}
+
+var _ Iterator[Record] = (*stubRecordIterator)(nil)
+
+func (s *stubRecordIterator) HasNext() bool {
+	if len(s.hasNextResponses) == 0 {
+		return false
+	}
+	resp := s.hasNextResponses[0]
+	s.hasNextResponses = s.hasNextResponses[1:]
+	return resp
+}
+
+func (s *stubRecordIterator) Next() (Record, error) {
+	if len(s.nextResponses) == 0 {
+		var empty Record
+		return empty, EOI
+	}
+	resp := s.nextResponses[0]
+	s.nextResponses = s.nextResponses[1:]
+	return resp.rec, resp.err
+}
+
+func (s *stubRecordIterator) HasPrev() bool {
+	if len(s.hasPrevResponses) == 0 {
+		return false
+	}
+	resp := s.hasPrevResponses[0]
+	s.hasPrevResponses = s.hasPrevResponses[1:]
+	return resp
+}
+
+func (s *stubRecordIterator) Prev() (Record, error) {
+	if len(s.prevResponses) == 0 {
+		var empty Record
+		return empty, EOI
+	}
+	resp := s.prevResponses[0]
+	s.prevResponses = s.prevResponses[1:]
+	return resp.rec, resp.err
+}
+
+func (s *stubRecordIterator) Last() (Record, error) {
+	return s.lastRecord, s.lastErr
+}
+
+func TestMemtableIRange_LastIteratorError(t *testing.T) {
+	t.Parallel()
+
+	iterErr := errors.New("iterator last failed")
+	mi := &memtableIRange{
+		it: &stubRecordIterator{lastErr: iterErr},
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, iterErr)
+}
+
+func TestMemtableIRange_LastNoPreviousRecord(t *testing.T) {
+	t.Parallel()
+
+	mi := &memtableIRange{
+		it: &stubRecordIterator{
+			lastRecord:       newRecord(Bytes("k"), Bytes("v"), 5),
+			hasPrevResponses: []bool{false},
+		},
+		seq: 3,
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRange_LastPrevReturnsEOI(t *testing.T) {
+	t.Parallel()
+
+	mi := &memtableIRange{
+		it: &stubRecordIterator{
+			lastRecord:       newRecord(Bytes("k"), Bytes("v"), 5),
+			hasPrevResponses: []bool{true},
+			prevResponses: []stubPrevResponse{
+				{err: EOI},
+			},
+		},
+		seq: 3,
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, EOI)
+}
+
+func TestMemtableIRange_LastPrevReturnsOtherError(t *testing.T) {
+	t.Parallel()
+
+	prevErr := errors.New("prev failed")
+	mi := &memtableIRange{
+		it: &stubRecordIterator{
+			lastRecord:       newRecord(Bytes("k"), Bytes("v"), 5),
+			hasPrevResponses: []bool{true},
+			prevResponses: []stubPrevResponse{
+				{err: prevErr},
+			},
+		},
+		seq: 3,
+	}
+
+	_, err := mi.Last()
+	assert.ErrorIs(t, err, prevErr)
+}
+
 func TestMemtableIRange_PrevBeforeNext(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
 
-	it := mem.IRange(Bytes("a"), Bytes("a"), 1)
+	it := mem.IRange(Bytes("a"), Bytes("a"), 1, RangeAsc)
 	assert.False(t, it.HasPrev())
 	_, err := it.Prev()
 	assert.ErrorIs(t, err, EOI)
@@ -541,7 +771,7 @@ func TestMemtableIRange_Alternating(t *testing.T) {
 	mem.Put(newRecord(Bytes("a"), Bytes("va1"), 1))
 	mem.Put(newRecord(Bytes("b"), Bytes("vb2"), 2))
 
-	it := mem.IRange(Bytes("a"), Bytes("b"), 2)
+	it := mem.IRange(Bytes("a"), Bytes("b"), 2, RangeAsc)
 
 	rec, err := it.Next()
 	assert.NoError(t, err)
@@ -569,7 +799,7 @@ func TestMemtableIRange_Empty(t *testing.T) {
 	cfg := testConfig(t)
 	mem := InitMemtable(cfg)
 
-	it := mem.IRange(Bytes("x"), Bytes("z"), 1)
+	it := mem.IRange(Bytes("x"), Bytes("z"), 1, RangeAsc)
 	assert.False(t, it.HasNext())
 	assert.False(t, it.HasPrev())
 

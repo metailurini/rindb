@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"bytes"
+	"errors"
 	"math"
 )
 
@@ -93,11 +94,11 @@ func (m *memtable) Iterator() Iterator[Record] {
 
 // IRange returns an iterator over records whose keys fall within [start, end]
 // and sequence numbers less than or equal to seq.
-func (m *memtable) IRange(start, end Bytes, seq uint64) Iterator[Record] {
+func (m *memtable) IRange(start, end Bytes, seq uint64, order RangeOrder) Iterator[Record] {
 	startKey := InternalKey{UserKey: start, Seq: math.MaxUint64, Type: TypeValue}
 	endKey := InternalKey{UserKey: end, Seq: 0, Type: TypeMerge}
-	it := m.data.IRange(startKey, endKey)
-	return &memtableIRange{it: it, seq: seq}
+	it := m.data.IRange(startKey, endKey, order)
+	return &memtableIRange{it: it, seq: seq, order: order}
 }
 
 type memtableIRange struct {
@@ -108,6 +109,7 @@ type memtableIRange struct {
 	prev         Record
 	preparedPrev bool
 	err          error
+	order        RangeOrder
 }
 
 func (mi *memtableIRange) prepareNext() {
@@ -184,6 +186,32 @@ func (mi *memtableIRange) Prev() (Record, error) {
 	mi.preparedPrev = false
 	mi.preparedNext = false
 	return mi.prev, nil
+}
+
+// Last implements Iterator[Record].
+func (mi *memtableIRange) Last() (Record, error) {
+	mi.err = nil
+	mi.preparedNext = false
+	mi.preparedPrev = false
+
+	var empty Record
+	rec, err := mi.it.Last()
+	if err != nil {
+		return empty, err
+	}
+	for rec.GetSequenceNumber() > mi.seq {
+		if !mi.it.HasPrev() {
+			return empty, EOI
+		}
+		rec, err = mi.it.Prev()
+		if err != nil {
+			if errors.Is(err, EOI) {
+				return empty, EOI
+			}
+			return empty, err
+		}
+	}
+	return rec, nil
 }
 
 // Cleanup removes records with sequence numbers less than minSeq.
