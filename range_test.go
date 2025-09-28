@@ -564,6 +564,25 @@ func TestRangeIterator_LastHonorsOrder(t *testing.T) {
 	assert.Equal(t, "va", string(rec.GetValue()))
 }
 
+func TestRangeIterator_DescendingLastThenPrev(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", value: "vb", seq: 2}},
+		[]kv{{key: "c", value: "vc", seq: 3}},
+	)
+
+	rec, err := iter.Last()
+	require.NoError(t, err)
+	require.Equal(t, "a", string(rec.GetKey()))
+	require.Equal(t, "va", string(rec.GetValue()))
+
+	mustPrevValue(t, iter, "b", "vb")
+	mustPrevValue(t, iter, "c", "vc")
+	mustPrevEOI(t, iter)
+}
+
 func TestRangeIterator_DescendingSkipsTombstonedKey(t *testing.T) {
 	t.Parallel()
 
@@ -580,6 +599,20 @@ func TestRangeIterator_DescendingSkipsTombstonedKey(t *testing.T) {
 		t.Fatalf("unexpected record %s@%d", rec.GetKey(), rec.GetSequenceNumber())
 	}
 	require.ErrorIs(t, err, EOI)
+}
+
+func TestRangeIterator_DescendingLastSkipsTombstone(t *testing.T) {
+	t.Parallel()
+
+	iter := buildRangeIterOrder(t, RangeDesc,
+		[]kv{{key: "a", value: "va", seq: 1}},
+		[]kv{{key: "b", seq: 3, typ: TypeDeletion}, {key: "b", value: "vb", seq: 2}},
+	)
+
+	rec, err := iter.Last()
+	require.NoError(t, err)
+	require.Equal(t, "a", string(rec.GetKey()))
+	require.Equal(t, "va", string(rec.GetValue()))
 }
 
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
