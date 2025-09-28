@@ -1,0 +1,74 @@
+name: Benchmarks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  go-benchmarks:
+    name: Go benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Run go benchmarks
+        run: |
+          go test -bench=. -benchmem -run='^$' ./... | tee benchmark-output.txt
+
+      - name: Restore previous benchmark data
+        id: restore-bench
+        uses: actions/cache/restore@v4
+        with:
+          path: .github/benchmark-data
+          key: ${{ runner.os }}-go-bench-${{ github.event.pull_request.base.ref || github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-go-bench-
+
+      - name: Ensure benchmark data file exists
+        run: |
+          mkdir -p .github/benchmark-data
+          if [ ! -f .github/benchmark-data/benchmark-data.json ]; then
+            echo '[]' > .github/benchmark-data/benchmark-data.json
+          fi
+
+      - name: Compare benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Rindb Go Benchmarks
+          tool: 'go'
+          output-file-path: benchmark-output.txt
+          external-data-json-path: .github/benchmark-data/benchmark-data.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on-alert: true
+          comment-on-alert: true
+          comment-always: ${{ github.event_name == 'pull_request' }}
+          summary-always: true
+          alert-comment-cc-users: '@shanenoi'
+
+      - name: Save updated benchmark data
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: .github/benchmark-data
+          key: ${{ runner.os }}-go-bench-${{ github.sha }}
+
+      - name: Upload benchmark log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-benchmark-output
+          path: benchmark-output.txt
