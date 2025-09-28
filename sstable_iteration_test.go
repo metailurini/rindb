@@ -261,6 +261,13 @@ func TestSSTable_findOffsetLE(t *testing.T) {
 		assert.Equal(t, int64(20), prev)
 		assert.Equal(t, int64(30), next)
 	})
+
+	t.Run("returns-last-offset-when-after-range", func(t *testing.T) {
+		prev, next, ok := sst.findOffsetLE(Bytes("g"))
+		require.True(t, ok)
+		assert.Equal(t, int64(30), prev)
+		assert.Equal(t, int64(40), next)
+	})
 }
 
 func TestSSTableIRange_ReverseIteration(t *testing.T) {
