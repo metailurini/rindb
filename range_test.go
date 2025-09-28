@@ -3,6 +3,8 @@ package rindb
 import (
 	"context"
 	"errors"
+	"io"
+	"log"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -328,6 +330,97 @@ func TestRangeIterator_DescendingPrevNextRegression(t *testing.T) {
 	rec, err = iter.Next()
 	require.NoError(t, err)
 	require.Equal(t, "k2", string(rec.GetKey()))
+}
+
+func TestRangeIterator_DescendingPrevAfterOscillation(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	db, err := InitRinDB(ctx,
+		WithDatabaseDir(dir),
+		WithCacheBytes(32<<20),
+		WithLogger(NewStdLogger(log.New(io.Discard, "", 0))),
+		WithLogLevel(LogLevelInfo),
+	)
+	if err != nil {
+		t.Fatalf("InitRinDB: %v", err)
+	}
+	defer db.Close()
+
+	mustPut := func(key string) {
+		if err := db.Put(ctx, Bytes(key), Bytes("v")); err != nil {
+			t.Fatalf("put %q: %v", key, err)
+		}
+	}
+	mustDel := func(key string) {
+		if err := db.Remove(ctx, Bytes(key)); err != nil {
+			t.Fatalf("del %q: %v", key, err)
+		}
+	}
+
+	mustPut("k07")
+	mustPut("k07")
+	mustPut("k08")
+	mustPut("k03")
+	mustDel("k14")
+	mustPut("k03")
+	mustDel("k04")
+	mustPut("k08")
+	mustPut("k08")
+	mustPut("k03")
+	mustPut("k05")
+	mustPut("k05")
+	mustPut("k09")
+	mustPut("k11")
+	mustPut("k06")
+	mustDel("k11")
+	mustDel("k13")
+	mustPut("k10")
+	mustPut("k05")
+	mustDel("k09")
+	mustDel("k02")
+
+	snap, err := db.NewSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("NewSnapshot: %v", err)
+	}
+	defer snap.Release(ctx)
+
+	iter, err := db.IRange(ctx,
+		Bytes("k01"),
+		Bytes("k12"),
+		IRangeOrder(RangeDesc),
+		IRangeSnapshot(snap.Sequence()),
+	)
+	if err != nil {
+		t.Fatalf("IRange: %v", err)
+	}
+	defer iter.Close()
+
+	expect := []string{"k10", "k08", "k07", "k06", "k05", "k03"}
+	idx := 0
+
+	next := func(step int, want string) {
+		rec, err := iter.Next()
+		assert.NoError(t, err, "step %d Next error", step)
+		assert.Equal(t, want, string(rec.GetKey()), "step %d Next key mismatch", step)
+		idx++
+	}
+	prev := func(step int, want string) {
+		rec, err := iter.Prev()
+		assert.NoError(t, err, "step %d Prev error", step)
+		idx--
+		assert.Equal(t, want, string(rec.GetKey()), "step %d Prev key mismatch", step)
+	}
+
+	next(0, expect[0]) // k10
+	next(1, expect[1]) // k08
+	prev(2, expect[1]) // k08
+	next(3, expect[1]) // k08
+	prev(4, expect[1]) // k08
+	next(5, expect[1]) // k08
+	prev(6, expect[1]) // k08
+	prev(7, expect[0]) // k10
 }
 
 func TestRangeIterator_HasPrevAfterHasNextPeek(t *testing.T) {
