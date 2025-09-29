@@ -873,6 +873,108 @@ func TestRangeIterator_DescendingSnapshotBeforeTombstone(t *testing.T) {
 	require.Equal(t, "svDmka3zav2cVE21UREP6xCwg7xO5S6zg2ev", string(rec.GetValue()))
 }
 
+func TestRangeIterator_DescendingNextYieldsAllRecords(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := InitRinDB(ctx, WithDatabaseDir(filepath.Join(dir, "db")), WithMaxMemtableSize(1000))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	put := func(keyB64, valB64 string) {
+		require.NoError(t, db.Put(ctx, Bytes(keyB64), Bytes(valB64)))
+	}
+
+	del := func(keyB64 string) {
+		require.NoError(t, db.Remove(ctx, Bytes(keyB64)))
+	}
+
+	put("k4", "v")
+	put("k4", "v")
+	put("k2", "v")
+	put("k2", "v")
+	put("k3", "v")
+	del("k3")
+	put("k4", "v")
+	put("k4", "v")
+	put("k2", "v")
+	put("k4", "v")
+	put("k4", "v")
+
+	snap, err := db.NewSnapshot(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, snap.Release(ctx)) })
+
+	iter, err := db.IRange(
+		ctx,
+		Bytes("k1"),
+		Bytes("k5"),
+		IRangeOrder(RangeDesc),
+		IRangeSnapshot(snap.Sequence()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, iter.Close()) })
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err := iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k4", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	_, err = iter.Next()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k4", string(rec.GetKey()))
+
+	_, err = iter.Prev()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k4", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	_, err = iter.Next()
+	require.ErrorIs(t, err, EOI)
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Next()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k2", string(rec.GetKey()))
+
+	rec, err = iter.Prev()
+	require.NoError(t, err)
+	require.Equal(t, "k4", string(rec.GetKey()))
+}
+
 func mustNextValue(t *testing.T, iter *RangeIterator, key, value string) {
 	t.Helper()
 
