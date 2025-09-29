@@ -225,6 +225,9 @@ func (r *RangeIterator) primeNext() {
 				r.crossingAnchorSet = false
 			} else {
 				if peeked {
+					// Ensure the discarded candidate remains available for Prev()
+					// so oscillating at the boundary can resurface the prior key.
+					r.mi.stageForPrev(stagedItem)
 					r.forward = false
 				}
 				continue
