@@ -1,9 +1,11 @@
 name: Benchmarks
 
 on:
-  pull_request:
-    paths:
-      - '**/*.go'
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
   push:
     branches:
       - master
@@ -18,38 +20,100 @@ jobs:
   go-benchmarks:
     name: Go benchmarks
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request')
     steps:
+      - name: Determine pull request context
+        if: github.event_name == 'workflow_run'
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = (context.payload.workflow_run.pull_requests || [])[0];
+            if (!pr) {
+              core.setOutput('has_pr', 'false');
+              return;
+            }
+            core.setOutput('has_pr', 'true');
+            core.setOutput('number', String(pr.number));
+            core.setOutput('base_ref', pr.base.ref);
+
+      - name: Check for Go file changes
+        if: github.event_name == 'workflow_run' && steps.pr.outputs.has_pr == 'true'
+        id: go-changes
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER || 0);
+            if (!prNumber) {
+              core.setOutput('changed', 'false');
+              return;
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const goChanged = files.some(file => file.filename.endsWith('.go'));
+            core.setOutput('changed', goChanged ? 'true' : 'false');
+
+      - name: Decide whether to run benchmarks
+        id: should-run
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ steps.pr.outputs.has_pr }}" != "true" ]; then
+            echo "No associated pull request found for workflow_run event; skipping benchmarks." >> "$GITHUB_STEP_SUMMARY"
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ steps.go-changes.outputs.changed }}" != "true" ]; then
+            echo "No Go file changes detected; skipping benchmarks." >> "$GITHUB_STEP_SUMMARY"
+            echo "value=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "value=true" >> "$GITHUB_OUTPUT"
+        shell: bash
+
       - name: Check out source
+        if: steps.should-run.outputs.value == 'true'
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.event.workflow_run.repository.full_name || github.repository }}
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Set up Go
+        if: steps.should-run.outputs.value == 'true'
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
 
-      - name: Run unit tests
-        run: go test ./...
-
       - name: Run go benchmarks
+        if: steps.should-run.outputs.value == 'true'
         run: |
           go test -bench=. -benchmem -run='^$' ./... | tee benchmark-output.txt
 
       - name: Restore previous benchmark data
+        if: steps.should-run.outputs.value == 'true'
         id: restore-bench
         uses: actions/cache/restore@v4
         with:
           path: .github/benchmark-data
-          key: ${{ runner.os }}-go-bench-${{ github.event.pull_request.base.ref || github.ref_name }}
+          key: ${{ runner.os }}-go-bench-${{ steps.pr.outputs.base_ref || github.ref_name }}
           restore-keys: |
             ${{ runner.os }}-go-bench-
 
       - name: Ensure benchmark data directory exists
+        if: steps.should-run.outputs.value == 'true'
         run: |
           mkdir -p .github/benchmark-data
 
       - name: Install benchstat
+        if: steps.should-run.outputs.value == 'true'
         run: |
           go install golang.org/x/perf/cmd/benchstat@latest
           GOBIN_PATH="$(go env GOBIN)"
@@ -62,6 +126,7 @@ jobs:
           fi
 
       - name: Compare benchmark results
+        if: steps.should-run.outputs.value == 'true'
         id: benchstat
         run: |
           if [ -f .github/benchmark-data/benchmark-output.txt ]; then
@@ -72,6 +137,7 @@ jobs:
           fi
 
       - name: Analyze benchmark regressions
+        if: steps.should-run.outputs.value == 'true'
         id: analyze
         run: |
           python - <<'PY'
@@ -154,7 +220,7 @@ jobs:
           PY
 
       - name: Add benchstat summary to job output
-        if: always()
+        if: steps.should-run.outputs.value == 'true'
         run: |
           {
             echo "## Benchstat comparison"
@@ -168,19 +234,25 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on pull request for regressions
-        if: github.event_name == 'pull_request' && steps.analyze.outputs.regressions_found == 'true'
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'workflow_run' && steps.pr.outputs.has_pr == 'true' && steps.analyze.outputs.regressions_found == 'true'
         uses: actions/github-script@v7
         env:
           COMMENT_BODY: ${{ steps.analyze.outputs.comment }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const marker = '<!-- benchstat-regression-comment -->';
             const body = `${marker}\n${process.env.COMMENT_BODY}`;
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!prNumber) {
+              core.warning('Unable to determine pull request number for regression comment.');
+              return;
+            }
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
             });
             const existing = comments.find(comment => comment.body && comment.body.includes(marker));
             if (existing) {
@@ -194,26 +266,26 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: prNumber,
                 body,
               });
             }
 
       - name: Save updated benchmark data
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           mkdir -p .github/benchmark-data
           cp benchmark-output.txt .github/benchmark-data/benchmark-output.txt
 
       - name: Cache updated benchmark data
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/cache/save@v4
         with:
           path: .github/benchmark-data
           key: ${{ runner.os }}-go-bench-${{ github.sha }}
 
       - name: Upload benchmark log
-        if: always()
+        if: steps.should-run.outputs.value == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: go-benchmark-output
