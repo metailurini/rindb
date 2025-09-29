@@ -44,7 +44,13 @@
      +//go:build darwin || linux
      +package rindb
      +
-     +import "golang.org/x/sys/unix"
+     +import (
+     +    "fmt"
+     +    "math"
+     +    "unsafe"
+     +
+     +    "golang.org/x/sys/unix"
+     +)
      +
      +type mmapHandle struct {
      +    data []byte
@@ -54,6 +60,9 @@
      +    info, err := f.Stat()
      +    if err != nil || info.Size() == 0 {
      +        return nil, err
+     +    }
+     +    if unsafe.Sizeof(uintptr(0)) == 4 && info.Size() > math.MaxInt32 {
+     +        return nil, fmt.Errorf("sstable mmap: file too large for 32-bit build (%d bytes)", info.Size())
      +    }
      +    data, err := unix.Mmap(int(f.Fd()), 0, int(info.Size()), unix.PROT_READ, unix.MAP_SHARED)
      +    if err != nil {
@@ -74,18 +83,28 @@
      +//go:build windows
      +package rindb
      +
-     +import "golang.org/x/sys/windows"
+     +import (
+     +    "fmt"
+     +    "math"
+     +    "unsafe"
+     +
+     +    "golang.org/x/sys/windows"
+     +)
      +
      +type mmapHandle struct {
-     +    data []byte
+     +    data   []byte
      +    handle windows.Handle
      +}
      +
      +func mapFile(f *os.File) (*mmapHandle, error) {
-     +    size, err := fileSize(f)
-     +    if err != nil || size == 0 {
+     +    info, err := f.Stat()
+     +    if err != nil || info.Size() == 0 {
      +        return nil, err
      +    }
+     +    if unsafe.Sizeof(uintptr(0)) == 4 && info.Size() > math.MaxInt32 {
+     +        return nil, fmt.Errorf("sstable mmap: file too large for 32-bit build (%d bytes)", info.Size())
+     +    }
+     +    size := info.Size()
      +    h, err := windows.CreateFileMapping(windows.Handle(f.Fd()), nil, windows.PAGE_READONLY, 0, 0, nil)
      +    if err != nil {
      +        return nil, err
@@ -95,8 +114,8 @@
      +        windows.CloseHandle(h)
      +        return nil, err
      +    }
-     +    hdr := &reflect.SliceHeader{Data: ptr, Len: int(size), Cap: int(size)}
-     +    return &mmapHandle{data: unsafe.Slice((*byte)(unsafe.Pointer(ptr)), int(size)), handle: h}, nil
+     +    data := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), int(size))
+     +    return &mmapHandle{data: data, handle: h}, nil
      +}
      +
      +func (h *mmapHandle) Close() error {
@@ -105,11 +124,18 @@
      +    }
      +    data := h.data
      +    h.data = nil
-     +    windows.UnmapViewOfFile(uintptr(unsafe.Pointer(&data[0])))
+     +    errUnmap := windows.UnmapViewOfFile(uintptr(unsafe.Pointer(&data[0])))
+     +
+     +    var errClose error
      +    if h.handle != 0 {
-     +        return windows.CloseHandle(h.handle)
+     +        errClose = windows.CloseHandle(h.handle)
+     +        h.handle = 0
      +    }
-     +    return nil
+     +
+     +    if errUnmap != nil {
+     +        return errUnmap
+     +    }
+     +    return errClose
      +}
      diff --git a/sstable_mmap_stub.go b/sstable_mmap_stub.go
      +//go:build !darwin && !linux && !windows
@@ -143,7 +169,11 @@
      -    if fs.file != nil {
      +    if fs.file != nil {
      +        if fs.mmap == nil && fs.shouldMmap(ctx) {
-     +            fs.mmap, _ = mapFile(fs.file)
+     +            if handle, err := mapFile(fs.file); err == nil {
+     +                fs.mmap = handle
+     +            } else {
+     +                logMmapFailure(ctx, fs.filePath, err)
+     +            }
      +        }
              return nil
          }
@@ -166,7 +196,9 @@
              return nil
          }
      +    if fs.mmap != nil {
-     +        _ = fs.mmap.Close()
+     +        if err := fs.mmap.Close(); err != nil {
+     +            logMmapCloseFailure(ctx, fs.filePath, err)
+     +        }
      +        fs.mmap = nil
      +    }
          if err := fs.file.Close(); err != nil {
