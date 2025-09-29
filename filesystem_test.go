@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -140,6 +141,60 @@ func TestFileSystem_Clean_Errors(t *testing.T) {
 		// Clean up: Make writable again so defer closer() can remove it
 		_ = os.Chmod(filePath, 0o600)
 	})
+}
+
+func TestFileSystem_MmapFallback(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	fss, closer := initTempFileSystems(t, 1, nil)
+	defer closer()
+
+	fs := fss[0]
+	_, err := fs.Write([]byte("a"))
+	require.NoError(t, err)
+	_, err = fs.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+
+	fs.configureMmap(ctx, false, newScopedLogger(nopLogger{}, LogLevelWarn))
+
+	buf := make([]byte, 1)
+	n, err := fs.ReadAt(buf, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.Equal(t, []byte("a"), buf)
+	require.Nil(t, fs.mmapBytes(0, len(buf)))
+}
+
+func TestFileSystem_MmapEnabled(t *testing.T) {
+	t.Parallel()
+
+	switch runtime.GOOS {
+	case "linux", "darwin", "windows":
+	default:
+		t.Skip("mmap not supported on this platform")
+	}
+
+	ctx := context.Background()
+	payload := []byte("hello")
+	fss, closer := initTempFileSystems(t, 1, [][]byte{payload})
+	defer closer()
+
+	fs := fss[0]
+	cfg := testConfig(t)
+	cfg.enableSSTableMmap = true
+	fs.configureMmap(ctx, true, cfg.scopedLogger())
+
+	view := fs.mmapBytes(0, len(payload))
+	require.NotNil(t, view)
+	require.Equal(t, payload, view)
+	require.NotNil(t, fs.mmap)
+
+	buf := make([]byte, len(payload))
+	n, err := fs.ReadAt(buf, 0)
+	require.NoError(t, err)
+	require.Equal(t, len(payload), n)
+	require.Equal(t, payload, buf)
 }
 
 //nolint:funlen

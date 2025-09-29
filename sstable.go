@@ -87,6 +87,7 @@ func NewSSTable(ctx context.Context, config Config, fs *FileSystem) (SStable, er
 		bloom.Insert(ko.key)
 	}
 
+	fs.configureMmap(ctx, config.enableSSTableMmap, log)
 	log.info(ctx, "Successfully created SSTable at %s with %d sparse index entries", fs.Path(), len(sparseIndex))
 	return SStable{FileSystem: fs, SparseIndex: sparseIndex, Bloom: bloom, dataEnd: int64(f.indexOffset), log: log}, nil
 }

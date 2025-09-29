@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -164,6 +165,53 @@ func TestSSTable_BasicOperations(t *testing.T) {
 		value, err = sstable.GetValue(ctx, Bytes("a"))
 		assert.NoError(t, err)
 		assert.Equal(t, Bytes("new"), value)
+	})
+	t.Run("MmapEnabledRead", func(t *testing.T) {
+		ctx := context.Background()
+		mmapCfg := testConfig(t)
+		mmapCfg.enableSSTableMmap = true
+
+		fss, closer := initTempFileSystems(t, 1, nil)
+		defer closer()
+		fs := fss[0]
+
+		mem := InitMemtable(mmapCfg)
+		mem.Put(newRecord(Bytes("k1"), Bytes("v1"), 1))
+
+		sstable, meta, err := flush(ctx, mmapCfg, mem, fs)
+		assert.NoError(t, err)
+		require.NotZero(t, meta.Number)
+
+		value, err := sstable.GetValue(ctx, Bytes("k1"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v1"), value)
+
+		switch runtime.GOOS {
+		case "linux", "darwin", "windows":
+			require.NotNil(t, sstable.FileSystem.mmap)
+		default:
+			require.Nil(t, sstable.FileSystem.mmap)
+		}
+
+		require.NoError(t, sstable.Close())
+
+		reopenedFS, err := OpenExistingFS(ctx, fs.Path())
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reopenedFS.Close()) })
+
+		reopened, err := NewSSTable(ctx, mmapCfg, reopenedFS)
+		require.NoError(t, err)
+
+		value, err = reopened.GetValue(ctx, Bytes("k1"))
+		assert.NoError(t, err)
+		assert.Equal(t, Bytes("v1"), value)
+
+		switch runtime.GOOS {
+		case "linux", "darwin", "windows":
+			require.NotNil(t, reopened.FileSystem.mmap)
+		default:
+			require.Nil(t, reopened.FileSystem.mmap)
+		}
 	})
 	t.Run("Iterator", func(t *testing.T) {
 		fss, closer := initTempFileSystems(t, 1, nil)
