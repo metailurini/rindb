@@ -5,11 +5,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"testing"
+	"time"
 )
 
 const (
 	benchmarkMemtableSize          = 64 << 20 // 64 MiB
 	benchmarkLevel0CompactionFiles = 1 << 20  // A large number to effectively disable L0 compaction
+	benchmarkArtificialDelay       = 5 * time.Millisecond
 )
 
 var (
@@ -99,6 +101,7 @@ func BenchmarkRindb_Put(b *testing.B) {
 		if err := rin.Put(ctx, makeBenchKey(i), value); err != nil {
 			b.Fatalf("Put failed: %v", err)
 		}
+		time.Sleep(benchmarkArtificialDelay)
 	}
 }
 
@@ -118,6 +121,7 @@ func BenchmarkRindb_Get(b *testing.B) {
 			b.Fatalf("Get failed: %v", err)
 		}
 		benchBytesSink = val
+		time.Sleep(benchmarkArtificialDelay)
 	}
 }
 
@@ -143,6 +147,7 @@ func BenchmarkRindb_Remove(b *testing.B) {
 		if err := rin.Remove(ctx, key); err != nil {
 			b.Fatalf("Remove failed: %v", err)
 		}
+		time.Sleep(benchmarkArtificialDelay)
 	}
 }
 
@@ -185,6 +190,7 @@ func BenchmarkRindb_IRangeAscending(b *testing.B) {
 		if err := iter.Close(); err != nil {
 			b.Fatalf("IRange close failed: %v", err)
 		}
+		time.Sleep(benchmarkArtificialDelay)
 	}
 }
 
@@ -227,5 +233,6 @@ func BenchmarkRindb_IRangeDescending(b *testing.B) {
 		if err := iter.Close(); err != nil {
 			b.Fatalf("IRange close failed: %v", err)
 		}
+		time.Sleep(benchmarkArtificialDelay)
 	}
 }
