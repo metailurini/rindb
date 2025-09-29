@@ -1,0 +1,142 @@
+{
+    "lastUpdate": 0,
+    "repoUrl": "https://github.com/metailurini/rindb",
+    "entries": {
+        "Rindb Go Benchmarks": [
+            {
+                "commit": {
+                    "author": null,
+                    "committer": null,
+                    "id": "0000000000000000000000000000000000000000",
+                    "message": "seed baseline for benchmark alerts",
+                    "timestamp": "1970-01-01T00:00:00Z",
+                    "url": "https://github.com/metailurini/rindb/commit/0000000000000000000000000000000000000000"
+                },
+                "date": 0,
+                "tool": "go",
+                "benches": [
+                    {
+                        "name": "BenchmarkRindb_Put-4",
+                        "unit": "ns/op           36112 B/op         58 allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Put-4 - ns/op",
+                        "unit": "ns/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Put-4 - B/op",
+                        "unit": "B/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Put-4 - allocs/op",
+                        "unit": "allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Get-4",
+                        "unit": "ns/op            1488 B/op         28 allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Get-4 - ns/op",
+                        "unit": "ns/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Get-4 - B/op",
+                        "unit": "B/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Get-4 - allocs/op",
+                        "unit": "allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Remove-4",
+                        "unit": "ns/op           36920 B/op         89 allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Remove-4 - ns/op",
+                        "unit": "ns/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Remove-4 - B/op",
+                        "unit": "B/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_Remove-4 - allocs/op",
+                        "unit": "allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeAscending-4",
+                        "unit": "ns/op         1638448 B/op      32845 allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeAscending-4 - ns/op",
+                        "unit": "ns/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeAscending-4 - B/op",
+                        "unit": "B/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeAscending-4 - allocs/op",
+                        "unit": "allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeDescending-4",
+                        "unit": "ns/op         2036672 B/op      41141 allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeDescending-4 - ns/op",
+                        "unit": "ns/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeDescending-4 - B/op",
+                        "unit": "B/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    },
+                    {
+                        "name": "BenchmarkRindb_IRangeDescending-4 - allocs/op",
+                        "unit": "allocs/op",
+                        "value": 1,
+                        "extra": "1 times\n4 procs"
+                    }
+                ]
+            }
+        ]
+    }
+}
