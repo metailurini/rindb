@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -511,6 +512,102 @@ func TestRindb_IRangeDescendingLowerBoundAfterOscillation(t *testing.T) {
 	rec, err = iter.Next()
 	require.NoError(t, err)
 	require.Equal(t, Bytes("b"), rec.GetKey(), "Next() after Prev() at lower bound should return the boundary key")
+}
+
+func TestRindb_IRangeDescendingPrevSkipsEntry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rin, cleanup := initRinDBWithCleanup(t, testOptions(t)...)
+	defer cleanup()
+
+	type op struct {
+		kind string
+		key  string
+		val  string
+	}
+
+	ops := []op{
+		{kind: "put", key: "k02", val: "v"},
+		{kind: "put", key: "k02", val: "v"},
+		{kind: "put", key: "k12", val: "v"},
+		{kind: "del", key: "k12"},
+		{kind: "put", key: "k02", val: "v"},
+		{kind: "del", key: "k02"},
+		{kind: "put", key: "k09", val: "v"},
+		{kind: "put", key: "k06", val: "v"},
+		{kind: "del", key: "k13"},
+		{kind: "put", key: "k09", val: "v"},
+		{kind: "put", key: "k06", val: "v"},
+		{kind: "del", key: "k01"},
+		{kind: "put", key: "k09", val: "v"},
+		{kind: "put", key: "k09", val: "v"},
+		{kind: "put", key: "k06", val: "v"},
+		{kind: "put", key: "k07", val: "v"},
+		{kind: "put", key: "k09", val: "v"},
+		{kind: "del", key: "k11"},
+		{kind: "put", key: "k06", val: "v"},
+		{kind: "put", key: "k08", val: "v"},
+		{kind: "del", key: "k03"},
+		{kind: "put", key: "k06", val: "v"},
+		{kind: "del", key: "k06"},
+		{kind: "put", key: "k05", val: "v"},
+	}
+
+	state := make(map[string]string, len(ops))
+	for _, op := range ops {
+		switch op.kind {
+		case "put":
+			require.NoError(t, rin.Put(ctx, Bytes(op.key), Bytes(op.val)))
+			state[op.key] = op.val
+		case "del":
+			require.NoError(t, rin.Remove(ctx, Bytes(op.key)))
+			delete(state, op.key)
+		default:
+			t.Fatalf("unknown op kind %q", op.kind)
+		}
+	}
+
+	stats := rin.Stats()
+	lo := "k04"
+	hi := "k10"
+
+	var want []string
+	for key := range state {
+		if key >= lo && key <= hi {
+			want = append(want, key)
+		}
+	}
+	sort.Slice(want, func(i, j int) bool { return want[i] > want[j] })
+	require.Equal(t, []string{"k09", "k08", "k07", "k05"}, want, "sanity check expected ordering")
+
+	iter, err := rin.IRange(ctx, Bytes(lo), Bytes(hi), IRangeOrder(RangeDesc), IRangeSnapshot(stats.SequenceNumber))
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, iter.Close()) }()
+
+	seq := []rune("NPNNNPPNPNNPNNPPPP")
+	idx := 0
+	for step, action := range seq {
+		switch action {
+		case 'N':
+			rec, err := iter.Next()
+			require.NoErrorf(t, err, "step %d", step)
+			if idx >= len(want) {
+				t.Fatalf("Next at step %d returned extra key %q", step, rec.GetKey())
+			}
+			require.Equalf(t, Bytes(want[idx]), rec.GetKey(), "Next mismatch at step %d", step)
+			idx++
+		case 'P':
+			rec, err := iter.Prev()
+			require.NoErrorf(t, err, "step %d", step)
+			idx--
+			if idx < 0 {
+				t.Fatalf("Prev at step %d stepped before range", step)
+			}
+			require.Equalf(t, Bytes(want[idx]), rec.GetKey(), "Prev mismatch at step %d", step)
+		default:
+			t.Fatalf("unexpected step %q", string(action))
+		}
+	}
 }
 
 // TestRindb_Remove tests the Remove operation of Rindb.
