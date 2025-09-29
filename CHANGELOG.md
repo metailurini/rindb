@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.2](https://github.com/metailurini/rindb/compare/v0.15.1...v0.15.2) (2025-09-29)
+
+
+### Bug Fixes
+
+* Ensure discarded candidate is available for RangeIterator.Prev() ([b043aa0](https://github.com/metailurini/rindb/commit/b043aa0c361e932fedeabea2151b7ef0a7febcbc))
+* keep descending iter prev history consistent ([e44fbbd](https://github.com/metailurini/rindb/commit/e44fbbd7a78716812b63d0a880eff28179d88a82))
+* preserve snapshot history for descending ranges ([07f27fb](https://github.com/metailurini/rindb/commit/07f27fb96bc3b85887bbb21c9e8da663fc77bc21))
+
 ## [0.15.1](https://github.com/metailurini/rindb/compare/v0.15.0...v0.15.1) (2025-09-28)
 
 
