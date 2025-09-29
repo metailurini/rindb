@@ -38,28 +38,167 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-bench-
 
-      - name: Ensure benchmark data file exists
+      - name: Ensure benchmark data directory exists
         run: |
           mkdir -p .github/benchmark-data
-          if [ ! -f .github/benchmark-data/benchmark-data.json ]; then
-            echo '[]' > .github/benchmark-data/benchmark-data.json
+
+      - name: Install benchstat
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          GOBIN_PATH="$(go env GOBIN)"
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          if [ -n "$GOBIN_PATH" ] && [ -d "$GOBIN_PATH" ]; then
+            echo "$GOBIN_PATH" >> "$GITHUB_PATH"
+          fi
+          if [ -d "$GOPATH_BIN" ]; then
+            echo "$GOPATH_BIN" >> "$GITHUB_PATH"
           fi
 
       - name: Compare benchmark results
-        uses: benchmark-action/github-action-benchmark@v1
+        id: benchstat
+        run: |
+          if [ -f .github/benchmark-data/benchmark-output.txt ]; then
+            benchstat .github/benchmark-data/benchmark-output.txt benchmark-output.txt | tee benchstat.txt
+            benchstat -format csv .github/benchmark-data/benchmark-output.txt benchmark-output.txt > benchstat.csv
+          else
+            echo "No baseline benchmark data found at .github/benchmark-data/benchmark-output.txt" | tee benchstat.txt
+          fi
+
+      - name: Analyze benchmark regressions
+        id: analyze
+        run: |
+          python - <<'PY'
+          import csv
+          import os
+          import secrets
+
+          csv_path = "benchstat.csv"
+          regressions = []
+          current_unit = None
+
+          if os.path.isfile(csv_path):
+              with open(csv_path, newline="") as f:
+                  reader = csv.reader(f)
+                  for row in reader:
+                      if not row:
+                          continue
+                      if row[0] == "":
+                          if len(row) > 1 and row[1] and row[1] not in ("old.txt", "new.txt", "CI"):
+                              current_unit = row[1]
+                          continue
+                      if row[0] == "geomean" or len(row) < 4:
+                          continue
+                      try:
+                          base = float(row[1])
+                          current = float(row[3])
+                      except ValueError:
+                          continue
+                      if base == 0:
+                          continue
+                      delta_pct = (current - base) / base * 100
+                      unit_label = (current_unit or "")
+                      unit_lower = unit_label.lower()
+                      higher_is_better = unit_lower.endswith("/s") and not unit_lower.endswith("/op")
+                      is_regression = delta_pct < 0 if higher_is_better else delta_pct > 0
+                      if is_regression:
+                          regressions.append({
+                              "name": row[0],
+                              "unit": unit_label,
+                              "base": base,
+                              "current": current,
+                              "delta_pct": delta_pct,
+                          })
+
+          comment_body = ""
+          if regressions:
+              lines = [
+                  "@shanenoi benchmark regressions detected in this pull request:",
+                  "",
+                  "| Benchmark | Unit | Base | Current | Change |",
+                  "| --- | --- | --- | --- | --- |",
+              ]
+              for entry in regressions:
+                  unit = entry["unit"] or "n/a"
+                  lines.append(f"| `{entry['name']}` | {unit} | {entry['base']:.4g} | {entry['current']:.4g} | {entry['delta_pct']:+.2f}% |")
+              benchstat_text = ""
+              if os.path.isfile("benchstat.txt"):
+                  with open("benchstat.txt", "r", encoding="utf-8") as fh:
+                      benchstat_text = fh.read().strip()
+              if benchstat_text:
+                  lines.extend([
+                      "",
+                      "<details>",
+                      "<summary>benchstat output</summary>",
+                      "",
+                      "```",
+                      benchstat_text,
+                      "```",
+                      "",
+                      "</details>",
+                  ])
+              comment_body = "\n".join(lines)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh_out:
+              gh_out.write(f"regressions_found={'true' if regressions else 'false'}\n")
+              token = "EOF" + secrets.token_hex(8)
+              gh_out.write(f"comment<<{token}\n")
+              gh_out.write(comment_body)
+              gh_out.write(f"\n{token}\n")
+          PY
+
+      - name: Add benchstat summary to job output
+        if: always()
+        run: |
+          {
+            echo "## Benchstat comparison"
+            if [ -f benchstat.txt ]; then
+              echo '```'
+              cat benchstat.txt
+              echo '```'
+            else
+              echo "Baseline benchmark data was not available."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on pull request for regressions
+        if: github.event_name == 'pull_request' && steps.analyze.outputs.regressions_found == 'true'
+        uses: actions/github-script@v7
+        env:
+          COMMENT_BODY: ${{ steps.analyze.outputs.comment }}
         with:
-          name: Rindb Go Benchmarks
-          tool: 'go'
-          output-file-path: benchmark-output.txt
-          external-data-json-path: .github/benchmark-data/benchmark-data.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          fail-on-alert: true
-          comment-on-alert: true
-          comment-always: ${{ github.event_name == 'pull_request' }}
-          summary-always: true
-          alert-comment-cc-users: '@shanenoi'
+          script: |
+            const marker = '<!-- benchstat-regression-comment -->';
+            const body = `${marker}\n${process.env.COMMENT_BODY}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
       - name: Save updated benchmark data
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          mkdir -p .github/benchmark-data
+          cp benchmark-output.txt .github/benchmark-data/benchmark-output.txt
+
+      - name: Cache updated benchmark data
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/cache/save@v4
         with:
