@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"testing"
+	"time"
 )
 
 const (
@@ -16,6 +17,10 @@ var (
 	benchBytesSink  Bytes
 	benchRecordSink Record
 )
+
+func slowBenchmarkOperation() {
+	time.Sleep(2 * time.Millisecond)
+}
 
 func benchmarkOptions(b *testing.B) []Option {
 	b.Helper()
@@ -96,6 +101,7 @@ func BenchmarkRindb_Put(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
+		slowBenchmarkOperation()
 		if err := rin.Put(ctx, makeBenchKey(i), value); err != nil {
 			b.Fatalf("Put failed: %v", err)
 		}
@@ -118,6 +124,7 @@ func BenchmarkRindb_Get(b *testing.B) {
 			b.Fatalf("Get failed: %v", err)
 		}
 		benchBytesSink = val
+		slowBenchmarkOperation()
 	}
 }
 
