@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -13,12 +14,15 @@ func TestConfig_Default(t *testing.T) {
 	t.Parallel()
 	cfg := DefaultConfig()
 
+	wantMmap := runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+
 	tests := []struct {
 		name string
 		got  any
 		want any
 	}{
 		{"databaseDir", cfg.databaseDir, "rindat"},
+		{"enableSSTableMmap", cfg.enableSSTableMmap, wantMmap},
 		{"maxMemtableSize", cfg.maxMemtableSize, uint(1000)},
 		{"level0CompactionThreshold", cfg.level0CompactionThreshold, 2},
 		{"baseCompactionSizeMB", cfg.baseCompactionSizeMB, 10},
@@ -70,6 +74,15 @@ func TestConfig_NewWithOptions(t *testing.T) {
 			verify: func(t *testing.T, cfg Config) {
 				if !cfg.repairMode {
 					t.Errorf("repairMode = %v, want %v", cfg.repairMode, true)
+				}
+			},
+		},
+		{
+			name: "WithSSTableMmap",
+			opts: []Option{WithSSTableMmap(false)},
+			verify: func(t *testing.T, cfg Config) {
+				if cfg.enableSSTableMmap {
+					t.Errorf("enableSSTableMmap = %v, want %v", cfg.enableSSTableMmap, false)
 				}
 			},
 		},

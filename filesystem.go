@@ -19,13 +19,20 @@ var (
 )
 
 type FileSystem struct {
-	mu       sync.RWMutex
-	filePath string
-	file     *os.File
+	mu          sync.RWMutex
+	filePath    string
+	file        *os.File
+	mmap        *mmapHandle
+	mmapEnabled bool
+	log         scopedLogger
+}
+
+func newFileSystem(filePath string) *FileSystem {
+	return &FileSystem{filePath: filePath, log: newScopedLogger(nopLogger{}, LogLevelWarn)}
 }
 
 func OpenFS(ctx context.Context, filePath string) (*FileSystem, error) {
-	fs := &FileSystem{filePath: filePath}
+	fs := newFileSystem(filePath)
 	if err := fs.Open(ctx); err != nil {
 		return nil, err
 	}
@@ -34,7 +41,7 @@ func OpenFS(ctx context.Context, filePath string) (*FileSystem, error) {
 
 // OpenExistingFS opens a file system for an existing file without creating it if missing.
 func OpenExistingFS(ctx context.Context, filePath string) (*FileSystem, error) {
-	fs := &FileSystem{filePath: filePath}
+	fs := newFileSystem(filePath)
 	if err := fs.OpenExisting(ctx); err != nil {
 		return nil, err
 	}
@@ -42,7 +49,9 @@ func OpenExistingFS(ctx context.Context, filePath string) (*FileSystem, error) {
 }
 
 func NewFS(file *os.File) *FileSystem {
-	return &FileSystem{filePath: file.Name(), file: file}
+	fs := newFileSystem(file.Name())
+	fs.file = file
+	return fs
 }
 
 func (fs *FileSystem) IsOpened() bool {
@@ -56,6 +65,7 @@ func (fs *FileSystem) Open(ctx context.Context) error {
 	defer fs.mu.Unlock()
 
 	if fs.file != nil {
+		fs.maybeMmapLocked(ctx)
 		return nil
 	}
 
@@ -64,6 +74,7 @@ func (fs *FileSystem) Open(ctx context.Context) error {
 		return fmt.Errorf("failed to open file %s: %w", fs.filePath, err)
 	}
 	fs.file = file
+	fs.maybeMmapLocked(ctx)
 	return nil
 }
 
@@ -74,6 +85,7 @@ func (fs *FileSystem) OpenExisting(ctx context.Context) error {
 	defer fs.mu.Unlock()
 
 	if fs.file != nil {
+		fs.maybeMmapLocked(ctx)
 		return nil
 	}
 
@@ -82,6 +94,7 @@ func (fs *FileSystem) OpenExisting(ctx context.Context) error {
 		return fmt.Errorf("failed to open file %s: %w", fs.filePath, err)
 	}
 	fs.file = file
+	fs.maybeMmapLocked(ctx)
 	return nil
 }
 
@@ -107,6 +120,7 @@ func (fs *FileSystem) Close() error {
 		return nil
 	}
 
+	fs.closeMmapLocked(context.Background())
 	if err := fs.file.Close(); err != nil {
 		return err
 	}
@@ -121,6 +135,7 @@ func (fs *FileSystem) Rename(newPath string) error {
 	defer fs.mu.Unlock()
 
 	if fs.file != nil {
+		fs.closeMmapLocked(context.Background())
 		if err := fs.file.Close(); err != nil {
 			return err
 		}
@@ -141,6 +156,7 @@ func (fs *FileSystem) Clean() error {
 		return ErrFileNotOpened
 	}
 
+	fs.closeMmapLocked(context.Background())
 	if err := fs.file.Close(); err != nil {
 		return fmt.Errorf("failed to close file %s before cleaning: %w", fs.Path(), err)
 	}
@@ -225,4 +241,78 @@ func (fs *FileSystem) WriteAt(p []byte, off int64) (int, error) {
 	}
 
 	return fs.file.WriteAt(p, off)
+}
+
+func (fs *FileSystem) configureMmap(ctx context.Context, enabled bool, log scopedLogger) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	if log.Logger == nil {
+		log = newScopedLogger(nopLogger{}, LogLevelWarn)
+	}
+	fs.log = log
+	fs.mmapEnabled = enabled
+	if !enabled {
+		fs.closeMmapLocked(ctx)
+		return
+	}
+	fs.maybeMmapLocked(ctx)
+}
+
+func (fs *FileSystem) maybeMmapLocked(ctx context.Context) {
+	if !fs.mmapEnabled || fs.file == nil || fs.mmap != nil {
+		return
+	}
+	handle, err := mapFile(fs.file)
+	if err != nil {
+		fs.ensureLogger()
+		if errors.Is(err, errMmapUnsupported) {
+			fs.log.debug(ctx, "sstable mmap unsupported for %s: %v", fs.filePath, err)
+			return
+		}
+		fs.log.warn(ctx, "failed to mmap %s: %v", fs.filePath, err)
+		return
+	}
+	if handle == nil || handle.Bytes() == nil {
+		return
+	}
+	fs.mmap = handle
+}
+
+func (fs *FileSystem) closeMmapLocked(ctx context.Context) {
+	if fs.mmap == nil {
+		return
+	}
+	fs.ensureLogger()
+	if err := fs.mmap.Close(); err != nil {
+		fs.log.warn(ctx, "failed to close mmap for %s: %v", fs.filePath, err)
+	}
+	fs.mmap = nil
+}
+
+func (fs *FileSystem) ensureLogger() {
+	if fs.log.Logger == nil {
+		fs.log = newScopedLogger(nopLogger{}, LogLevelWarn)
+	}
+}
+
+func (fs *FileSystem) mmapBytes(off int64, length int) []byte {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	if fs.mmap == nil || off < 0 {
+		return nil
+	}
+	data := fs.mmap.Bytes()
+	if data == nil || off >= int64(len(data)) {
+		return nil
+	}
+	start := int(off)
+	end := len(data)
+	if length <= 0 {
+		return data[start:start]
+	}
+	if candidate := off + int64(length); candidate < int64(len(data)) {
+		end = int(candidate)
+	}
+	return data[start:end]
 }
