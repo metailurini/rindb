@@ -15,6 +15,14 @@ func newOffsetReader(fs *FileSystem, off int64) *offsetReader {
 }
 
 func (r *offsetReader) Read(p []byte) (int, error) {
+	if data := r.fs.mmapBytes(r.offset, len(p)); data != nil {
+		n := copy(p, data)
+		r.offset += int64(n)
+		if n < len(p) {
+			return n, io.EOF
+		}
+		return n, nil
+	}
 	n, err := r.fs.ReadAt(p, r.offset)
 	if n > 0 {
 		r.offset += int64(n)

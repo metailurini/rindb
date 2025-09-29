@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"runtime"
 	"time"
 )
 
@@ -18,6 +19,9 @@ type NewSSTableManagerFunc func(ctx context.Context, cfg Config, vs *versionSet,
 type Config struct {
 	// databaseDir specifies the directory where WAL and SSTables are stored
 	databaseDir string
+
+	// enableSSTableMmap gates mmap-backed SSTable reads on supported OSes.
+	enableSSTableMmap bool
 
 	// repairMode forces a full directory scan of SSTables during startup,
 	// bypassing the manifest's versionSet.
@@ -120,6 +124,7 @@ func NewConfig(opts ...Option) Config {
 func DefaultConfig() Config {
 	return Config{
 		databaseDir:               "rindat",
+		enableSSTableMmap:         runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "windows",
 		maxMemtableSize:           1000,
 		level0CompactionThreshold: 2,
 		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
@@ -252,6 +257,11 @@ func WithDatabaseDir(dir string) Option {
 // WithRepairMode enables repair mode which scans SSTables from disk on startup.
 func WithRepairMode(v bool) Option {
 	return func(c *Config) { c.repairMode = v }
+}
+
+// WithSSTableMmap toggles mmap-backed SSTable reads.
+func WithSSTableMmap(enabled bool) Option {
+	return func(c *Config) { c.enableSSTableMmap = enabled }
 }
 
 // WithCacheBytes sets the total byte budget for the table cache.
