@@ -28,11 +28,71 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = (context.payload.workflow_run.pull_requests || [])[0];
+            const run = context.payload.workflow_run || {};
+            const initialPr = (run.pull_requests || [])[0];
+            const summary = core.summary;
+
+            let pr = initialPr;
+            const repoOwner = context.repo.owner;
+            const repoName = context.repo.repo;
+            const headSha = run.head_sha;
+            const headBranch = run.head_branch;
+            const headRepoOwner = run.head_repository?.owner?.login || repoOwner;
+
+            const lookupAttempts = [];
+
+            if (!pr && headSha) {
+              lookupAttempts.push(`commit ${headSha}`);
+              try {
+                const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: repoOwner,
+                  repo: repoName,
+                  commit_sha: headSha,
+                });
+                if (data && data.length > 0) {
+                  pr = data[0];
+                  core.info(`Found pull request #${pr.number} via commit lookup.`);
+                } else {
+                  core.info(`No pull requests associated with commit ${headSha}.`);
+                }
+              } catch (error) {
+                core.warning(`Failed to look up pull request by commit ${headSha}: ${error}`);
+              }
+            }
+
+            if (!pr && headBranch) {
+              const headRef = `${headRepoOwner}:${headBranch}`;
+              lookupAttempts.push(`head ${headRef}`);
+              try {
+                const { data } = await github.rest.pulls.list({
+                  owner: repoOwner,
+                  repo: repoName,
+                  head: headRef,
+                  state: 'open',
+                });
+                if (data && data.length > 0) {
+                  pr = data[0];
+                  core.info(`Found pull request #${pr.number} via head ref lookup (${headRef}).`);
+                } else {
+                  core.info(`No open pull requests found for head ref ${headRef}.`);
+                }
+              } catch (error) {
+                core.warning(`Failed to list pull requests for head ref ${headRef}: ${error}`);
+              }
+            }
+
             if (!pr) {
+              const attempted = lookupAttempts.length > 0 ? lookupAttempts.join(', ') : 'none';
+              const message = `No pull request could be associated with this workflow_run (attempted lookups: ${attempted}). Benchmarks will be skipped.`;
+              core.info(message);
+              await summary
+                .addHeading('Benchmarks skipped', 3)
+                .addRaw(`${message}\n`, true)
+                .write();
               core.setOutput('has_pr', 'false');
               return;
             }
+
             core.setOutput('has_pr', 'true');
             core.setOutput('number', String(pr.number));
             core.setOutput('base_ref', pr.base.ref);
