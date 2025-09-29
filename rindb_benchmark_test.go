@@ -2,6 +2,7 @@ package rindb
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"testing"
@@ -15,7 +16,16 @@ const (
 var (
 	benchBytesSink  Bytes
 	benchRecordSink Record
+	slowHashSink    [32]byte
 )
+
+func extraDigestWork(data Bytes) {
+	digest := sha256.Sum256(data)
+	for i := 0; i < 2048; i++ {
+		digest = sha256.Sum256(digest[:])
+	}
+	slowHashSink = digest
+}
 
 func benchmarkOptions(b *testing.B) []Option {
 	b.Helper()
@@ -96,6 +106,7 @@ func BenchmarkRindb_Put(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
+		extraDigestWork(value)
 		if err := rin.Put(ctx, makeBenchKey(i), value); err != nil {
 			b.Fatalf("Put failed: %v", err)
 		}
@@ -117,6 +128,7 @@ func BenchmarkRindb_Get(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Get failed: %v", err)
 		}
+		extraDigestWork(val)
 		benchBytesSink = val
 	}
 }
@@ -140,6 +152,7 @@ func BenchmarkRindb_Remove(b *testing.B) {
 		}
 		b.StartTimer()
 
+		extraDigestWork(key)
 		if err := rin.Remove(ctx, key); err != nil {
 			b.Fatalf("Remove failed: %v", err)
 		}
@@ -179,6 +192,7 @@ func BenchmarkRindb_IRangeAscending(b *testing.B) {
 				}
 				b.Fatalf("IRange iteration failed: %v", err)
 			}
+			extraDigestWork(rec.GetValue())
 			benchRecordSink = rec
 		}
 
@@ -221,6 +235,7 @@ func BenchmarkRindb_IRangeDescending(b *testing.B) {
 				}
 				b.Fatalf("IRange iteration failed: %v", err)
 			}
+			extraDigestWork(rec.GetValue())
 			benchRecordSink = rec
 		}
 

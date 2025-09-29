@@ -1,0 +1,12 @@
+[
+  { "name": "BenchmarkBitset_Test", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkBitset_Get", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkReadRecord", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkDecodeInternalKey", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkRindbRelease", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkRindb_Put", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkRindb_Get", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkRindb_Remove", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkRindb_IRangeAscending", "unit": "ns/op", "value": 1 },
+  { "name": "BenchmarkRindb_IRangeDescending", "unit": "ns/op", "value": 1 }
+]
