@@ -112,19 +112,31 @@ func NewBloomFilter(options ...BloomFilterOpt) *BloomFilter {
 
 // Insert adds a string to the BloomFilter.
 func (b *BloomFilter) Insert(str Bytes) {
-	l := b.bucket.size
-	for i := b.config.k; i > 0; i-- {
-		hv := hashStr(str, i)
-		b.bucket.Set(hv % l)
+	if b.config.k == 0 || b.bucket.size == 0 {
+		return
+	}
+
+	h1, h2 := computeBaseHashes(str)
+	l := uint64(b.bucket.size)
+
+	for i := uint32(0); i < b.config.k; i++ {
+		idx := bloomIndex(h1, h2, i, l)
+		b.bucket.Set(uint32(idx))
 	}
 }
 
 // Lookup checks if a given string is likely to be in the Bloom filter.
 func (b *BloomFilter) Lookup(str Bytes) bool {
-	l := b.bucket.size
-	for i := b.config.k; i > 0; i-- {
-		hv := hashStr(str, i)
-		if !b.bucket.Test(hv % l) {
+	if b.config.k == 0 || b.bucket.size == 0 {
+		return false
+	}
+
+	h1, h2 := computeBaseHashes(str)
+	l := uint64(b.bucket.size)
+
+	for i := uint32(0); i < b.config.k; i++ {
+		idx := bloomIndex(h1, h2, i, l)
+		if !b.bucket.Test(uint32(idx)) {
 			return false
 		}
 	}
@@ -140,11 +152,27 @@ func (b *BloomFilter) FalsePositive() float64 {
 	return P
 }
 
-// hashStr calculates the hash value of the given string using the Murmur3 algorithm.
-func hashStr(str Bytes, seed uint32) uint32 {
-	h := murmur3.New32WithSeed(seed)
-	_, _ = h.Write(str)
-	return h.Sum32()
+func computeBaseHashes(str Bytes) (uint64, uint64) {
+	h1, _ := murmur3.Sum128WithSeed(str, 0)
+	h2, _ := murmur3.Sum128WithSeed(str, 1)
+	return h1, ensureOdd(h2)
+}
+
+func bloomIndex(h1, h2 uint64, i uint32, m uint64) uint64 {
+	if m == 0 {
+		return 0
+	}
+	return (h1 + uint64(i)*h2) % m
+}
+
+func ensureOdd(h uint64) uint64 {
+	if h == 0 {
+		return 1
+	}
+	if h%2 == 0 {
+		return h + 1
+	}
+	return h
 }
 
 func isEmpty[T comparable](v T) bool {

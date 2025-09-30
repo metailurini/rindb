@@ -115,3 +115,40 @@ func TestBloomFilter_Options(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkBloomFilter_Insert(b *testing.B) {
+	bloom := NewBloomFilter(
+		SetN(1<<12),
+		SetP(0.01),
+		WithCalculatedM(),
+		SetK(6),
+	)
+	key := Bytes("benchmark-key")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		bloom.Insert(key)
+	}
+}
+
+func BenchmarkBloomFilter_Lookup(b *testing.B) {
+	bloom := NewBloomFilter(
+		SetN(1<<12),
+		SetP(0.01),
+		WithCalculatedM(),
+		SetK(6),
+	)
+	key := Bytes("benchmark-key")
+	bloom.Insert(key)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		if !bloom.Lookup(key) {
+			b.Fatalf("expected key to be present")
+		}
+	}
+}
