@@ -54,26 +54,7 @@ type ssTableManager struct {
 	// math.MaxUint64, allowing tombstone GC at the bottommost level.
 	minSnapshotSeq uint64
 
-	// writeRate is the moving average of writes per second.
-	writeRate float64
-
-	// ioLoad represents the fraction of time the disk was busy with I/O
-	// operations in the last sampling interval (0-1).
-	ioLoad float64
-
-	// internal counters for sampling
-	writeCounter    uint64
-	lastWriteSample time.Time
-	lastIOTotal     uint64
-	lastIOSample    time.Time
-
-	// goroutine management for I/O load sampler
-	stopIOLoadSampler chan struct{}
-	ioSamplerWG       sync.WaitGroup
-
-	// dependency injection for testing
-	now         func() time.Time
-	diskSampler func() (uint64, error)
+	monitor *ioLoadMonitor
 }
 
 func (h *ssTableManager) TableCacheStats() tableCacheStats {
@@ -194,33 +175,29 @@ func InitSSTableManager(ctx context.Context, config Config, vs *versionSet, mw m
 		Close: func(s *SStable) error { return s.Close() },
 	})
 
+	monitor := newIOLoadMonitor(time.Now, func() (uint64, error) {
+		counters, err := disk.IOCounters()
+		if err != nil {
+			return 0, err
+		}
+		var total uint64
+		for _, c := range counters {
+			total += c.IoTime
+		}
+		return total, nil
+	})
+
 	h := &ssTableManager{
-		cache:             tc,
-		versionSet:        vs,
-		manifest:          mw,
-		config:            config,
-		log:               config.scopedLogger(),
-		stopIOLoadSampler: make(chan struct{}),
-		now:               time.Now,
-		minSnapshotSeq:    math.MaxUint64,
-		// diskSampler aggregates the IoTime from all available disk
-		// counters. IoTime is the number of milliseconds the disk has
-		// been busy since boot.
-		diskSampler: func() (uint64, error) {
-			counters, err := disk.IOCounters()
-			if err != nil {
-				return 0, err
-			}
-			var total uint64
-			for _, c := range counters {
-				total += c.IoTime
-			}
-			return total, nil
-		},
+		cache:          tc,
+		versionSet:     vs,
+		manifest:       mw,
+		config:         config,
+		log:            config.scopedLogger(),
+		minSnapshotSeq: math.MaxUint64,
+		monitor:        monitor,
 	}
 
-	h.ioSamplerWG.Add(1)
-	go h.startIOLoadSampler()
+	monitor.Start()
 
 	return h, nil
 }
@@ -233,75 +210,6 @@ func (h *ssTableManager) setMinSnapshotSeq(seq uint64) {
 	h.mu.Unlock()
 }
 
-// recordWrite increments the write counter and, once a second has elapsed,
-// updates the moving average of writes per second using an exponential moving
-// average. It is called for every `Put`.
-func (h *ssTableManager) recordWrite() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.writeCounter++
-	now := h.now()
-	if h.lastWriteSample.IsZero() {
-		h.lastWriteSample = now
-		return
-	}
-	if now.Sub(h.lastWriteSample) >= time.Second {
-		duration := now.Sub(h.lastWriteSample).Seconds()
-		rate := float64(h.writeCounter) / duration
-		// Exponential moving average with smoothing factor writeRateAlpha
-		// to smooth out short-term spikes in throughput.
-		h.writeRate = (1-writeRateAlpha)*h.writeRate + writeRateAlpha*rate
-		h.writeCounter = 0
-		h.lastWriteSample = now
-	}
-}
-
-// sampleIOLoad reads the cumulative IoTime counter and derives the fraction of
-// time the disk was busy since the last sample. If the counter decreases it is
-// assumed to have reset and the sample is skipped.
-func (h *ssTableManager) sampleIOLoad() {
-	total, err := h.diskSampler()
-	if err != nil {
-		return
-	}
-	now := h.now()
-	if !h.lastIOSample.IsZero() {
-		if total < h.lastIOTotal {
-			// Counter reset detected; reset baseline.
-			h.lastIOTotal = total
-			h.lastIOSample = now
-			return
-		}
-		deltaIO := total - h.lastIOTotal
-		deltaTime := now.Sub(h.lastIOSample).Milliseconds()
-		if deltaTime > 0 {
-			load := float64(deltaIO) / float64(deltaTime)
-			h.mu.Lock()
-			h.ioLoad = load
-			h.mu.Unlock()
-		}
-	}
-	h.lastIOTotal = total
-	h.lastIOSample = now
-}
-
-// startIOLoadSampler periodically records disk utilization until signalled to
-// stop. It is launched in a background goroutine by `InitSSTableManager` and
-// terminates when `stopIOLoadSampler` is closed.
-func (h *ssTableManager) startIOLoadSampler() {
-	defer h.ioSamplerWG.Done()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-h.stopIOLoadSampler:
-			return
-		case <-ticker.C:
-			h.sampleIOLoad()
-		}
-	}
-}
-
 // dynamicTriggerHit evaluates whether the dynamic compaction conditions are
 // met: the write rate exceeds the configured trigger while disk utilization is
 // below the allowed maximum.
@@ -309,7 +217,8 @@ func (h *ssTableManager) dynamicTriggerHit() bool {
 	if h.config.writeRateTrigger <= 0 || h.config.ioLoadMax <= 0 {
 		return false
 	}
-	return h.writeRate > h.config.writeRateTrigger && h.ioLoad < h.config.ioLoadMax
+	writeRate, ioLoad := h.monitor.CurrentMetrics()
+	return writeRate > h.config.writeRateTrigger && ioLoad < h.config.ioLoadMax
 }
 
 // addSSTable registers a new SSTable's metadata, persists it to the manifest,
@@ -364,9 +273,8 @@ func (h *ssTableManager) newSSTableFS(ctx context.Context) (*FileSystem, error) 
 }
 
 func (h *ssTableManager) Close(ctx context.Context) {
-	if h.stopIOLoadSampler != nil {
-		close(h.stopIOLoadSampler)
-		h.ioSamplerWG.Wait()
+	if h.monitor != nil {
+		h.monitor.Stop()
 	}
 	if err := h.cache.close(ctx, 5*time.Second); err != nil {
 		h.log.warn(ctx, "Error closing table cache: %v", err)
