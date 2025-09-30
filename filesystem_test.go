@@ -2,15 +2,63 @@ package rindb
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type logEntry struct {
+	level   string
+	message string
+}
+
+type capturingLogger struct {
+	mu      sync.Mutex
+	entries []logEntry
+}
+
+func (l *capturingLogger) record(level string, msg string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.entries = append(l.entries, logEntry{level: level, message: fmt.Sprintf(msg, args...)})
+}
+
+func (l *capturingLogger) Debug(_ context.Context, msg string, args ...any) {
+	l.record("debug", msg, args...)
+}
+
+func (l *capturingLogger) Info(_ context.Context, msg string, args ...any) {
+	l.record("info", msg, args...)
+}
+
+func (l *capturingLogger) Warn(_ context.Context, msg string, args ...any) {
+	l.record("warn", msg, args...)
+}
+
+func (l *capturingLogger) Error(_ context.Context, msg string, args ...any) {
+	l.record("error", msg, args...)
+}
+
+func (l *capturingLogger) contains(level, substr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, entry := range l.entries {
+		if entry.level == level && strings.Contains(entry.message, substr) {
+			return true
+		}
+	}
+	return false
+}
 
 //nolint:funlen
 func TestFileSystem_BasicOperations(t *testing.T) {
@@ -299,4 +347,112 @@ func TestOpenExistingFS_FilePresence(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileSystem_Open_ReusesExistingFileMmap(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "existing.sst")
+	file, err := os.Create(filePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+
+	fs := newFileSystem(filePath)
+	fs.file = file
+	fs.mmapEnabled = true
+
+	var calls atomic.Int32
+	restore := withMapFileStub(func(*os.File) (*mmapHandle, error) {
+		calls.Add(1)
+		return nil, nil
+	})
+	t.Cleanup(restore)
+
+	require.NoError(t, fs.Open(ctx))
+	require.Equal(t, int32(1), calls.Load())
+	require.NoError(t, fs.Close())
+}
+
+func TestFileSystem_OpenExisting_ReusesExistingFileMmap(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "existing.sst")
+	file, err := os.Create(filePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+
+	fs := newFileSystem(filePath)
+	fs.file = file
+	fs.mmapEnabled = true
+
+	var calls atomic.Int32
+	restore := withMapFileStub(func(*os.File) (*mmapHandle, error) {
+		calls.Add(1)
+		return nil, nil
+	})
+	t.Cleanup(restore)
+
+	require.NoError(t, fs.OpenExisting(ctx))
+	require.Equal(t, int32(1), calls.Load())
+	require.NoError(t, fs.Close())
+}
+
+func TestFileSystem_maybeMmapLocked_LogsErrors(t *testing.T) {
+	t.Run("unsupported", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "file.sst")
+		file, err := os.Create(filePath)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = file.Close() })
+
+		fs := newFileSystem(filePath)
+		fs.file = file
+		fs.mmapEnabled = true
+		logger := &capturingLogger{}
+		fs.log = newScopedLogger(logger, LogLevelDebug)
+
+		restore := withMapFileStub(func(*os.File) (*mmapHandle, error) {
+			return nil, newMmapUnsupportedError(errors.New("unsupported mmap"))
+		})
+		t.Cleanup(restore)
+
+		fs.maybeMmapLocked(ctx)
+		require.True(t, logger.contains("debug", "unsupported mmap"))
+		require.Nil(t, fs.mmap)
+	})
+
+	t.Run("generic error", func(t *testing.T) {
+		ctx := context.Background()
+		dir := t.TempDir()
+		filePath := filepath.Join(dir, "file.sst")
+		file, err := os.Create(filePath)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = file.Close() })
+
+		fs := newFileSystem(filePath)
+		fs.file = file
+		fs.mmapEnabled = true
+		logger := &capturingLogger{}
+		fs.log = newScopedLogger(logger, LogLevelDebug)
+
+		restore := withMapFileStub(func(*os.File) (*mmapHandle, error) {
+			return nil, errors.New("boom")
+		})
+		t.Cleanup(restore)
+
+		fs.maybeMmapLocked(ctx)
+		require.True(t, logger.contains("warn", "boom"))
+		require.Nil(t, fs.mmap)
+	})
+}
+
+func TestFileSystem_mmapBytesZeroLength(t *testing.T) {
+	payload := []byte("abcdef")
+	fs := newFileSystem("/tmp/test")
+	fs.mmap = &mmapHandle{data: payload}
+
+	view := fs.mmapBytes(2, 0)
+	require.NotNil(t, view)
+	require.Len(t, view, 0)
 }
