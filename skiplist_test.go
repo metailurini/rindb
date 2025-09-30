@@ -2,10 +2,12 @@ package rindb
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	randv2 "math/rand/v2"
 )
 
 func TestSkipList_Init(t *testing.T) {
@@ -1035,4 +1037,31 @@ func TestSkipList_FindGreaterOrEqual(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestSkipList_randomLevelDistribution(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(t)
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	list.rng = randv2.NewPCG(1, 2)
+
+	const sampleSize = 1 << 15
+	counts := make([]int, int(cfg.skipListMaxLevel))
+
+	for i := 0; i < sampleSize; i++ {
+		lvl := list.randomLevel()
+		counts[int(lvl-1)]++
+	}
+
+	for level := uint(1); level <= cfg.skipListMaxLevel; level++ {
+		expected := math.Pow(cfg.skipListP, float64(level-1))
+		if level < cfg.skipListMaxLevel {
+			expected *= 1 - cfg.skipListP
+		}
+		actual := float64(counts[level-1]) / sampleSize
+		assert.InDeltaf(t, expected, actual, 0.02, "level %d", level)
+	}
 }

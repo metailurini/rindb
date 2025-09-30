@@ -1,9 +1,9 @@
 package rindb
 
 import (
-	"crypto/rand"
 	"errors"
-	"math/big"
+	"math/bits"
+	randv2 "math/rand/v2"
 )
 
 var (
@@ -36,6 +36,7 @@ type SkipList[K Comparable, V any] struct {
 	headNote *SLNode[K, V]
 	tail     *SLNode[K, V]
 	config   Config
+	rng      randv2.Source
 }
 
 // InitSkipList creates a new empty SkipList using the provided configuration.
@@ -48,10 +49,13 @@ func InitSkipList[K Comparable, V any](config Config) (*SkipList[K, V], error) {
 		return nil, err
 	}
 
+	rng := randv2.NewPCG(randv2.Uint64(), randv2.Uint64())
+
 	return &SkipList[K, V]{
 		level:    config.skipListDefaultLevel,
 		headNote: &SLNode[K, V]{forwards: make([]*SLNode[K, V], config.skipListDefaultLevel)},
 		config:   config,
+		rng:      rng,
 	}, nil
 }
 
@@ -74,7 +78,7 @@ func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 	if Compare(rn.Key, searchKey) == CmpEqual {
 		rn.Value = newValue
 	} else {
-		newLevel := randomLevel(list.config)
+		newLevel := list.randomLevel()
 		if newLevel > list.level {
 			rl := newLevel
 			for rl > list.level {
@@ -234,6 +238,7 @@ func (list *SkipList[K, V]) Clear() {
 	list.length = newList.length
 	list.headNote = newList.headNote
 	list.tail = nil
+	list.rng = newList.rng
 }
 
 // Len returns the number of elements currently stored in the list.
@@ -421,27 +426,37 @@ func (list *SkipList[K, V]) IRange(start, end K, order RangeOrder) Iterator[V] {
 	}
 }
 
-func intn(m int64) int64 {
-	nBig, err := rand.Int(rand.Reader, big.NewInt(m))
-	if err != nil {
-		panic(err)
-	}
-	return nBig.Int64()
-}
+const (
+	float64Unit = 1.0 / (1 << 53)
+)
 
-func randF64() float64 {
-	const m = 53
-	return float64(intn(1<<m)) / (1 << m)
-}
-
-func randomLevel(config Config) uint {
+func (list *SkipList[K, V]) randomLevel() uint {
 	lvl := uint(1)
-	for lvl < config.skipListMaxLevel {
-		randFloat := randF64()
-		if randFloat >= config.skipListP {
+	if list == nil || list.rng == nil {
+		panic(ErrMalformedList)
+	}
+
+	maxLevel := list.config.skipListMaxLevel
+	if maxLevel <= 1 {
+		return lvl
+	}
+
+	if list.config.skipListP == 0.5 {
+		zeros := uint(bits.TrailingZeros64(list.rng.Uint64()))
+		if zeros > maxLevel-1 {
+			zeros = maxLevel - 1
+		}
+		lvl += zeros
+		return lvl
+	}
+
+	for lvl < maxLevel {
+		randFloat := float64(list.rng.Uint64()>>11) * float64Unit
+		if randFloat >= list.config.skipListP {
 			break
 		}
 		lvl++
 	}
+
 	return lvl
 }
