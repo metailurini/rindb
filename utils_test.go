@@ -7,23 +7,10 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
-
-// isTempoEndpointResolvable checks if tempo.magpie-gopher.ts.net is resolvable via DNS.
-// This function executes `nslookup` and checks for a successful resolution.
-func isTempoEndpointResolvable() bool {
-	cmd := exec.Command("nslookup", "tempo.magpie-gopher.ts.net")
-	_, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("tempo.magpie-gopher.ts.net is not resolvable: %v\n", err)
-		return false
-	}
-	return true
-}
 
 func testOptions(t *testing.T) []Option {
 	t.Helper()
@@ -32,15 +19,6 @@ func testOptions(t *testing.T) []Option {
 		WithDatabaseDir(t.TempDir()),
 	}
 
-	// Conditionally enable telemetry based on Tempo endpoint resolvability.
-	if isTempoEndpointResolvable() {
-		opts = append(opts,
-			WithEnableTelemetry(true),
-			WithExporterEndpoint("tempo.magpie-gopher.ts.net:4317"),
-			WithExporterInsecure(true),
-			WithTelemetrySamplingRate(1.0),
-		)
-	}
 	return opts
 }
 
