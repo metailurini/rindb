@@ -10,6 +10,25 @@ import (
 	randv2 "math/rand/v2"
 )
 
+type stubRandSource struct {
+	values []uint64
+	idx    int
+}
+
+func (s *stubRandSource) Uint64() uint64 {
+	if len(s.values) == 0 {
+		return 0
+	}
+	if s.idx >= len(s.values) {
+		return s.values[len(s.values)-1]
+	}
+	value := s.values[s.idx]
+	s.idx++
+	return value
+}
+
+func (s *stubRandSource) Seed(uint64) {}
+
 func TestSkipList_Init(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig(t)
@@ -1064,4 +1083,62 @@ func TestSkipList_randomLevelDistribution(t *testing.T) {
 		actual := float64(counts[level-1]) / sampleSize
 		assert.InDeltaf(t, expected, actual, 0.02, "level %d", level)
 	}
+}
+
+func TestSkipList_randomLevelTrailingZeros(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(t)
+	cfg.skipListDefaultLevel = 1
+	cfg.skipListMaxLevel = 4
+	cfg.skipListP = 0.5
+
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	list.rng = &stubRandSource{values: []uint64{1, 1 << 1, 1 << 4, 0}}
+
+	levels := []uint{
+		list.randomLevel(),
+		list.randomLevel(),
+		list.randomLevel(),
+		list.randomLevel(),
+	}
+
+	assert.Equal(t, []uint{1, 2, 4, 4}, levels)
+}
+
+func TestSkipList_randomLevelWithCustomProbability(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(t)
+	cfg.skipListDefaultLevel = 1
+	cfg.skipListMaxLevel = 5
+	cfg.skipListP = 0.25
+
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	list.rng = &stubRandSource{values: []uint64{0, 0, 0, 1 << 63}}
+
+	level := list.randomLevel()
+
+	assert.Equal(t, uint(4), level)
+}
+
+func TestSkipList_randomLevelMaxLevelOne(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(t)
+	cfg.skipListDefaultLevel = 1
+	cfg.skipListMaxLevel = 1
+
+	list, err := InitSkipList[int, int](cfg)
+	assert.NoError(t, err)
+
+	list.rng = &stubRandSource{values: []uint64{1 << 10}}
+
+	level := list.randomLevel()
+
+	assert.Equal(t, uint(1), level)
 }
