@@ -2,18 +2,33 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches:
+      - master
+    paths:
+      - '**/*.go'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
+      - name: Skip tests on master push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: echo "Skipping tests for push to master; benchmarks only."
       - uses: actions/checkout@v4
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
       - uses: actions/setup-go@v5
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         with:
           go-version: '1.25'
       - name: Cache go modules
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         uses: actions/cache@v4
         with:
           path: |
@@ -23,12 +38,273 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
       - name: Run checks
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: make check
       - name: Run unit tests with coverage
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: make test-coverage
       - name: Run smoke integration tests
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: make test-integration-smoke
       - name: Upload coverage reports to Codecov
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  benchmarks:
+    name: Go benchmarks
+    runs-on: ubuntu-latest
+    needs: test
+    if: needs.test.result == 'success' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Capture pull request metadata
+        if: github.event_name == 'pull_request'
+        id: pr
+        run: |
+          {
+            echo "has_pr=true"
+            echo "number=${{ github.event.pull_request.number }}"
+            echo "base_ref=${{ github.event.pull_request.base.ref }}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Check for Go file changes
+        if: github.event_name == 'pull_request'
+        id: go-changes
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER || 0);
+            if (!prNumber) {
+              core.setOutput('changed', 'false');
+              return;
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const goChanged = files.some(file => file.filename.endsWith('.go'));
+            core.setOutput('changed', goChanged ? 'true' : 'false');
+      - name: Decide whether to run benchmarks
+        id: should-run
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ steps.go-changes.outputs.changed }}" = "true" ]; then
+              echo "value=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "No Go file changes detected; skipping benchmarks." >> "$GITHUB_STEP_SUMMARY"
+              echo "value=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          echo "value=false" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - name: Check out source
+        if: steps.should-run.outputs.value == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        if: steps.should-run.outputs.value == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Run go benchmarks
+        if: steps.should-run.outputs.value == 'true'
+        run: go test -bench=. -benchmem -run='^$' ./... | tee benchmark-output.txt
+      - name: Restore previous benchmark data
+        if: steps.should-run.outputs.value == 'true'
+        id: restore-bench
+        uses: actions/cache/restore@v4
+        with:
+          path: .github/benchmark-data
+          key: ${{ runner.os }}-go-bench-${{ steps.pr.outputs.base_ref || github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-go-bench-
+      - name: Ensure benchmark data directory exists
+        if: steps.should-run.outputs.value == 'true'
+        run: mkdir -p .github/benchmark-data
+      - name: Install benchstat
+        if: steps.should-run.outputs.value == 'true'
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@latest
+          GOBIN_PATH="$(go env GOBIN)"
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          if [ -n "$GOBIN_PATH" ] && [ -d "$GOBIN_PATH" ]; then
+            echo "$GOBIN_PATH" >> "$GITHUB_PATH"
+          fi
+          if [ -d "$GOPATH_BIN" ]; then
+            echo "$GOPATH_BIN" >> "$GITHUB_PATH"
+          fi
+      - name: Compare benchmark results
+        if: steps.should-run.outputs.value == 'true'
+        id: benchstat
+        run: |
+          if [ -f .github/benchmark-data/benchmark-output.txt ]; then
+            benchstat .github/benchmark-data/benchmark-output.txt benchmark-output.txt | tee benchstat.txt
+            benchstat -format csv .github/benchmark-data/benchmark-output.txt benchmark-output.txt > benchstat.csv
+          else
+            echo "No baseline benchmark data found at .github/benchmark-data/benchmark-output.txt" | tee benchstat.txt
+          fi
+      - name: Analyze benchmark regressions
+        if: steps.should-run.outputs.value == 'true'
+        id: analyze
+        run: |
+          python - <<'PY'
+          import csv
+          import os
+          import secrets
+
+          csv_path = "benchstat.csv"
+          regressions = []
+          current_unit = None
+
+          if os.path.isfile(csv_path):
+              with open(csv_path, newline="") as f:
+                  reader = csv.reader(f)
+                  for row in reader:
+                      if not row:
+                          continue
+                      if row[0] == "":
+                          if len(row) > 1 and row[1] and row[1] not in ("old.txt", "new.txt", "CI"):
+                              current_unit = row[1]
+                          continue
+                      if row[0] == "geomean" or len(row) < 4:
+                          continue
+                      try:
+                          base = float(row[1])
+                          current = float(row[3])
+                      except ValueError:
+                          continue
+                      if base == 0:
+                          continue
+                      delta_pct = (current - base) / base * 100
+                      unit_label = (current_unit or "")
+                      unit_lower = unit_label.lower()
+                      higher_is_better = unit_lower.endswith("/s") and not unit_lower.endswith("/op")
+                      is_regression = delta_pct < 0 if higher_is_better else delta_pct > 0
+                      if is_regression:
+                          regressions.append({
+                              "name": row[0],
+                              "unit": unit_label,
+                              "base": base,
+                              "current": current,
+                              "delta_pct": delta_pct,
+                          })
+
+          comment_body = ""
+          if regressions:
+              lines = [
+                  "@shanenoi benchmark regressions detected in this pull request:",
+                  "",
+                  "| Benchmark | Unit | Base | Current | Change |",
+                  "| --- | --- | --- | --- | --- |",
+              ]
+              for entry in regressions:
+                  unit = entry["unit"] or "n/a"
+                  lines.append(f"| `{entry['name']}` | {unit} | {entry['base']:.4g} | {entry['current']:.4g} | {entry['delta_pct']:+.2f}% |")
+              benchstat_text = ""
+              if os.path.isfile("benchstat.txt"):
+                  with open("benchstat.txt", "r", encoding="utf-8") as fh:
+                      benchstat_text = fh.read().strip()
+              if benchstat_text:
+                  lines.extend([
+                      "",
+                      "<details>",
+                      "<summary>benchstat output</summary>",
+                      "",
+                      "```",
+                      benchstat_text,
+                      "```",
+                      "",
+                      "</details>",
+                  ])
+              comment_body = "\n".join(lines)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh_out:
+              gh_out.write(f"regressions_found={'true' if regressions else 'false'}\n")
+              token = "EOF" + secrets.token_hex(8)
+              gh_out.write(f"comment<<{token}\n")
+              gh_out.write(comment_body)
+              gh_out.write(f"\n{token}\n")
+          PY
+      - name: Add benchstat summary to job output
+        if: steps.should-run.outputs.value == 'true'
+        run: |
+          {
+            echo "## Benchstat comparison"
+            if [ -f benchstat.txt ]; then
+              echo '```'
+              cat benchstat.txt
+              echo '```'
+            else
+              echo "Baseline benchmark data was not available."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment on pull request for regressions
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'pull_request' && steps.analyze.outputs.regressions_found == 'true'
+        uses: actions/github-script@v7
+        env:
+          COMMENT_BODY: ${{ steps.analyze.outputs.comment }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- benchstat-regression-comment -->';
+            const body = `${marker}\n${process.env.COMMENT_BODY}`;
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!prNumber) {
+              core.warning('Unable to determine pull request number for regression comment.');
+              return;
+            }
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+      - name: Save updated benchmark data
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          mkdir -p .github/benchmark-data
+          cp benchmark-output.txt .github/benchmark-data/benchmark-output.txt
+      - name: Cache updated benchmark data
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@v4
+        with:
+          path: .github/benchmark-data
+          key: ${{ runner.os }}-go-bench-${{ github.sha }}
+      - name: Upload benchmark log
+        if: steps.should-run.outputs.value == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-benchmark-output
+          path: benchmark-output.txt
