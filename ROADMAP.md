@@ -292,6 +292,41 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ---
 
+### Descending Range Iteration
+**Goal**: Enhance range query capabilities with descending order iteration.
+
+- **Tasks**:
+  - [x] Implement full support for descending range iteration across memtable, skiplist, and sstable.
+  - [x] Add range order options.
+  - [x] Document descending range order.
+  - [x] Fix bugs related to descending iteration (e.g., snapshot history, tail priming, tombstoned records, EOF handling).
+
+- **Deliverables**:
+  - Robust and correct descending range iteration.
+
+- **Version**: `v0.15.0` / `v0.15.1` / `v0.15.2`
+  - **Rationale**: Major enhancement to range query functionality, followed by several bug fix releases to stabilize it.
+
+---
+
+### Memory-Mapped SSTable Reads
+**Goal**: Improve read performance and efficiency using memory-mapped files for SSTables.
+
+- **Tasks**:
+  - [x] Integrate mmap-backed sstable reads.
+  - [x] Harden mmap slice bounds handling and improve error handling.
+  - [x] Disable telemetry during tests.
+  - [x] Resolve benchmark workflow PR lookup.
+
+- **Deliverables**:
+  - Faster SSTable reads with reduced memory overhead.
+  - Improved stability and error handling for mmap operations.
+
+- **Version**: `v0.16.0`
+  - **Rationale**: Significant performance feature with associated bug fixes.
+
+---
+
 ### Production Readiness
 
 **Goal**: Ensure reliability and completeness for real-world use.
@@ -348,7 +383,9 @@ This roadmap outlines the development path for `rindb`, starting from version `v
 
 ## Version Summary
 
-- **`v0.14.0`**: Current (iterator engine interface; diff harness walk flag; idempotent iterator navigation; iterator reliability fixes).
+- **`v0.16.0`**: Current (mmap-backed sstable reads; mmap error handling; telemetry disablement during tests).
+- **`v0.15.2` / `v0.15.1` / `v0.15.0`**: Descending range iteration support and related bug fixes.
+- **`v0.14.0`**: Iterator engine interface; diff harness walk flag; idempotent iterator navigation; iterator reliability fixes.
 - **`v0.13.0`**: Reverse range scans; testing conventions; spanname vet; iterator rewind refinements.
 - **`v0.12.1` / `v0.12.0`**: Deterministic diffharness replay plus hardening.
 - **`v0.11.0`**: SQLite oracle fuzzing; read-path safety fixes.
