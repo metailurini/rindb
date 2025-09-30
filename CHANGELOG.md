@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.1](https://github.com/metailurini/rindb/compare/v0.16.0...v0.16.1) (2025-09-30)
+
+
+### Bug Fixes
+
+* reuse murmur3 base hash for bloom filter ([2e779c7](https://github.com/metailurini/rindb/commit/2e779c7bc852d8bd6e1f660a8fad5858dd8b77d0))
+
+
+### Performance Improvements
+
+* accelerate skip list level sampling ([70ad814](https://github.com/metailurini/rindb/commit/70ad814568b53e25d31558476f46b84912c3054e))
+* enable zero-copy record reads ([35d42a3](https://github.com/metailurini/rindb/commit/35d42a378ddf082d25a240bea792bb01e9456c5f))
+
 ## [0.16.0](https://github.com/metailurini/rindb/compare/v0.15.2...v0.16.0) (2025-09-30)
 
 
