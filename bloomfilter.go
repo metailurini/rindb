@@ -153,9 +153,8 @@ func (b *BloomFilter) FalsePositive() float64 {
 }
 
 func computeBaseHashes(str Bytes) (uint64, uint64) {
-	h1, _ := murmur3.Sum128WithSeed(str, 0)
-	h2, _ := murmur3.Sum128WithSeed(str, 1)
-	return h1, ensureOdd(h2)
+	h1, h2 := murmur3.Sum128WithSeed(str, 0)
+	return h1, ensureOdd(h1 ^ h2)
 }
 
 func bloomIndex(h1, h2 uint64, i uint32, m uint64) uint64 {
@@ -166,13 +165,7 @@ func bloomIndex(h1, h2 uint64, i uint32, m uint64) uint64 {
 }
 
 func ensureOdd(h uint64) uint64 {
-	if h == 0 {
-		return 1
-	}
-	if h%2 == 0 {
-		return h + 1
-	}
-	return h
+	return h | 1
 }
 
 func isEmpty[T comparable](v T) bool {
