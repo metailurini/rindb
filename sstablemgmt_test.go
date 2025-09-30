@@ -831,24 +831,27 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			current := time.Unix(0, 0)
 			ioVal := uint64(0)
 
+			monitor := newIOLoadMonitor(
+				func() time.Time { return current },
+				func() (uint64, error) { return ioVal, nil },
+			)
 			sm := &ssTableManager{
 				versionSet:     &versionSet{Levels: [][]fileMeta{{{Number: 1, Level: 0}}}},
 				config:         cfg,
-				now:            func() time.Time { return current },
-				diskSampler:    func() (uint64, error) { return ioVal, nil },
 				minSnapshotSeq: math.MaxUint64,
+				monitor:        monitor,
 			}
 
 			for i := 0; i < 100; i++ {
-				sm.recordWrite()
+				monitor.RecordWrite()
 			}
 			current = current.Add(time.Second)
-			sm.recordWrite()
+			monitor.RecordWrite()
 
-			sm.sampleIOLoad()
+			monitor.sampleIOLoad()
 			ioVal = tc.ioVal
 			current = current.Add(time.Second)
-			sm.sampleIOLoad()
+			monitor.sampleIOLoad()
 
 			assert.Equal(t, tc.expect, sm.shouldCompact(ctx, 0, sm.versionSet.Levels[0]))
 		})
@@ -958,17 +961,17 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		assert.NoError(t, err)
 		defer sm.Close(ctx)
 
+		sm.monitor.Stop()
 		var total uint64
-		sm.diskSampler = func() (uint64, error) {
+		sm.monitor = newIOLoadMonitor(time.Now, func() (uint64, error) {
 			total += 100
 			return total, nil
-		}
+		})
+		sm.monitor.Start()
 
 		time.Sleep(2100 * time.Millisecond)
 
-		sm.mu.RLock()
-		load := sm.ioLoad
-		sm.mu.RUnlock()
+		_, load := sm.monitor.CurrentMetrics()
 
 		assert.Greater(t, load, float64(0), "expected io load to be recorded")
 	})
@@ -980,14 +983,16 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 		sm, err := InitSSTableManager(ctx, cfg, &versionSet{}, nil)
 		assert.NoError(t, err)
 
+		sm.monitor.Stop()
 		var mu sync.Mutex
 		var calls int
-		sm.diskSampler = func() (uint64, error) {
+		sm.monitor = newIOLoadMonitor(time.Now, func() (uint64, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			calls++
 			return uint64(calls), nil
-		}
+		})
+		sm.monitor.Start()
 
 		time.Sleep(1100 * time.Millisecond)
 
@@ -1007,7 +1012,7 @@ func TestSSTableManager_IOLoadSampler(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			sm.ioSamplerWG.Wait()
+			sm.monitor.wg.Wait()
 			close(done)
 		}()
 

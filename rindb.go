@@ -426,7 +426,9 @@ func (r *Rindb) Put(ctx context.Context, key, value Bytes) error {
 	}(); err != nil {
 		return err
 	}
-	r.SSTableManager.recordWrite()
+	if r.SSTableManager.monitor != nil {
+		r.SSTableManager.monitor.RecordWrite()
+	}
 	return nil
 }
 
