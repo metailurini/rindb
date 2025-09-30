@@ -21,14 +21,6 @@ func benchmarkOptions(b *testing.B) []Option {
 	b.Helper()
 
 	opts := []Option{WithDatabaseDir(b.TempDir())}
-	if isTempoEndpointResolvable() {
-		opts = append(opts,
-			WithEnableTelemetry(true),
-			WithExporterEndpoint("tempo.magpie-gopher.ts.net:4317"),
-			WithExporterInsecure(true),
-			WithTelemetrySamplingRate(1.0),
-		)
-	}
 	return opts
 }
 
