@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.3](https://github.com/metailurini/rindb/compare/v0.15.2...v0.15.3) (2025-09-30)
+
+
+### Bug Fixes
+
+* disable telemetry during tests ([09e5fc7](https://github.com/metailurini/rindb/commit/09e5fc778d101a26db8d0be67d3c4f1fd8c6bc0c))
+* resolve benchmark workflow PR lookup ([e304f8b](https://github.com/metailurini/rindb/commit/e304f8be0a814ecbaee78924f65991ff73c12780))
+
 ## [0.15.2](https://github.com/metailurini/rindb/compare/v0.15.1...v0.15.2) (2025-09-29)
 
 
