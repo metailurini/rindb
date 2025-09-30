@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -108,5 +109,43 @@ func TestOffsetReader_PrevOffset(t *testing.T) {
 
 		_, err := r.PrevOffset()
 		require.Error(t, err)
+	})
+}
+
+func TestOffsetReader_PeekSlice(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	data := []byte("hello world")
+
+	t.Run("returns mmap slice and advances offset", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, [][]byte{data})
+		defer closer()
+
+		fs := fss[0]
+		fs.configureMmap(ctx, true, newScopedLogger(nopLogger{}, LogLevelWarn))
+		full := fs.mmapBytes(0, len(data))
+		require.NotNil(t, full)
+
+		r := newOffsetReader(fs, 0)
+		slice, ok := r.peekSlice(5)
+		require.True(t, ok)
+		require.Equal(t, []byte("hello"), slice)
+		require.Equal(t, int64(5), r.Offset())
+		require.Equal(t, &full[0], &slice[0], "slice should reference mmap backing array")
+	})
+
+	t.Run("returns false when mmap unavailable", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, [][]byte{data})
+		defer closer()
+
+		fs := fss[0]
+		fs.configureMmap(ctx, false, newScopedLogger(nopLogger{}, LogLevelWarn))
+
+		r := newOffsetReader(fs, 0)
+		slice, ok := r.peekSlice(5)
+		assert.False(t, ok)
+		assert.Nil(t, slice)
+		assert.Equal(t, int64(0), r.Offset())
 	})
 }

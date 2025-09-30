@@ -45,6 +45,20 @@ func readNumber(storage io.Reader) (uint64, error) {
 }
 
 func readRecord(storage io.Reader) (Record, int, error) {
+	type zeroCopyPeekReader interface {
+		peekSlice(int) ([]byte, bool)
+	}
+
+	if zr, ok := storage.(zeroCopyPeekReader); ok {
+		if record, size, err, used := readRecordZeroCopy(zr); used {
+			return record, size, err
+		}
+	}
+
+	return readRecordCopy(storage)
+}
+
+func readRecordCopy(storage io.Reader) (Record, int, error) {
 	reader := newMeteredReader(storage)
 
 	internalKeyLen, err := readNumber(reader)
@@ -102,6 +116,74 @@ func readRecord(storage io.Reader) (Record, int, error) {
 		SequenceNumber: seq,
 		Type:           typ,
 	}, size, nil
+}
+
+func readRecordZeroCopy(r interface{ peekSlice(int) ([]byte, bool) }) (Record, int, error, bool) {
+	internalKeyLenBytes, ok := r.peekSlice(mdByteSize)
+	if !ok {
+		return nil, 0, nil, false
+	}
+	total := mdByteSize
+	internalKeyLen := byteOrder.Uint64(internalKeyLenBytes)
+
+	valueLenBytes, ok := r.peekSlice(mdByteSize)
+	if !ok {
+		return nil, total, fmt.Errorf("failed to read value length: %w", io.ErrUnexpectedEOF), true
+	}
+	total += mdByteSize
+	valueLen := byteOrder.Uint64(valueLenBytes)
+
+	var internalKeyBytes Bytes
+	if internalKeyLen > 0 {
+		slice, ok := r.peekSlice(int(internalKeyLen))
+		if !ok {
+			return nil, total, fmt.Errorf("failed to read internal key bytes: %w", io.ErrUnexpectedEOF), true
+		}
+		total += int(internalKeyLen)
+		internalKeyBytes = Bytes(slice)
+	}
+
+	userKey, seq, typ, err := DecodeInternalKey(internalKeyBytes)
+	if err != nil {
+		return nil, total, err, true
+	}
+
+	var valueBytes Bytes
+	if valueLen > 0 {
+		slice, ok := r.peekSlice(int(valueLen))
+		if !ok {
+			return nil, total, fmt.Errorf("failed to read value bytes: %w", io.ErrUnexpectedEOF), true
+		}
+		total += int(valueLen)
+		valueBytes = Bytes(slice)
+	}
+
+	checksumSlice, ok := r.peekSlice(checksumSize)
+	if !ok {
+		return nil, total, fmt.Errorf("failed to read checksum: %w", io.ErrUnexpectedEOF), true
+	}
+	total += checksumSize
+	expected := byteOrder.Uint32(checksumSlice)
+	if actual := checksum(internalKeyBytes, valueBytes); actual != expected {
+		return nil, total, ErrChecksumMismatch, true
+	}
+
+	trailerSlice, ok := r.peekSlice(mdByteSize)
+	if !ok {
+		return nil, total, fmt.Errorf("failed to read record size trailer: %w", io.ErrUnexpectedEOF), true
+	}
+	total += mdByteSize
+	trailer := byteOrder.Uint64(trailerSlice)
+	if trailer != uint64(total) {
+		return nil, total, fmt.Errorf("record size mismatch: got %d expect %d", trailer, total), true
+	}
+
+	return RecordImpl{
+		Key:            userKey,
+		Value:          valueBytes,
+		SequenceNumber: seq,
+		Type:           typ,
+	}, total, nil, true
 }
 
 func writeNumber(tx *transaction, number uint64) error {
