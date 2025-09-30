@@ -152,3 +152,91 @@ func BenchmarkBloomFilter_Lookup(b *testing.B) {
 		}
 	}
 }
+
+func TestBloomFilter_InsertSkipsWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	bloom := NewBloomFilter(
+		SetN(1),
+		SetP(0.5),
+		SetM(8),
+		SetK(0),
+	)
+
+	before := append([]uint64(nil), bloom.bucket.set...)
+
+	bloom.Insert(Bytes("any"))
+
+	assert.Equal(t, before, bloom.bucket.set)
+}
+
+func TestBloomFilter_InsertSkipsWhenBucketEmpty(t *testing.T) {
+	t.Parallel()
+
+	bloom := NewBloomFilter(
+		SetN(1),
+		SetP(0.5),
+		SetM(0),
+		SetK(3),
+	)
+
+	before := append([]uint64(nil), bloom.bucket.set...)
+
+	bloom.Insert(Bytes("any"))
+
+	assert.Equal(t, before, bloom.bucket.set)
+}
+
+func TestBloomFilter_LookupDisabledConfigurations(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		filter *BloomFilter
+	}{
+		{
+			name: "no hash functions",
+			filter: NewBloomFilter(
+				SetN(1),
+				SetP(0.5),
+				SetM(8),
+				SetK(0),
+			),
+		},
+		{
+			name: "empty bucket",
+			filter: NewBloomFilter(
+				SetN(1),
+				SetP(0.5),
+				SetM(0),
+				SetK(3),
+			),
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.False(t, tt.filter.Lookup(Bytes("any")))
+		})
+	}
+}
+
+func TestEnsureOdd(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   uint64
+		want uint64
+	}{
+		{name: "already odd", in: 5, want: 5},
+		{name: "even becomes odd", in: 8, want: 9},
+		{name: "zero becomes one", in: 0, want: 1},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ensureOdd(tt.in))
+		})
+	}
+}
