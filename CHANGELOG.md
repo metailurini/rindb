@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.16.0](https://github.com/metailurini/rindb/compare/v0.15.2...v0.16.0) (2025-09-30)
+
+
+### Features
+
+* integrate mmap-backed sstable reads ([7a8a503](https://github.com/metailurini/rindb/commit/7a8a5038ab5c4a3768bb15fa9f6eeff6fd36d50e))
+
+
+### Bug Fixes
+
+* disable telemetry during tests ([09e5fc7](https://github.com/metailurini/rindb/commit/09e5fc778d101a26db8d0be67d3c4f1fd8c6bc0c))
+* harden mmap slice bounds handling ([0bb7f46](https://github.com/metailurini/rindb/commit/0bb7f4620d75160fb7ffcd5428b9d04dadd962cf))
+* improve mmap error handling and coverage ([70eff83](https://github.com/metailurini/rindb/commit/70eff83425ef78e8b22780ff97552e130cfd82f6))
+* resolve benchmark workflow PR lookup ([e304f8b](https://github.com/metailurini/rindb/commit/e304f8be0a814ecbaee78924f65991ff73c12780))
+
 ## [0.15.2](https://github.com/metailurini/rindb/compare/v0.15.1...v0.15.2) (2025-09-29)
 
 
