@@ -16,19 +16,14 @@ concurrency:
 jobs:
   test:
     name: Test
+    if: github.event_name != 'push' || github.ref != 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-      - name: Skip tests on master push
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        run: echo "Skipping tests for push to master; benchmarks only."
       - uses: actions/checkout@v4
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
       - uses: actions/setup-go@v5
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         with:
           go-version: '1.25'
       - name: Cache go modules
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         uses: actions/cache@v4
         with:
           path: |
@@ -38,16 +33,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
       - name: Run checks
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: make check
       - name: Run unit tests with coverage
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: make test-coverage
       - name: Run smoke integration tests
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         run: make test-integration-smoke
       - name: Upload coverage reports to Codecov
-        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -254,6 +245,78 @@ jobs:
               echo "Baseline benchmark data was not available."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment on pull request with benchmark summary
+        if: steps.should-run.outputs.value == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- go-benchmark-summary -->';
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!prNumber) {
+              core.warning('Unable to determine pull request number for benchmark summary comment.');
+              return;
+            }
+            let benchstatText = '';
+            if (fs.existsSync('benchstat.txt')) {
+              benchstatText = fs.readFileSync('benchstat.txt', 'utf8').trim();
+            }
+            let benchmarkOutput = '';
+            if (fs.existsSync('benchmark-output.txt')) {
+              benchmarkOutput = fs.readFileSync('benchmark-output.txt', 'utf8').trim();
+            }
+            const lines = [
+              marker,
+              'Go benchmark results for this change:',
+              '',
+            ];
+            if (benchstatText) {
+              lines.push('<details>');
+              lines.push('<summary>benchstat comparison</summary>');
+              lines.push('');
+              lines.push('```');
+              lines.push(benchstatText);
+              lines.push('```');
+              lines.push('');
+              lines.push('</details>');
+            } else if (benchmarkOutput) {
+              lines.push('<details>');
+              lines.push('<summary>Raw benchmark output</summary>');
+              lines.push('');
+              lines.push('```');
+              lines.push(benchmarkOutput);
+              lines.push('```');
+              lines.push('');
+              lines.push('</details>');
+            } else {
+              lines.push('_Benchmark results were generated, but no output file was available._');
+            }
+
+            const body = lines.join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+            const existing = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
       - name: Comment on pull request for regressions
         if: steps.should-run.outputs.value == 'true' && github.event_name == 'pull_request' && steps.analyze.outputs.regressions_found == 'true'
         uses: actions/github-script@v7
