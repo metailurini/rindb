@@ -72,19 +72,7 @@ func InitSkipList[K Comparable, V any](config Config) (*SkipList[K, V], error) {
 }
 
 func (list *SkipList[K, V]) acquireScratch() *skipListScratch[K, V] {
-	scratch := list.scratchPool.Get()
-	if scratch == nil {
-		return &skipListScratch[K, V]{
-			nodes: make([]*SLNode[K, V], list.config.skipListMaxLevel),
-		}
-	}
-	buf := scratch.(*skipListScratch[K, V])
-	if cap(buf.nodes) < int(list.config.skipListMaxLevel) {
-		buf.nodes = make([]*SLNode[K, V], list.config.skipListMaxLevel)
-	} else {
-		buf.nodes = buf.nodes[:list.config.skipListMaxLevel]
-	}
-	return buf
+	return list.scratchPool.Get().(*skipListScratch[K, V])
 }
 
 func (list *SkipList[K, V]) releaseScratch(buf *skipListScratch[K, V]) {
