@@ -11,13 +11,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-//lint:ignore U1000 used when mmap-backed SSTable IO integration lands.
 type mmapHandle struct {
 	data   []byte
 	handle windows.Handle
 }
 
-//lint:ignore U1000 used when mmap-backed SSTable IO integration lands.
 func mapFile(f *os.File) (*mmapHandle, error) {
 	info, err := f.Stat()
 	if err != nil {
@@ -43,7 +41,6 @@ func mapFile(f *os.File) (*mmapHandle, error) {
 	return &mmapHandle{data: data, handle: h}, nil
 }
 
-//lint:ignore U1000 used when mmap-backed SSTable IO integration lands.
 func (h *mmapHandle) Close() error {
 	if h == nil || h.data == nil {
 		return nil
@@ -64,7 +61,6 @@ func (h *mmapHandle) Close() error {
 	return errClose
 }
 
-//lint:ignore U1000 used when mmap-backed SSTable IO integration lands.
 func (h *mmapHandle) Bytes() []byte {
 	if h == nil {
 		return nil
