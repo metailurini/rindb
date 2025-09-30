@@ -2,7 +2,6 @@ package rindb
 
 import (
 	"context"
-	"runtime"
 	"testing"
 	"time"
 
@@ -14,7 +13,7 @@ func TestConfig_Default(t *testing.T) {
 	t.Parallel()
 	cfg := DefaultConfig()
 
-	wantMmap := runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+	wantMmap := defaultSSTableMmapEnabled()
 
 	tests := []struct {
 		name string

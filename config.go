@@ -120,11 +120,20 @@ func NewConfig(opts ...Option) Config {
 	return cfg
 }
 
+func defaultSSTableMmapEnabled() bool {
+	switch runtime.GOOS {
+	case "linux", "darwin", "windows":
+		return true
+	default:
+		return false
+	}
+}
+
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
 		databaseDir:               "rindat",
-		enableSSTableMmap:         runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "windows",
+		enableSSTableMmap:         defaultSSTableMmapEnabled(),
 		maxMemtableSize:           1000,
 		level0CompactionThreshold: 2,
 		baseCompactionSizeMB:      10, // Default: Level 1 threshold = 10MB * (10^1) = 100MB
