@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"math/big"
+	"sync"
 )
 
 var (
@@ -36,6 +37,14 @@ type SkipList[K Comparable, V any] struct {
 	headNote *SLNode[K, V]
 	tail     *SLNode[K, V]
 	config   Config
+	// scratchPool stores reusable level-update slices for Put/Remove. The
+	// pool is per-list and safe for concurrent access as sync.Pool handles
+	// its own synchronization.
+	scratchPool sync.Pool
+}
+
+type skipListScratch[K Comparable, V any] struct {
+	nodes []*SLNode[K, V]
 }
 
 // InitSkipList creates a new empty SkipList using the provided configuration.
@@ -52,14 +61,46 @@ func InitSkipList[K Comparable, V any](config Config) (*SkipList[K, V], error) {
 		level:    config.skipListDefaultLevel,
 		headNote: &SLNode[K, V]{forwards: make([]*SLNode[K, V], config.skipListDefaultLevel)},
 		config:   config,
+		scratchPool: sync.Pool{
+			New: func() any {
+				return &skipListScratch[K, V]{
+					nodes: make([]*SLNode[K, V], config.skipListMaxLevel),
+				}
+			},
+		},
 	}, nil
+}
+
+func (list *SkipList[K, V]) acquireScratch() *skipListScratch[K, V] {
+	scratch := list.scratchPool.Get()
+	if scratch == nil {
+		return &skipListScratch[K, V]{
+			nodes: make([]*SLNode[K, V], list.config.skipListMaxLevel),
+		}
+	}
+	buf := scratch.(*skipListScratch[K, V])
+	if cap(buf.nodes) < int(list.config.skipListMaxLevel) {
+		buf.nodes = make([]*SLNode[K, V], list.config.skipListMaxLevel)
+	} else {
+		buf.nodes = buf.nodes[:list.config.skipListMaxLevel]
+	}
+	return buf
+}
+
+func (list *SkipList[K, V]) releaseScratch(buf *skipListScratch[K, V]) {
+	for i := range buf.nodes {
+		buf.nodes[i] = nil
+	}
+	list.scratchPool.Put(buf)
 }
 
 // Put inserts or replaces the value associated with searchKey.
 func (list *SkipList[K, V]) Put(searchKey K, newValue V) {
 	rn := list.Head()
 	rl := list.level
-	update := make([]*SLNode[K, V], list.config.skipListMaxLevel)
+	scratch := list.acquireScratch()
+	update := scratch.nodes
+	defer list.releaseScratch(scratch)
 	for rl > 0 {
 		rl--
 		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {
@@ -177,7 +218,9 @@ func (list *SkipList[K, V]) Head() *SLNode[K, V] {
 func (list *SkipList[K, V]) Remove(searchKey K) error {
 	rn := list.Head()
 	rl := list.level
-	update := make([]*SLNode[K, V], list.config.skipListMaxLevel)
+	scratch := list.acquireScratch()
+	update := scratch.nodes
+	defer list.releaseScratch(scratch)
 	for rl > 0 {
 		rl--
 		for rn.forwards[rl] != nil && Compare(rn.forwards[rl].Key, searchKey) == CmpLess {

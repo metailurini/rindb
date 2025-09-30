@@ -12,19 +12,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testOptions(t *testing.T) []Option {
-	t.Helper()
+func testOptions(tb testing.TB) []Option {
+	tb.Helper()
 
 	opts := []Option{
-		WithDatabaseDir(t.TempDir()),
+		WithDatabaseDir(tb.TempDir()),
 	}
 
 	return opts
 }
 
-func testConfig(t *testing.T) Config {
-	t.Helper()
-	return NewConfig(testOptions(t)...)
+func testConfig(tb testing.TB) Config {
+	tb.Helper()
+	return NewConfig(testOptions(tb)...)
 }
 
 // testRindbSetup encapsulates setup and cleanup logic for rindb tests.
