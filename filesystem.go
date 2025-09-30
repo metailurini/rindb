@@ -307,12 +307,11 @@ func (fs *FileSystem) mmapBytes(off int64, length int) []byte {
 		return nil
 	}
 	start := int(off)
-	end := len(data)
 	if length <= 0 {
 		return data[start:start]
 	}
-	if candidate := off + int64(length); candidate < int64(len(data)) {
-		end = int(candidate)
+	if end := start + length; end > start && end <= len(data) {
+		return data[start:end]
 	}
-	return data[start:end]
+	return data[start:]
 }
