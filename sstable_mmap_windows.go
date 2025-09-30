@@ -56,6 +56,9 @@ func (h *mmapHandle) Close() error {
 	}
 
 	if errUnmap != nil {
+		if errClose != nil {
+			return fmt.Errorf("unmap view failed: %w (and close handle failed: %v)", errUnmap, errClose)
+		}
 		return errUnmap
 	}
 	return errClose

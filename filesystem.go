@@ -263,10 +263,10 @@ func (fs *FileSystem) maybeMmapLocked(ctx context.Context) {
 	if !fs.mmapEnabled || fs.file == nil || fs.mmap != nil {
 		return
 	}
-	handle, err := mapFile(fs.file)
+	handle, err := callMapFile(fs.file)
 	if err != nil {
 		fs.ensureLogger()
-		if errors.Is(err, errMmapUnsupported) {
+		if isMmapUnsupported(err) {
 			fs.log.debug(ctx, "sstable mmap unsupported for %s: %v", fs.filePath, err)
 			return
 		}
