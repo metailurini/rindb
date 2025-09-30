@@ -15,6 +15,10 @@ const (
 	checksumSize = 4
 )
 
+type zeroCopyPeekReader interface {
+	peekSlice(int) ([]byte, bool)
+}
+
 type meteredReader struct {
 	r io.Reader
 	n int
@@ -45,10 +49,6 @@ func readNumber(storage io.Reader) (uint64, error) {
 }
 
 func readRecord(storage io.Reader) (Record, int, error) {
-	type zeroCopyPeekReader interface {
-		peekSlice(int) ([]byte, bool)
-	}
-
 	if zr, ok := storage.(zeroCopyPeekReader); ok {
 		if record, size, err, used := readRecordZeroCopy(zr); used {
 			return record, size, err
@@ -118,7 +118,7 @@ func readRecordCopy(storage io.Reader) (Record, int, error) {
 	}, size, nil
 }
 
-func readRecordZeroCopy(r interface{ peekSlice(int) ([]byte, bool) }) (Record, int, error, bool) {
+func readRecordZeroCopy(r zeroCopyPeekReader) (Record, int, error, bool) {
 	internalKeyLenBytes, ok := r.peekSlice(mdByteSize)
 	if !ok {
 		return nil, 0, nil, false

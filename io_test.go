@@ -94,19 +94,16 @@ func TestReadRecord_OffsetReaderZeroCopy(t *testing.T) {
 	value := Bytes("value")
 	seq := uint64(42)
 
-	var buf bytes.Buffer
-	ikey := EncodeInternalKey(key, seq, TypeValue)
-	writeNumberBuf(&buf, uint64(len(ikey)))
-	writeNumberBuf(&buf, uint64(len(value)))
-	buf.Write(ikey)
-	buf.Write(value)
-	var checksumBytes [checksumSize]byte
-	chk := checksum(ikey, value)
-	byteOrder.PutUint32(checksumBytes[:], chk)
-	buf.Write(checksumBytes[:])
-	totalSize := mdByteSize*2 + len(ikey) + len(value) + checksumSize + mdByteSize
-	writeNumberBuf(&buf, uint64(totalSize))
-	data := buf.Bytes()
+	rec := newRecord(key, value, seq)
+	tx, cleanup := newFileTx(t)
+	defer cleanup()
+
+	require.NoError(t, writeRecord(tx, rec))
+
+	data, err := os.ReadFile(tx.log.Path())
+	require.NoError(t, err)
+	totalSize := CalOnDiskSize(rec)
+	require.Len(t, data, totalSize)
 
 	ctx := context.Background()
 
