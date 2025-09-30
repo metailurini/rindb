@@ -15,13 +15,12 @@ func newOffsetReader(fs *FileSystem, off int64) *offsetReader {
 }
 
 func (r *offsetReader) Read(p []byte) (int, error) {
-	if data := r.fs.mmapBytes(r.offset, len(p)); data != nil {
-		n := copy(p, data)
-		r.offset += int64(n)
-		if n < len(p) {
-			return n, io.EOF
-		}
-		return n, nil
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if data, ok := r.peekSlice(len(p)); ok {
+		copy(p, data)
+		return len(p), nil
 	}
 	n, err := r.fs.ReadAt(p, r.offset)
 	if n > 0 {
@@ -32,6 +31,24 @@ func (r *offsetReader) Read(p []byte) (int, error) {
 
 func (r *offsetReader) Offset() int64 {
 	return r.offset
+}
+
+func (r *offsetReader) peekSlice(length int) ([]byte, bool) {
+	if length < 0 {
+		return nil, false
+	}
+	data := r.fs.mmapBytes(r.offset, length)
+	if data == nil {
+		return nil, false
+	}
+	if length == 0 {
+		return data[:0], true
+	}
+	if len(data) < length {
+		return nil, false
+	}
+	r.offset += int64(length)
+	return data, true
 }
 
 func (r *offsetReader) PrevOffset() (int64, error) {

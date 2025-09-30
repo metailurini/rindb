@@ -87,6 +87,66 @@ func TestRecord_WriteRead(t *testing.T) {
 	}
 }
 
+func TestReadRecord_OffsetReaderZeroCopy(t *testing.T) {
+	t.Parallel()
+
+	key := Bytes("key")
+	value := Bytes("value")
+	seq := uint64(42)
+
+	var buf bytes.Buffer
+	ikey := EncodeInternalKey(key, seq, TypeValue)
+	writeNumberBuf(&buf, uint64(len(ikey)))
+	writeNumberBuf(&buf, uint64(len(value)))
+	buf.Write(ikey)
+	buf.Write(value)
+	var checksumBytes [checksumSize]byte
+	chk := checksum(ikey, value)
+	byteOrder.PutUint32(checksumBytes[:], chk)
+	buf.Write(checksumBytes[:])
+	totalSize := mdByteSize*2 + len(ikey) + len(value) + checksumSize + mdByteSize
+	writeNumberBuf(&buf, uint64(totalSize))
+	data := buf.Bytes()
+
+	ctx := context.Background()
+
+	t.Run("zero-copy mmap", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, [][]byte{data})
+		defer closer()
+
+		fs := fss[0]
+		fs.configureMmap(ctx, true, newScopedLogger(nopLogger{}, LogLevelWarn))
+
+		r := newOffsetReader(fs, 0)
+		record, size, err := readRecord(r)
+		require.NoError(t, err)
+		assert.Equal(t, totalSize, size)
+		assert.Equal(t, key, record.GetKey())
+		assert.Equal(t, value, record.GetValue())
+		assert.Equal(t, seq, record.GetSequenceNumber())
+		assert.Equal(t, TypeValue, record.GetType())
+		assert.Equal(t, int64(totalSize), r.Offset())
+	})
+
+	t.Run("fallback when mmap disabled", func(t *testing.T) {
+		fss, closer := initTempFileSystems(t, 1, [][]byte{data})
+		defer closer()
+
+		fs := fss[0]
+		fs.configureMmap(ctx, false, newScopedLogger(nopLogger{}, LogLevelWarn))
+
+		r := newOffsetReader(fs, 0)
+		record, size, err := readRecord(r)
+		require.NoError(t, err)
+		assert.Equal(t, totalSize, size)
+		assert.Equal(t, key, record.GetKey())
+		assert.Equal(t, value, record.GetValue())
+		assert.Equal(t, seq, record.GetSequenceNumber())
+		assert.Equal(t, TypeValue, record.GetType())
+		assert.Equal(t, int64(totalSize), r.Offset())
+	})
+}
+
 func TestReadRecord_Errors(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
