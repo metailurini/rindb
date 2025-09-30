@@ -25,6 +25,7 @@
 - **Adaptive Table Cache**: Sharded SLRU cache with tombstones, corruption quarantine, and runtime statistics.
 - **Observability**: OpenTelemetry metrics/tracing plus programmatic stats and CLI reporting.
 - **Configurable Runtime**: Functional options for directories, memory budgets, cache sizing, telemetry exporters, and logging.
+- **Memory-Mapped SSTable Reads**: Accelerates SSTable data access on Linux, macOS, and Windows using memory-mapped files, with a fallback to standard file I/O.
 
 ## Installation
 
