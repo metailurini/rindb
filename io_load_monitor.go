@@ -14,6 +14,10 @@ type realTicker struct {
 	*time.Ticker
 }
 
+// writeRateAlpha is the smoothing factor for write-rate exponential moving
+// average. A higher value weights recent samples more heavily.
+const writeRateAlpha = 0.2
+
 func (t realTicker) C() <-chan time.Time {
 	return t.Ticker.C
 }
@@ -61,11 +65,12 @@ func newIOLoadMonitor(now func() time.Time, diskSampler func() (uint64, error)) 
 
 // RecordWrite records a write and updates the EWMA write rate once the sampling interval elapses.
 func (m *ioLoadMonitor) RecordWrite() {
+	now := m.now()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.writeCounter++
-	now := m.now()
 	if m.lastWriteSample.IsZero() {
 		m.lastWriteSample = now
 		return
