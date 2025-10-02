@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/metailurini/rindb/compare/v0.16.1...v0.16.2) (2025-10-02)
+
+
+### Bug Fixes
+
+* Ensure zero-copy safety by returning cloned data ([a56dca7](https://github.com/metailurini/rindb/commit/a56dca737aae9bfa4c2647a54da376241cc5aae5))
+
 ## [0.16.1](https://github.com/metailurini/rindb/compare/v0.16.0...v0.16.1) (2025-09-30)
 
 
