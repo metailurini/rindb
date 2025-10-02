@@ -43,6 +43,46 @@ func writeNumberBuf(buf *bytes.Buffer, n uint64) {
 	buf.Write(b[:])
 }
 
+func numberBytes(n uint64) []byte {
+	var b [mdByteSize]byte
+	byteOrder.PutUint64(b[:], n)
+	return b[:]
+}
+
+type fakeZeroCopyResponse struct {
+	expectLen int
+	data      []byte
+	ok        bool
+}
+
+type fakeZeroCopyReader struct {
+	t         *testing.T
+	responses []fakeZeroCopyResponse
+	next      int
+}
+
+func (f *fakeZeroCopyReader) peekSlice(length int) ([]byte, bool) {
+	f.t.Helper()
+	if f.next >= len(f.responses) {
+		f.t.Fatalf("unexpected peek request for length %d", length)
+	}
+	resp := f.responses[f.next]
+	f.next++
+	if resp.expectLen >= 0 && resp.expectLen != length {
+		f.t.Fatalf("peek length mismatch: want %d got %d", resp.expectLen, length)
+	}
+	if !resp.ok {
+		return nil, false
+	}
+	if len(resp.data) < length {
+		f.t.Fatalf("insufficient data: have %d need %d", len(resp.data), length)
+	}
+	// Return a slice backed by distinct storage to mimic zero-copy semantics
+	out := make([]byte, length)
+	copy(out, resp.data[:length])
+	return out, true
+}
+
 func TestRecord_WriteRead(t *testing.T) {
 	t.Parallel()
 	largeKey, largeValue := func() (Bytes, Bytes) {
@@ -152,6 +192,17 @@ func TestReadRecord_Errors(t *testing.T) {
 		errIs       error
 		errContains []string
 	}{
+		{
+			name: "Decode internal key failure",
+			setup: func() io.Reader {
+				var buf bytes.Buffer
+				writeNumberBuf(&buf, 1)
+				writeNumberBuf(&buf, 0)
+				buf.Write([]byte{0xFF})
+				return &buf
+			},
+			errContains: []string{"internal key too short"},
+		},
 		{
 			name: "Error reading internal key length",
 			setup: func() io.Reader {
@@ -283,6 +334,164 @@ func TestReadRecord_Errors(t *testing.T) {
 			if tt.errIs != nil {
 				assert.ErrorIs(t, err, tt.errIs)
 			}
+		})
+	}
+}
+
+func TestReadRecordZeroCopy_Errors(t *testing.T) {
+	t.Parallel()
+
+	keyBytes := EncodeInternalKey(Bytes("key"), 1, TypeValue)
+	valBytes := []byte("value")
+	checksum := checksum(keyBytes, valBytes)
+	var checksumBuf [checksumSize]byte
+	byteOrder.PutUint32(checksumBuf[:], checksum)
+
+	cases := []struct {
+		name        string
+		responses   []fakeZeroCopyResponse
+		errContains []string
+		errIs       error
+	}{
+		{
+			name: "value length missing",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(0), ok: true},
+				{expectLen: mdByteSize, ok: false},
+			},
+			errContains: []string{"failed to read value length"},
+			errIs:       io.ErrUnexpectedEOF,
+		},
+		{
+			name: "internal key bytes missing",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(uint64(internalKeySuffixLen)), ok: true},
+				{expectLen: mdByteSize, data: numberBytes(0), ok: true},
+				{expectLen: internalKeySuffixLen, ok: false},
+			},
+			errContains: []string{"failed to read internal key bytes"},
+			errIs:       io.ErrUnexpectedEOF,
+		},
+		{
+			name: "decode internal key error",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(1), ok: true},
+				{expectLen: mdByteSize, data: numberBytes(0), ok: true},
+				{expectLen: 1, data: []byte{0x01}, ok: true},
+			},
+			errContains: []string{"internal key too short"},
+		},
+		{
+			name: "value bytes missing",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(keyBytes))), ok: true},
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(valBytes))), ok: true},
+				{expectLen: len(keyBytes), data: keyBytes, ok: true},
+				{expectLen: len(valBytes), ok: false},
+			},
+			errContains: []string{"failed to read value bytes"},
+			errIs:       io.ErrUnexpectedEOF,
+		},
+		{
+			name: "checksum missing",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(keyBytes))), ok: true},
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(valBytes))), ok: true},
+				{expectLen: len(keyBytes), data: keyBytes, ok: true},
+				{expectLen: len(valBytes), data: valBytes, ok: true},
+				{expectLen: checksumSize, ok: false},
+			},
+			errContains: []string{"failed to read checksum"},
+			errIs:       io.ErrUnexpectedEOF,
+		},
+		{
+			name: "trailer missing",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(keyBytes))), ok: true},
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(valBytes))), ok: true},
+				{expectLen: len(keyBytes), data: keyBytes, ok: true},
+				{expectLen: len(valBytes), data: valBytes, ok: true},
+				{expectLen: checksumSize, data: checksumBuf[:], ok: true},
+				{expectLen: mdByteSize, ok: false},
+			},
+			errContains: []string{"failed to read record size trailer"},
+			errIs:       io.ErrUnexpectedEOF,
+		},
+		{
+			name: "record size mismatch",
+			responses: []fakeZeroCopyResponse{
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(keyBytes))), ok: true},
+				{expectLen: mdByteSize, data: numberBytes(uint64(len(valBytes))), ok: true},
+				{expectLen: len(keyBytes), data: keyBytes, ok: true},
+				{expectLen: len(valBytes), data: valBytes, ok: true},
+				{expectLen: checksumSize, data: checksumBuf[:], ok: true},
+				{expectLen: mdByteSize, data: numberBytes(1), ok: true},
+			},
+			errContains: []string{"record size mismatch"},
+		},
+	}
+
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			zr := &fakeZeroCopyReader{t: t, responses: tt.responses}
+			_, _, err, used := readRecordZeroCopy(zr)
+			assert.True(t, used)
+			require.Error(t, err)
+			for _, msg := range tt.errContains {
+				assert.ErrorContains(t, err, msg)
+			}
+			if tt.errIs != nil {
+				assert.ErrorIs(t, err, tt.errIs)
+			}
+		})
+	}
+}
+
+func TestWriteRecord_Errors(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecord(Bytes("k"), Bytes("v"), 1)
+
+	type callTracker struct {
+		failOn map[int]error
+		count  int
+	}
+
+	trackerWrite := func(ct *callTracker) func(*FileSystem, []byte) (int, error) {
+		return func(_ *FileSystem, p []byte) (int, error) {
+			ct.count++
+			if err, ok := ct.failOn[ct.count]; ok {
+				return 0, err
+			}
+			return len(p), nil
+		}
+	}
+
+	cases := []struct {
+		name        string
+		failOnCall  int
+		expectError string
+	}{
+		{name: "internal key length write fails", failOnCall: 1, expectError: "internal key length"},
+		{name: "value length write fails", failOnCall: 2, expectError: "value length"},
+		{name: "internal key bytes write fails", failOnCall: 3, expectError: "internal key bytes"},
+		{name: "value bytes write fails", failOnCall: 4, expectError: "value bytes"},
+		{name: "checksum write fails", failOnCall: 5, expectError: "write checksum"},
+		{name: "trailer write fails", failOnCall: 6, expectError: "record size trailer"},
+	}
+
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tracker := &callTracker{failOn: map[int]error{tt.failOnCall: errors.New("boom")}}
+			tm := &transactionManager{deps: txnDeps{fsWrite: trackerWrite(tracker)}}
+			tx := &transaction{state: "active", manager: tm}
+			err := writeRecord(tx, rec)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, tt.expectError)
 		})
 	}
 }
