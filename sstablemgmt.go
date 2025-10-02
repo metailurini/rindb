@@ -31,10 +31,6 @@ func removeFiles(dir string, files []fileMeta) error {
 	return first
 }
 
-// writeRateAlpha is the smoothing factor for write-rate exponential moving
-// average. A higher value weights recent samples more heavily.
-const writeRateAlpha = 0.2
-
 // ssTableManager manages SSTable storage and compaction in a leveled structure.
 // Responsibilities:
 // - Maintains multiple levels of SSTables (L0, L1, etc.)
