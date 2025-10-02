@@ -17,5 +17,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           release-type: go
+      - name: Refresh pkg.go.dev
+        if: steps.release.outputs.release_created == 'true'
+        run: |
+          curl https://sum.golang.org/lookup/github.com/metailurini/rindb@${{ steps.release.outputs.tag_name }}
