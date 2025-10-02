@@ -52,3 +52,16 @@ func (r RecordImpl) GetSequenceNumber() uint64 {
 func (r RecordImpl) GetType() RecordType {
 	return r.Type
 }
+
+// cloneRecord produces a deep copy of the provided record's key and value.
+func cloneRecord(rec Record) Record {
+	if rec == nil {
+		return nil
+	}
+	return RecordImpl{
+		Key:            rec.GetKey().Clone(),
+		Value:          rec.GetValue().Clone(),
+		SequenceNumber: rec.GetSequenceNumber(),
+		Type:           rec.GetType(),
+	}
+}

@@ -502,6 +502,40 @@ func TestSSTableManager_SearchKey(t *testing.T) {
 	})
 }
 
+func TestSSTableManager_SearchKeyZeroCopyEviction(t *testing.T) {
+	t.Parallel()
+	if !defaultSSTableMmapEnabled() {
+		t.Skip("sstable mmap unsupported on this platform")
+	}
+
+	cfg := testConfig(t)
+	cfg.enableSSTableMmap = true
+
+	ctx := context.Background()
+	ts := newTestRindbSetup(t, ctx, &cfg)
+	defer ts.Cleanup()
+
+	key := Bytes("eviction-key")
+	value := Bytes("eviction-value")
+	sst := ts.createSSTable(map[string]string{string(key): string(value)})
+	ts.AddSSTable(0, sst)
+
+	num, err := fileNum(sst.Path())
+	require.NoError(t, err)
+
+	entry, err := ts.Manager.openByNumber(ctx, num)
+	require.NoError(t, err)
+
+	got, err := entry.Table.GetValue(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, value, got)
+
+	entry.release()
+
+	cloned := got.Clone()
+	require.Equal(t, value, cloned)
+}
+
 func TestSSTableManager_CompactThreshold(t *testing.T) {
 	t.Parallel()
 	t.Run("level 0 file count triggers compaction", func(t *testing.T) {

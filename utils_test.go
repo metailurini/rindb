@@ -227,7 +227,7 @@ func randStringBytes(n int) Bytes {
 // generateKeyValuePairs creates n random key-value pairs with specified sizes.
 func generateKeyValuePairs(n int, keySize, valueSize int) [][2]Bytes {
 	pairs := make([][2]Bytes, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pairs[i] = [2]Bytes{
 			randStringBytes(keySize),
 			randStringBytes(valueSize),

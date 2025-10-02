@@ -162,7 +162,7 @@ func (s SStable) GetValue(ctx context.Context, key Bytes, seq ...uint64) (Bytes,
 			if record.GetType() == TypeDeletion {
 				return nil, ErrTombstoneFound
 			}
-			return record.GetValue(), nil
+			return record.GetValue().Clone(), nil
 		}
 	}
 }
