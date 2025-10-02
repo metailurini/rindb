@@ -1,6 +1,7 @@
 package rindb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -23,6 +24,45 @@ func (failingManifest) Append(versionEdit) error { return errors.New("append fai
 func (failingManifest) Sync() error              { return nil }
 func (failingManifest) Close() error             { return nil }
 func (failingManifest) Path() string             { return "" }
+
+type syncFailManifest struct{}
+
+func (syncFailManifest) Append(versionEdit) error { return nil }
+func (syncFailManifest) Sync() error              { return errors.New("sync fail") }
+func (syncFailManifest) Close() error             { return nil }
+func (syncFailManifest) Path() string             { return "" }
+
+func TestSSTableManager_TableCacheStats_NoCache(t *testing.T) {
+	t.Parallel()
+
+	mgr := &ssTableManager{}
+	assert.Equal(t, tableCacheStats{}, mgr.TableCacheStats())
+}
+
+func TestInitSSTableManager_Errors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseCfg := testConfig(t)
+
+	t.Run("nil version set disallowed", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseCfg
+		_, err := InitSSTableManager(ctx, cfg, nil, nil)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "version set cannot be nil")
+	})
+
+	t.Run("repair mode build failure", func(t *testing.T) {
+		t.Parallel()
+		cfg := baseCfg
+		broken := filepath.Join(t.TempDir(), "missing")
+		cfg.repairMode = true
+		cfg.databaseDir = broken
+		_, err := InitSSTableManager(ctx, cfg, nil, nil)
+		require.Error(t, err)
+	})
+}
 
 func TestSSTableManager_OpenAndLoadSSTable(t *testing.T) {
 	t.Parallel()
@@ -242,6 +282,79 @@ func TestBuildVersionSetFromDisk(t *testing.T) {
 	})
 }
 
+func TestBuildVersionSetFromDisk_OpenExistingError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cfg := testConfig(t)
+	dir := t.TempDir()
+	cfg.databaseDir = dir
+
+	dangling := filepath.Join(dir, sstPath(3))
+	require.NoError(t, os.Symlink(filepath.Join(dir, "missing.sst"), dangling))
+
+	_, err := buildVersionSetFromDisk(ctx, cfg)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestBuildVersionSetFromDisk_MaxSequenceError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cfg := testConfig(t)
+	dir := t.TempDir()
+	cfg.databaseDir = dir
+
+	mem := InitMemtable(cfg)
+	rec := newRecord(Bytes("k"), Bytes("v"), 1)
+	mem.Put(rec)
+
+	fs, err := OpenFS(ctx, path.Join(dir, sstPath(4)))
+	require.NoError(t, err)
+	_, _, err = flush(ctx, cfg, mem, fs)
+	require.NoError(t, err)
+	require.NoError(t, fs.Close())
+
+	f, err := os.OpenFile(fs.Path(), os.O_WRONLY, 0)
+	require.NoError(t, err)
+	checksumOffset := CalOnDiskSize(rec) - checksumSize - mdByteSize
+	_, err = f.Seek(int64(checksumOffset), io.SeekStart)
+	require.NoError(t, err)
+	_, err = f.Write(bytes.Repeat([]byte{0xFF}, checksumSize))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	_, err = buildVersionSetFromDisk(ctx, cfg)
+	require.Error(t, err)
+}
+
+func TestInitSSTableManager_TableCacheOpenFailures(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	cfg := testConfig(t)
+	cfg.databaseDir = t.TempDir()
+
+	vs := &versionSet{Levels: [][]fileMeta{{}}}
+	mgr, err := InitSSTableManager(ctx, cfg, vs, nil)
+	require.NoError(t, err)
+	defer mgr.Close(ctx)
+
+	_, err = mgr.cache.get(ctx, tableKey{FileNum: 42})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+
+	badNum := uint64(99)
+	badPath := path.Join(cfg.databaseDir, sstPath(badNum))
+	require.NoError(t, os.WriteFile(badPath, []byte("garbage"), 0o644))
+
+	_, err = mgr.cache.get(ctx, tableKey{FileNum: badNum})
+	require.Error(t, err)
+
+	if mgr.monitor != nil {
+		_, _ = mgr.monitor.diskSampler()
+	}
+}
+
 func TestSSTableManager_MergeSSTables(t *testing.T) {
 	// Configure the manager to trigger compaction after 3 files in level 0
 	t.Parallel()
@@ -306,6 +419,34 @@ func TestSSTableManager_MergeSSTables(t *testing.T) {
 		}
 		assertIteratorRecords(t, sstableIterator, expectedRecords)
 	})
+}
+
+func TestSSTableManager_AddSSTable_Errors(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	cfg := testConfig(t)
+	cfg.databaseDir = t.TempDir()
+	mgr := &ssTableManager{
+		config:     cfg,
+		versionSet: &versionSet{},
+	}
+
+	meta := fileMeta{Number: 1}
+
+	err := mgr.addSSTable(ctx, meta, 0)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "lastSeq")
+
+	mgr.manifest = failingManifest{}
+	err = mgr.addSSTable(ctx, meta, 1)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "append fail")
+
+	mgr.manifest = syncFailManifest{}
+	err = mgr.addSSTable(ctx, meta, 1)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "sync fail")
 }
 
 func TestSSTableManager_SearchKey(t *testing.T) {
@@ -672,6 +813,19 @@ func TestSSTableManager_CompactThreshold(t *testing.T) {
 		assert.NoError(t, err)
 		assert.InDelta(t, totalSize, mergedInfo.Size(), float64(totalSize)*0.1, "Merged size should be close to original total")
 	})
+}
+
+func TestSSTableManager_ShouldCompactMultiplierFloor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	cfg := testConfig(t)
+	cfg.levelSizeMultiplier = 0
+	cfg.baseCompactionSizeMB = 1
+	mgr := &ssTableManager{config: cfg, log: newScopedLogger(nopLogger{}, LogLevelWarn)}
+
+	files := []fileMeta{{Size: 2 * 1024 * 1024}}
+	assert.True(t, mgr.shouldCompact(ctx, 1, files))
 }
 
 func TestSSTableManager_GetRelevantSSTables(t *testing.T) {
