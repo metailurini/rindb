@@ -52,7 +52,7 @@ func TestSSTable_BasicOperations(t *testing.T) {
 		sstable, meta, err := flush(ctx, cfg, mem, fs)
 		assert.NoError(t, err)
 		require.NotZero(t, meta.Number)
-		info, err := os.Stat(sstable.FileSystem.Path())
+		info, err := os.Stat(sstable.Path())
 		assert.NoError(t, err)
 		tail := info.Size() - footerSize
 		f, err := readFooter(sstable.FileSystem, tail)
@@ -188,9 +188,9 @@ func TestSSTable_BasicOperations(t *testing.T) {
 
 		switch runtime.GOOS {
 		case "linux", "darwin", "windows":
-			require.NotNil(t, sstable.FileSystem.mmap)
+			require.NotNil(t, sstable.mmap)
 		default:
-			require.Nil(t, sstable.FileSystem.mmap)
+			require.Nil(t, sstable.mmap)
 		}
 
 		require.NoError(t, sstable.Close())
@@ -208,9 +208,9 @@ func TestSSTable_BasicOperations(t *testing.T) {
 
 		switch runtime.GOOS {
 		case "linux", "darwin", "windows":
-			require.NotNil(t, reopened.FileSystem.mmap)
+			require.NotNil(t, reopened.mmap)
 		default:
-			require.Nil(t, reopened.FileSystem.mmap)
+			require.Nil(t, reopened.mmap)
 		}
 	})
 	t.Run("Iterator", func(t *testing.T) {

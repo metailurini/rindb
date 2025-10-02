@@ -428,9 +428,8 @@ func TestBytes_Clone(t *testing.T) {
 		cloned := original.Clone()
 
 		assert.Nil(t, original, "Original should be nil")
-		assert.NotNil(t, cloned, "Cloned should not be nil, but an empty slice")
+		assert.Nil(t, cloned, "Cloned nil bytes should also be nil")
 		assert.Len(t, cloned, 0, "Cloned nil bytes should have length 0")
-		assert.Equal(t, Bytes{}, cloned, "Cloned nil bytes should be an empty slice")
 	})
 }
 

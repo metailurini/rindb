@@ -110,7 +110,7 @@ func (s *sstableIterator) Next() (Record, error) {
 	}
 	s.offset = reader.Offset()
 	s.cursor = s.offset
-	return record, nil
+	return cloneRecord(record), nil
 }
 
 // HasPrev implements Iterator.
@@ -148,7 +148,7 @@ func (s *sstableIterator) Prev() (Record, error) {
 	}
 	s.offset = start
 	s.cursor = start
-	return record, nil
+	return cloneRecord(record), nil
 }
 
 // Last implements Iterator.
@@ -175,7 +175,7 @@ func (s *sstableIterator) Last() (Record, error) {
 	}
 	s.cursor = start
 	s.offset = reader.Offset()
-	return record, nil
+	return cloneRecord(record), nil
 }
 
 // sstableIRange iterates over a range of keys in an SSTable.
@@ -234,6 +234,7 @@ func (sri *sstableIRange) prepare() {
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
 		}
+		rec = cloneRecord(rec)
 		sri.preparedOffset = cur
 		sri.next = rec
 		sri.prepared = true
@@ -309,6 +310,7 @@ func (sri *sstableIRange) primeNextDescending() {
 		if rec.GetSequenceNumber() > sri.seq {
 			continue
 		}
+		rec = cloneRecord(rec)
 		sri.preparedOffset = start
 		sri.next = rec
 		sri.prepared = true
@@ -437,6 +439,7 @@ func (sri *sstableIRange) primePrev() {
 			continue
 		}
 
+		rec = cloneRecord(rec)
 		sri.prev = rec
 		sri.prevPrepared = true
 		sri.prepared = false

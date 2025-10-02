@@ -28,6 +28,9 @@ func (b Bytes) Compare(other any) int {
 
 // Clone returns a deep copy of the Bytes slice.
 func (b Bytes) Clone() Bytes {
+	if b == nil {
+		return nil
+	}
 	c := make(Bytes, len(b))
 	copy(c, b)
 	return c
