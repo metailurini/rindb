@@ -1036,10 +1036,10 @@ func TestSSTableManager_DynamicShouldCompact(t *testing.T) {
 			current = current.Add(time.Second)
 			monitor.RecordWrite()
 
-			monitor.sampleIOLoad()
+			monitor.handleTick()
 			ioVal = tc.ioVal
 			current = current.Add(time.Second)
-			monitor.sampleIOLoad()
+			monitor.handleTick()
 
 			assert.Equal(t, tc.expect, sm.shouldCompact(ctx, 0, sm.versionSet.Levels[0]))
 		})

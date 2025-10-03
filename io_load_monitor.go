@@ -1,7 +1,9 @@
 package rindb
 
 import (
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,6 +20,8 @@ type realTicker struct {
 // average. A higher value weights recent samples more heavily.
 const writeRateAlpha = 0.2
 
+const unsetWriteSample int64 = math.MinInt64
+
 func (t realTicker) C() <-chan time.Time {
 	return t.Ticker.C
 }
@@ -28,12 +32,10 @@ func (t realTicker) Stop() {
 
 // ioLoadMonitor tracks write throughput and disk utilisation for SSTable compaction decisions.
 type ioLoadMonitor struct {
-	mu sync.Mutex
-
-	writeCounter    uint64
-	writeRate       float64
-	ioLoad          float64
-	lastWriteSample time.Time
+	writeCounter    atomic.Uint64
+	lastWriteSample atomic.Int64
+	writeRateBits   atomic.Uint64
+	ioLoadBits      atomic.Uint64
 	lastIOTotal     uint64
 	lastIOSample    time.Time
 
@@ -60,41 +62,27 @@ func newIOLoadMonitor(now func() time.Time, diskSampler func() (uint64, error)) 
 		m.diskSampler = func() (uint64, error) { return 0, nil }
 	}
 	m.newTicker = func(d time.Duration) ticker { return realTicker{time.NewTicker(d)} }
+	m.lastWriteSample.Store(unsetWriteSample)
+	m.writeRateBits.Store(math.Float64bits(0))
+	m.ioLoadBits.Store(math.Float64bits(0))
 	return m
 }
 
 // RecordWrite records a write and updates the EWMA write rate once the sampling interval elapses.
 func (m *ioLoadMonitor) RecordWrite() {
-	now := m.now()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.writeCounter++
-	if m.lastWriteSample.IsZero() {
-		m.lastWriteSample = now
-		return
-	}
-	if now.Sub(m.lastWriteSample) >= time.Second {
-		duration := now.Sub(m.lastWriteSample).Seconds()
-		rate := float64(m.writeCounter) / duration
-		m.writeRate = (1-writeRateAlpha)*m.writeRate + writeRateAlpha*rate
-		m.writeCounter = 0
-		m.lastWriteSample = now
+	m.writeCounter.Add(1)
+	now := m.now().UnixNano()
+	if m.lastWriteSample.Load() == unsetWriteSample {
+		m.lastWriteSample.CompareAndSwap(unsetWriteSample, now)
 	}
 }
 
 // sampleIOLoad calculates the fraction of time the disk was busy since the previous sample.
-func (m *ioLoadMonitor) sampleIOLoad() {
+func (m *ioLoadMonitor) sampleIOLoad(now time.Time) {
 	total, err := m.diskSampler()
 	if err != nil {
 		return
 	}
-
-	now := m.now()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if !m.lastIOSample.IsZero() {
 		if total < m.lastIOTotal {
@@ -105,12 +93,44 @@ func (m *ioLoadMonitor) sampleIOLoad() {
 		deltaIO := total - m.lastIOTotal
 		deltaTime := now.Sub(m.lastIOSample).Milliseconds()
 		if deltaTime > 0 {
-			m.ioLoad = float64(deltaIO) / float64(deltaTime)
+			load := float64(deltaIO) / float64(deltaTime)
+			m.ioLoadBits.Store(math.Float64bits(load))
 		}
 	}
 
 	m.lastIOTotal = total
 	m.lastIOSample = now
+}
+
+func (m *ioLoadMonitor) updateWriteRate(now time.Time) {
+	writes := m.writeCounter.Swap(0)
+	lastSample := m.lastWriteSample.Load()
+	if lastSample == unsetWriteSample {
+		if writes > 0 {
+			m.writeCounter.Add(writes)
+		}
+		return
+	}
+
+	elapsed := now.Sub(time.Unix(0, lastSample)).Seconds()
+	if elapsed <= 0 {
+		if writes > 0 {
+			m.writeCounter.Add(writes)
+		}
+		return
+	}
+
+	rate := float64(writes) / elapsed
+	prev := math.Float64frombits(m.writeRateBits.Load())
+	ewma := (1-writeRateAlpha)*prev + writeRateAlpha*rate
+	m.writeRateBits.Store(math.Float64bits(ewma))
+	m.lastWriteSample.Store(now.UnixNano())
+}
+
+func (m *ioLoadMonitor) handleTick() {
+	now := m.now()
+	m.updateWriteRate(now)
+	m.sampleIOLoad(now)
 }
 
 // Start launches the periodic disk utilisation sampler.
@@ -126,7 +146,7 @@ func (m *ioLoadMonitor) Start() {
 				case <-m.stopCh:
 					return
 				case <-ticker.C():
-					m.sampleIOLoad()
+					m.handleTick()
 				}
 			}
 		}()
@@ -143,7 +163,7 @@ func (m *ioLoadMonitor) Stop() {
 
 // CurrentMetrics returns the latest write rate and disk utilisation measurements.
 func (m *ioLoadMonitor) CurrentMetrics() (float64, float64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.writeRate, m.ioLoad
+	writeRate := math.Float64frombits(m.writeRateBits.Load())
+	ioLoad := math.Float64frombits(m.ioLoadBits.Load())
+	return writeRate, ioLoad
 }
