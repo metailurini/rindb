@@ -46,6 +46,8 @@ func TestIOLoadMonitor_RecordWriteEWMA(t *testing.T) {
 	current = current.Add(600 * time.Millisecond)
 	monitor.RecordWrite()
 
+	monitor.handleTick()
+
 	rate, _ := monitor.CurrentMetrics()
 	expected := writeRateAlpha * (float64(3) / 1.1)
 	require.InDelta(t, expected, rate, 1e-9)
@@ -67,11 +69,11 @@ func TestIOLoadMonitor_SampleIOLoad(t *testing.T) {
 	)
 
 	samples <- 100
-	monitor.sampleIOLoad()
+	monitor.sampleIOLoad(current)
 
 	samples <- 250
 	current = current.Add(150 * time.Millisecond)
-	monitor.sampleIOLoad()
+	monitor.sampleIOLoad(current)
 
 	_, load := monitor.CurrentMetrics()
 	require.InDelta(t, 1.0, load, 1e-9)
@@ -116,4 +118,47 @@ func TestIOLoadMonitor_StartStop(t *testing.T) {
 
 	// Stop should be idempotent.
 	monitor.Stop()
+}
+
+func TestIOLoadMonitor_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	var currentMu sync.Mutex
+	current := time.Unix(0, 0)
+	monitor := newIOLoadMonitor(func() time.Time {
+		currentMu.Lock()
+		defer currentMu.Unlock()
+		return current
+	}, nil)
+
+	fake := newFakeTicker()
+	monitor.newTicker = func(time.Duration) ticker { return fake }
+
+	monitor.Start()
+
+	const writers = 8
+	const iterations = 1000
+
+	var wg sync.WaitGroup
+	wg.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				monitor.RecordWrite()
+			}
+		}()
+	}
+
+	for i := 0; i < 20; i++ {
+		currentMu.Lock()
+		current = current.Add(100 * time.Millisecond)
+		currentMu.Unlock()
+		fake.c <- time.Time{}
+	}
+
+	wg.Wait()
+	monitor.Stop()
+
+	monitor.CurrentMetrics()
 }
