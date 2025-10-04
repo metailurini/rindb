@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.3](https://github.com/metailurini/rindb/compare/v0.16.2...v0.16.3) (2025-10-04)
+
+
+### Performance Improvements
+
+* make io load monitor recordwrite lock-free ([1e917e2](https://github.com/metailurini/rindb/commit/1e917e2a051ab638e0632943ea342da66870e9a6))
+
 ## [0.16.2](https://github.com/metailurini/rindb/compare/v0.16.1...v0.16.2) (2025-10-02)
 
 
