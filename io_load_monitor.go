@@ -105,14 +105,12 @@ func (m *ioLoadMonitor) sampleIOLoad(now time.Time) {
 func (m *ioLoadMonitor) updateWriteRate(now time.Time) {
 	writes := m.writeCounter.Swap(0)
 	lastSample := m.lastWriteSample.Load()
-	if lastSample == unsetWriteSample {
-		if writes > 0 {
-			m.writeCounter.Add(writes)
-		}
-		return
+
+	var elapsed float64
+	if lastSample != unsetWriteSample {
+		elapsed = now.Sub(time.Unix(0, lastSample)).Seconds()
 	}
 
-	elapsed := now.Sub(time.Unix(0, lastSample)).Seconds()
 	if elapsed <= 0 {
 		if writes > 0 {
 			m.writeCounter.Add(writes)
