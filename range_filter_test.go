@@ -76,11 +76,38 @@ func TestRecordFilterMarkEmittedUpdatesState(t *testing.T) {
 	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
 
-	filter.MarkEmitted(emitted)
+	filter.MarkEmitted(emitted, DirForward)
 
 	second, ok := filter.Accept(older, DirForward)
 	require.False(t, ok)
 	require.Nil(t, second)
+}
+
+func TestRecordFilterMarkEmittedMaintainsDirection(t *testing.T) {
+	filter := newRecordFilter(nil)
+	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
+	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
+
+	filter.MarkEmitted(emitted, DirReverse)
+
+	suppressed, ok := filter.Accept(older, DirReverse)
+	require.False(t, ok)
+	require.Nil(t, suppressed)
+
+	replay, ok := filter.Accept(older, DirForward)
+	require.True(t, ok)
+	require.Equal(t, older, replay)
+}
+
+func TestRecordFilterMarkEmittedIgnoresNilRecord(t *testing.T) {
+	filter := newRecordFilter(nil)
+	other := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
+
+	filter.MarkEmitted(nil, DirForward)
+
+	accepted, ok := filter.Accept(other, DirForward)
+	require.True(t, ok)
+	require.Equal(t, other, accepted)
 }
 
 func TestRecordFilterAcceptHandlesNilRecord(t *testing.T) {
