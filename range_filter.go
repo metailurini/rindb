@@ -78,8 +78,6 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 	return rec, true
 }
 
-// Reset clears the stored key so the next Accept call treats the provided
-// record as unseen regardless of the user key.
 // MarkEmitted updates the deduplication state for a record that bypassed
 // Accept, such as when replaying an anchor during a direction switch.
 func (f *recordFilter) MarkEmitted(rec Record, dir Direction) {

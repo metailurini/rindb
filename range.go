@@ -114,35 +114,68 @@ func (r *RangeIterator) Prev() (Record, error) {
 
 // Last implements Iterator[Record].
 func (r *RangeIterator) Last() (Record, error) {
-	var (
-		empty Record
-		last  Record
-	)
+	var empty Record
 
-	dir := r.nextDirection()
-	r.invalidate(dir)
-	r.invalidate(oppositeDirection(dir))
+	// Reset any prepared state so Last can reposition the iterator without
+	// leaking cached reads from prior traversal.
+	r.invalidate(DirForward)
+	r.invalidate(DirReverse)
 	r.anchors = anchorState{}
-	prevDir := r.prevDirection()
+	r.cursor = newRangeCursor(r.mi)
 
+	// Position the underlying merging iterator at the logical tail.
+	if _, err := r.mi.Last(); err != nil {
+		return empty, err
+	}
+
+	pullDir := r.prevDirection()
+	filterDir := pullDir
+	if r.order == RangeDesc {
+		pullDir = DirForward
+		filterDir = DirReverse
+	}
+	pull := r.pullFor(pullDir)
+	if r.order == RangeDesc && pullDir == DirForward {
+		pull = r.pullDescendingTail()
+	}
+
+	consumeAll := r.order == RangeDesc
+	var rec Record
 	for {
-		rec, err := r.Next()
+		candidate, ok, err := pull(r.cursor)
 		if err != nil {
 			if errors.Is(err, EOI) {
-				if last == nil {
-					return empty, EOI
-				}
-				r.filter.MarkEmitted(last, prevDir)
-				r.anchors = anchorState{lastDir: prevDir, dirSet: true}
-				r.lastEmitted = last
-				r.invalidate(dir)
-				r.invalidate(oppositeDirection(dir))
-				return last, nil
+				break
 			}
 			return empty, err
 		}
-		last = rec
+		if !ok {
+			continue
+		}
+		if candidate == nil {
+			continue
+		}
+		if accepted, ok := r.filter.Accept(candidate, filterDir); ok {
+			rec = accepted
+			if !consumeAll {
+				break
+			}
+		}
 	}
+
+	if rec == nil {
+		return empty, EOI
+	}
+
+	if consumeAll && r.cursor.it.fwd.Len() > 0 {
+		_ = r.cursor.it.fwd.PopItem()
+	}
+
+	r.lastEmitted = rec
+	r.anchors = anchorState{lastDir: pullDir, dirSet: true}
+	r.invalidate(DirForward)
+	r.invalidate(DirReverse)
+	return rec, nil
 }
 
 // Close releases any resources held by the iterator.
@@ -168,14 +201,12 @@ func (r *RangeIterator) prepare(dir Direction, pull pullFunc) *preparedState {
 }
 
 func (r *RangeIterator) advance(dir Direction, pull pullFunc) (Record, error) {
-	if changed := r.anchors.OnDirectionChange(dir, r.lastEmitted); changed {
+	if r.anchors.OnDirectionChange(dir, r.lastEmitted) {
 		if rec, ok := r.anchors.popPending(); ok {
 			r.filter.MarkEmitted(rec, dir)
 			return rec, nil
 		}
-	}
-
-	if rec, ok := r.anchors.popPending(); ok {
+	} else if rec, ok := r.anchors.popPending(); ok {
 		r.filter.MarkEmitted(rec, dir)
 		return rec, nil
 	}
@@ -227,17 +258,55 @@ func (r *RangeIterator) pullFor(dir Direction) pullFunc {
 				return nil, false, nil
 			}
 			if r.order == RangeDesc && !candidate.staged {
-				if candidate.record == nil {
-					return nil, false, EOI
-				}
-				if r.lastEmitted == nil {
-					return nil, false, EOI
-				}
-				if candidate.record.GetKey().Compare(r.lastEmitted.GetKey()) != CmpGreater {
+				if r.lastEmitted == nil || candidate.record.GetKey().Compare(r.lastEmitted.GetKey()) != CmpGreater {
 					return nil, false, EOI
 				}
 			}
 			return candidate.record, true, nil
+		}
+	}
+}
+
+func (r *RangeIterator) pullDescendingTail() pullFunc {
+	return func(c *rangeCursor) (Record, bool, error) {
+		for {
+			if err := c.ensureReversePrimed(); err != nil {
+				if errors.Is(err, EOI) {
+					return nil, false, EOI
+				}
+				return nil, false, err
+			}
+			if !c.reversePrimed || c.reverseCached == nil {
+				return nil, false, nil
+			}
+			seed := c.reverseCached
+			item, ok := c.consumePeekedReverse()
+			if !ok {
+				return nil, false, nil
+			}
+
+			candidate := seed
+			stagedItem := item
+			if r.shouldCollapseReverse(DirReverse) {
+				rec, staged, okCollapse, err := c.collapseDescendingRun(seed, item)
+				if err != nil {
+					return nil, false, err
+				}
+				if okCollapse {
+					candidate = rec
+					stagedItem = staged
+				} else {
+					candidate = nil
+				}
+			}
+
+			if candidate == nil {
+				continue
+			}
+			if candidate.GetType() != TypeDeletion {
+				c.stageForPrev(stagedItem)
+			}
+			return candidate, true, nil
 		}
 	}
 }
