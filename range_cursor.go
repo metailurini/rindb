@@ -20,6 +20,7 @@ type cursorCandidate struct {
 	record     Record
 	stagedItem pqItem
 	peeked     bool
+	staged     bool
 }
 
 type rangeCursor struct {
@@ -28,6 +29,8 @@ type rangeCursor struct {
 	reverseCached Record
 	reversePrimed bool
 	reverseErr    error
+
+	stagedForPrev int
 }
 
 func newRangeCursor(mi *MergingIterator) *rangeCursor {
@@ -91,7 +94,7 @@ func (c *rangeCursor) collapseDescendingRun(seed Record, seedItem pqItem) (Recor
 	}
 
 	if candidate.GetType() == TypeDeletion {
-		return nil, pqItem{}, false, nil
+		return candidate, candidateItem, true, nil
 	}
 
 	return candidate, candidateItem, true, nil
@@ -112,7 +115,12 @@ func (c *rangeCursor) nextForward() (cursorCandidate, bool, error) {
 		}
 		return cursorCandidate{}, false, err
 	}
-	return cursorCandidate{record: rec}, true, nil
+	candidate := cursorCandidate{record: rec}
+	if c.stagedForPrev > 0 {
+		candidate.staged = true
+		c.stagedForPrev--
+	}
+	return candidate, true, nil
 }
 
 func (c *rangeCursor) nextReverse(collapse bool) (cursorCandidate, bool, error) {
@@ -153,22 +161,9 @@ func (c *rangeCursor) stageForPrev(item pqItem) {
 		return
 	}
 	c.it.stageForPrev(item)
-}
-
-func (c *rangeCursor) reverseError() error {
-	return c.reverseErr
+	c.stagedForPrev++
 }
 
 func (c *rangeCursor) clearReverseError() {
 	c.reverseErr = nil
-}
-
-func (c *rangeCursor) resetReverse() {
-	c.reversePrimed = false
-	c.reverseCached = nil
-	c.reverseErr = nil
-}
-
-func (c *rangeCursor) currentReverseCandidate() Record {
-	return c.reverseCached
 }

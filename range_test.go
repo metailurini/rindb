@@ -550,23 +550,30 @@ func TestRangeIterator_Prepare(t *testing.T) {
 			assert.NoError(t, err)
 
 			iter := NewRangeIterator(mi, RangeAsc)
-			// Emulate internal preparation flow used by HasNext/Next
-			iter.primeNext()
+
+			// Consume the first record to mirror the iterator state when preparing the next element.
 			_, err = iter.Next()
 			assert.NoError(t, err)
 
-			// Prepare the next element and validate expectations
-			iter.primeNext()
+			hasNext := iter.HasNext()
 			if tt.wantErr != "" {
-				assert.EqualError(t, iter.err, tt.wantErr)
-				iter.nextPrepared = false
-				iter.primeNext()
-				assert.False(t, iter.nextPrepared)
-			} else {
-				assert.Equal(t, tt.wantPrepared, iter.nextPrepared)
-				assert.Equal(t, tt.wantKey, string(iter.next.GetKey()))
-				assert.Equal(t, tt.wantValue, string(iter.next.GetValue()))
+				assert.False(t, hasNext)
+				_, err = iter.Next()
+				assert.EqualError(t, err, tt.wantErr)
+				return
 			}
+
+			assert.Equal(t, tt.wantPrepared, hasNext)
+			if !tt.wantPrepared {
+				_, err = iter.Next()
+				assert.ErrorIs(t, err, EOI)
+				return
+			}
+
+			rec, err := iter.Next()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantKey, string(rec.GetKey()))
+			assert.Equal(t, tt.wantValue, string(rec.GetValue()))
 		})
 	}
 }

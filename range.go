@@ -1,8 +1,6 @@
 package rindb
 
-import (
-	"errors"
-)
+import "errors"
 
 // RangeOrder represents the initial traversal direction for range iterators.
 type RangeOrder int
@@ -40,326 +38,110 @@ func IRangeSnapshot(seq uint64) RangeOption {
 	}
 }
 
-// RangeIterator is a user-facing iterator that hides tombstones and
-// duplicates. It wraps a MergingIterator which provides all records in key and
-// sequence order.
+type preparedState struct {
+	record Record
+	err    error
+	ready  bool
+}
+
+// RangeIterator is a user-facing iterator that hides tombstones and duplicates.
+// It wraps a MergingIterator which provides all records in key and sequence
+// order.
 type RangeIterator struct {
-	mi                *MergingIterator
-	cursor            *rangeCursor
-	lastKey           Bytes
-	lastKeySet        bool
-	next              Record
-	prev              Record
-	nextPrepared      bool
-	prevPrepared      bool
-	err               error
-	forward           bool
-	crossingAnchor    Record
-	crossingAnchorSet bool
-	order             RangeOrder
+	mi      *MergingIterator
+	cursor  *rangeCursor
+	filter  *recordFilter
+	anchors anchorState
+	order   RangeOrder
+
+	lastEmitted Record
+	prepared    [2]preparedState
 }
 
 // NewRangeIterator creates a new RangeIterator from a MergingIterator.
 func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
-	cursor := newRangeCursor(mi)
-	ri := &RangeIterator{mi: mi, cursor: cursor, order: order, forward: order != RangeDesc}
-	if order == RangeDesc {
-		if err := cursor.ensureReversePrimed(); err != nil && !errors.Is(err, EOI) {
-			ri.err = err
-		}
+	return &RangeIterator{
+		mi:     mi,
+		cursor: newRangeCursor(mi),
+		filter: newRecordFilter(nil),
+		order:  order,
 	}
-	return ri
-}
-
-func (r *RangeIterator) allowAnchorOnNext() bool {
-	if r.order == RangeDesc {
-		return r.forward
-	}
-	return !r.forward
-}
-
-func (r *RangeIterator) allowAnchorOnPrevForOrder(order RangeOrder) bool {
-	if order == RangeDesc {
-		return !r.forward
-	}
-	return r.forward
-}
-
-func (r *RangeIterator) primeNext() {
-	if r.order == RangeDesc && r.forward && r.crossingAnchorSet {
-		r.next = r.crossingAnchor
-		r.nextPrepared = true
-		r.crossingAnchorSet = false
-		return
-	}
-	direction := directionFromOrder(r.order)
-	for !r.nextPrepared && r.err == nil {
-		collapse := r.order == RangeDesc && r.err == nil && !r.forward
-		candidate, ok, err := r.cursor.next(direction, collapse)
-		if err != nil {
-			if errors.Is(err, EOI) {
-				return
-			}
-			r.err = err
-			return
-		}
-		if !ok {
-			if candidate.peeked {
-				r.forward = false
-			}
-			if direction == DirReverse {
-				continue
-			}
-			return
-		}
-
-		rec := candidate.record
-		peeked := candidate.peeked
-
-		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
-		if sameKey {
-			if r.allowAnchorOnNext() && r.matchesCrossingAnchor(rec) {
-				r.crossingAnchorSet = false
-			} else {
-				if peeked {
-					// Ensure the discarded candidate remains available for Prev()
-					// so oscillating at the boundary can resurface the prior key.
-					r.cursor.stageForPrev(candidate.stagedItem)
-					r.forward = false
-				}
-				continue
-			}
-		}
-		r.lastKey = rec.GetKey().Clone()
-		r.lastKeySet = true
-		if rec.GetType() == TypeDeletion {
-			if peeked {
-				r.forward = false
-			}
-			continue
-		}
-		if peeked {
-			r.cursor.stageForPrev(candidate.stagedItem)
-			r.forward = false
-		}
-		r.next = rec
-		r.nextPrepared = true
-	}
-	if r.nextPrepared {
-		r.prevPrepared = false
-	}
-}
-
-func (r *RangeIterator) primePrev() {
-	r.primePrevWithOrder(r.order)
-}
-
-func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
-	if order == RangeDesc && !r.forward && r.crossingAnchorSet {
-		r.prev = r.crossingAnchor
-		r.prevPrepared = true
-		r.crossingAnchorSet = false
-		return
-	}
-	for !r.prevPrepared && r.err == nil {
-		var (
-			rec Record
-			err error
-		)
-		if order == RangeDesc {
-			if r.mi != nil {
-				r.mi.forward = false
-			}
-			rec, err = r.mi.Next()
-			if order == r.order && errors.Is(r.cursor.reverseError(), EOI) {
-				r.cursor.clearReverseError()
-			}
-		} else {
-			rec, err = r.mi.Prev()
-		}
-		switch {
-		case errors.Is(err, EOI):
-			return
-		case err != nil:
-			r.err = err
-			return
-		}
-
-		if !r.stagePrevCandidate(rec, order) {
-			continue
-		}
-	}
-	if r.prevPrepared {
-		r.nextPrepared = false
-	}
-}
-
-func (r *RangeIterator) stagePrevCandidate(rec Record, order RangeOrder) bool {
-	sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
-	if sameKey {
-		if r.allowAnchorOnPrevForOrder(order) && r.matchesCrossingAnchor(rec) {
-			r.crossingAnchorSet = false
-		} else if r.nextPrepared && recordsEqual(rec, r.next) {
-			// A forward peek staged this record; treat it as the anchor so Prev can surface it.
-			r.crossingAnchor = rec
-			r.crossingAnchorSet = true
-		} else {
-			return false
-		}
-	}
-	r.lastKey = rec.GetKey().Clone()
-	r.lastKeySet = true
-	if rec.GetType() == TypeDeletion {
-		return false
-	}
-	r.prev = rec
-	r.prevPrepared = true
-	r.nextPrepared = false
-	return true
 }
 
 // HasNext implements Iterator[Record].
 func (r *RangeIterator) HasNext() bool {
-	r.primeNext()
-	return r.nextPrepared
+	dir := r.nextDirection()
+	state := r.prepare(dir, r.pullFor(dir))
+	return state.err == nil
 }
 
 // Next implements Iterator[Record].
 func (r *RangeIterator) Next() (Record, error) {
-	if !r.nextPrepared {
-		r.primeNext()
-	}
-	if !r.nextPrepared {
+	dir := r.nextDirection()
+	state := r.prepare(dir, r.pullFor(dir))
+	defer r.invalidate(dir)
+	if state.err != nil {
 		var empty Record
-		if r.err != nil {
-			return empty, r.err
-		}
-		if r.order == RangeDesc && errors.Is(r.cursor.reverseError(), EOI) {
-			r.cursor.clearReverseError()
-			return empty, EOI
-		}
-		return empty, EOI
+		return empty, state.err
 	}
-	r.nextPrepared = false
-	r.forward = r.order != RangeDesc
-	rec := r.next
-	r.crossingAnchor = rec
-	r.crossingAnchorSet = true
+	rec := state.record
+	r.lastEmitted = rec
+	r.invalidate(oppositeDirection(dir))
 	return rec, nil
 }
 
 // HasPrev implements Iterator[Record].
 func (r *RangeIterator) HasPrev() bool {
-	r.primePrev()
-	return r.prevPrepared
+	dir := r.prevDirection()
+	state := r.prepare(dir, r.pullFor(dir))
+	return state.err == nil
 }
 
 // Prev implements Iterator[Record].
 func (r *RangeIterator) Prev() (Record, error) {
-	if !r.prevPrepared {
-		r.primePrev()
-	}
-	if !r.prevPrepared {
+	dir := r.prevDirection()
+	state := r.prepare(dir, r.pullFor(dir))
+	defer r.invalidate(dir)
+	if state.err != nil {
 		var empty Record
-		if r.err != nil {
-			return empty, r.err
-		}
-		return empty, EOI
+		return empty, state.err
 	}
-	r.prevPrepared = false
-	r.forward = r.order == RangeDesc
-	rec := r.prev
-	r.crossingAnchor = rec
-	r.crossingAnchorSet = true
+	rec := state.record
+	r.lastEmitted = rec
+	r.invalidate(oppositeDirection(dir))
 	return rec, nil
 }
 
 // Last implements Iterator[Record].
 func (r *RangeIterator) Last() (Record, error) {
-	var empty Record
-	r.err = nil
+	var (
+		empty Record
+		last  Record
+	)
 
-	rec, err := r.mi.Last()
-	if err != nil {
-		return empty, err
-	}
-
-	if r.order == RangeDesc {
-		for {
-			peekErr := r.cursor.ensureReversePrimed()
-			switch {
-			case errors.Is(peekErr, EOI):
-				rec = nil
-			case peekErr != nil:
-				return empty, peekErr
-			default:
-				peeked := r.cursor.currentReverseCandidate()
-				item, ok := r.cursor.consumePeekedReverse()
-				if !ok {
-					rec = nil
-					break
-				}
-				collapsed, stagedItem, ok, collapseErr := r.cursor.collapseDescendingRun(peeked, item)
-				if collapseErr != nil {
-					return empty, collapseErr
-				}
-				if ok {
-					rec = collapsed
-					r.cursor.stageForPrev(stagedItem)
-				} else {
-					rec = nil
-				}
-			}
-			if rec != nil {
-				break
-			}
-			if errors.Is(peekErr, EOI) {
-				break
-			}
-		}
-	}
-
-	r.prevPrepared = false
-	r.nextPrepared = false
-	r.forward = false
-	r.crossingAnchorSet = false
-	r.prev = nil
-	r.next = nil
-	r.err = nil
-	r.lastKeySet = false
-	r.cursor.resetReverse()
-
-	searchOrder := RangeAsc
-
-	lastValid := Record(nil)
-	if rec != nil {
-		r.stagePrevCandidate(rec, searchOrder)
-	}
+	dir := r.nextDirection()
+	r.invalidate(dir)
+	r.invalidate(oppositeDirection(dir))
+	r.anchors = anchorState{}
+	prevDir := r.prevDirection()
 
 	for {
-		if !r.prevPrepared {
-			r.primePrevWithOrder(searchOrder)
-			if !r.prevPrepared {
-				if r.err != nil {
-					return empty, r.err
-				}
-				if r.order == RangeDesc && lastValid != nil {
-					return lastValid, nil
-				}
-				return empty, EOI
-			}
-		}
-
-		current, err := r.Prev()
+		rec, err := r.Next()
 		if err != nil {
+			if errors.Is(err, EOI) {
+				if last == nil {
+					return empty, EOI
+				}
+				r.filter.MarkEmitted(last, prevDir)
+				r.anchors = anchorState{lastDir: prevDir, dirSet: true}
+				r.lastEmitted = last
+				r.invalidate(dir)
+				r.invalidate(oppositeDirection(dir))
+				return last, nil
+			}
 			return empty, err
 		}
-
-		if r.order != RangeDesc {
-			return current, nil
-		}
-
-		lastValid = current
+		last = rec
 	}
 }
 
@@ -368,18 +150,125 @@ func (r *RangeIterator) Close() error {
 	return r.mi.Close()
 }
 
-func (r *RangeIterator) matchesCrossingAnchor(rec Record) bool {
-	return r.crossingAnchorSet && recordsEqual(rec, r.crossingAnchor)
+func (r *RangeIterator) prepare(dir Direction, pull pullFunc) *preparedState {
+	state := &r.prepared[dir]
+	if state.ready {
+		return state
+	}
+	rec, err := r.advance(dir, pull)
+	if err != nil {
+		state.err = err
+		state.record = nil
+	} else {
+		state.record = rec
+		state.err = nil
+	}
+	state.ready = true
+	return state
 }
 
-func recordsEqual(a, b Record) bool {
-	if a == nil || b == nil {
-		return false
+func (r *RangeIterator) advance(dir Direction, pull pullFunc) (Record, error) {
+	if changed := r.anchors.OnDirectionChange(dir, r.lastEmitted); changed {
+		if rec, ok := r.anchors.popPending(); ok {
+			r.filter.MarkEmitted(rec, dir)
+			return rec, nil
+		}
 	}
-	return a.GetSequenceNumber() == b.GetSequenceNumber() &&
-		a.GetType() == b.GetType() &&
-		a.GetKey().Compare(b.GetKey()) == CmpEqual
+
+	if rec, ok := r.anchors.popPending(); ok {
+		r.filter.MarkEmitted(rec, dir)
+		return rec, nil
+	}
+
+	for {
+		rec, ok, err := pull(r.cursor)
+		if err != nil {
+			if errors.Is(err, EOI) {
+				if dir == DirReverse {
+					r.cursor.clearReverseError()
+				}
+				return nil, EOI
+			}
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		if accepted, ok := r.filter.Accept(rec, dir); ok {
+			return accepted, nil
+		}
+	}
 }
+
+func (r *RangeIterator) pullFor(dir Direction) pullFunc {
+	switch dir {
+	case DirReverse:
+		collapse := r.shouldCollapseReverse(dir)
+		return func(c *rangeCursor) (Record, bool, error) {
+			candidate, ok, err := c.next(DirReverse, collapse)
+			if err != nil {
+				return nil, false, err
+			}
+			if !ok {
+				return nil, false, nil
+			}
+			if candidate.peeked && candidate.record != nil && candidate.record.GetType() != TypeDeletion {
+				c.stageForPrev(candidate.stagedItem)
+			}
+			return candidate.record, true, nil
+		}
+	default:
+		return func(c *rangeCursor) (Record, bool, error) {
+			candidate, ok, err := c.next(DirForward, false)
+			if err != nil {
+				return nil, false, err
+			}
+			if !ok {
+				return nil, false, nil
+			}
+			if r.order == RangeDesc && !candidate.staged {
+				if candidate.record == nil {
+					return nil, false, EOI
+				}
+				if r.lastEmitted == nil {
+					return nil, false, EOI
+				}
+				if candidate.record.GetKey().Compare(r.lastEmitted.GetKey()) != CmpGreater {
+					return nil, false, EOI
+				}
+			}
+			return candidate.record, true, nil
+		}
+	}
+}
+
+func (r *RangeIterator) shouldCollapseReverse(dir Direction) bool {
+	return r.order == RangeDesc && dir == DirReverse
+}
+
+func (r *RangeIterator) invalidate(dir Direction) {
+	r.prepared[dir] = preparedState{}
+}
+
+func (r *RangeIterator) nextDirection() Direction {
+	return directionFromOrder(r.order)
+}
+
+func (r *RangeIterator) prevDirection() Direction {
+	if r.nextDirection() == DirForward {
+		return DirReverse
+	}
+	return DirForward
+}
+
+func oppositeDirection(dir Direction) Direction {
+	if dir == DirForward {
+		return DirReverse
+	}
+	return DirForward
+}
+
+type pullFunc func(*rangeCursor) (Record, bool, error)
 
 func newEmptyRangeIterator() *RangeIterator {
 	mi, err := NewMergingIterator(nil, nil, RangeAsc)

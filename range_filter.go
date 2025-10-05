@@ -12,12 +12,14 @@ type recordFilter struct {
 
 	snapshot    uint64
 	hasSnapshot bool
+
+	tombstoned map[string]struct{}
 }
 
 // newRecordFilter constructs a recordFilter bound to the provided snapshot. A
 // nil snapshot permits all sequence numbers.
 func newRecordFilter(snapshot *uint64) *recordFilter {
-	f := &recordFilter{}
+	f := &recordFilter{tombstoned: make(map[string]struct{})}
 	if snapshot != nil {
 		f.snapshot = *snapshot
 		f.hasSnapshot = true
@@ -39,12 +41,33 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 		f.dirSet = true
 	}
 
+	keyStr := string(rec.GetKey())
+	if _, tombstoned := f.tombstoned[keyStr]; tombstoned {
+		return nil, false
+	}
+
 	if f.hasSnapshot && rec.GetSequenceNumber() > f.snapshot {
 		return nil, false
 	}
 
 	if rec.GetType() == TypeDeletion {
+		f.tombstoned[keyStr] = struct{}{}
+		f.remember(rec.GetKey())
 		return nil, false
+	}
+
+	if f.lastKeySet {
+		cmp := rec.GetKey().Compare(f.lastKey)
+		switch dir {
+		case DirForward:
+			if cmp == CmpLess {
+				return nil, false
+			}
+		case DirReverse:
+			if cmp == CmpGreater {
+				return nil, false
+			}
+		}
 	}
 
 	if f.lastKeySet && rec.GetKey().Compare(f.lastKey) == CmpEqual {
@@ -57,10 +80,6 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 
 // Reset clears the stored key so the next Accept call treats the provided
 // record as unseen regardless of the user key.
-func (f *recordFilter) Reset() {
-	f.resetKey()
-}
-
 // MarkEmitted updates the deduplication state for a record that bypassed
 // Accept, such as when replaying an anchor during a direction switch.
 func (f *recordFilter) MarkEmitted(rec Record, dir Direction) {

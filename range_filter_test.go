@@ -55,22 +55,6 @@ func TestRecordFilterDeduplicatesKeysPerDirection(t *testing.T) {
 	require.Equal(t, older, third)
 }
 
-func TestRecordFilterResetClearsSeenKey(t *testing.T) {
-	filter := newRecordFilter(nil)
-	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
-	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
-
-	accepted, ok := filter.Accept(rec, DirForward)
-	require.True(t, ok)
-	require.Equal(t, rec, accepted)
-
-	filter.Reset()
-
-	replay, ok := filter.Accept(older, DirForward)
-	require.True(t, ok)
-	require.Equal(t, older, replay)
-}
-
 func TestRecordFilterMarkEmittedUpdatesState(t *testing.T) {
 	filter := newRecordFilter(nil)
 	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
