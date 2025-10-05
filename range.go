@@ -45,6 +45,7 @@ func IRangeSnapshot(seq uint64) RangeOption {
 // sequence order.
 type RangeIterator struct {
 	mi                *MergingIterator
+	cursor            *rangeCursor
 	lastKey           Bytes
 	lastKeySet        bool
 	next              Record
@@ -56,95 +57,18 @@ type RangeIterator struct {
 	crossingAnchor    Record
 	crossingAnchorSet bool
 	order             RangeOrder
-	reverseCached     Record
-	reverseErr        error
-	reversePrimed     bool
 }
 
 // NewRangeIterator creates a new RangeIterator from a MergingIterator.
 func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
-	ri := &RangeIterator{mi: mi, order: order, forward: order != RangeDesc}
+	cursor := newRangeCursor(mi)
+	ri := &RangeIterator{mi: mi, cursor: cursor, order: order, forward: order != RangeDesc}
 	if order == RangeDesc {
-		rec, err := mi.peekReverse()
-		switch {
-		case errors.Is(err, EOI):
-		// Empty range; leave reversePrimed false so HasNext falls through.
-		case err != nil:
+		if err := cursor.ensureReversePrimed(); err != nil && !errors.Is(err, EOI) {
 			ri.err = err
-		default:
-			ri.reverseCached = rec
-			ri.reversePrimed = true
 		}
 	}
 	return ri
-}
-
-func (r *RangeIterator) ensureReversePrimed() {
-	if r.reversePrimed || r.err != nil || r.reverseErr != nil {
-		return
-	}
-	rec, err := r.mi.peekReverse()
-	switch {
-	case errors.Is(err, EOI):
-		r.reverseErr = err
-	case err != nil:
-		r.err = err
-	default:
-		r.reverseCached = rec
-		r.reversePrimed = true
-	}
-}
-
-func (r *RangeIterator) consumePeekedReverse() (pqItem, bool) {
-	item, ok := r.mi.consumePeekedReverse()
-	r.reversePrimed = false
-	r.reverseCached = nil
-	r.reverseErr = nil
-	if !ok {
-		return pqItem{}, false
-	}
-	return item, true
-}
-
-func (r *RangeIterator) collapseDescendingRun(seed Record, seedItem pqItem) (Record, pqItem, bool) {
-	key := seed.GetKey()
-	candidate := seed
-	candidateItem := seedItem
-
-	// Consume all other versions of this key, tracking the one with the highest
-	// sequence number.
-	for r.err == nil {
-		if !r.reversePrimed && r.reverseErr == nil {
-			r.ensureReversePrimed()
-		}
-		if r.reverseErr != nil {
-			if !errors.Is(r.reverseErr, EOI) {
-				r.err = r.reverseErr
-			}
-			break
-		}
-		if !r.reversePrimed || r.reverseCached == nil {
-			break
-		}
-		next := r.reverseCached
-		if next.GetKey().Compare(key) != CmpEqual {
-			break
-		}
-
-		candidateUpdated := next.GetSequenceNumber() > candidate.GetSequenceNumber()
-		if candidateUpdated {
-			candidate = next
-		}
-		item, ok := r.consumePeekedReverse()
-		if candidateUpdated && ok {
-			candidateItem = item
-		}
-	}
-
-	if candidate.GetType() == TypeDeletion {
-		return nil, pqItem{}, false
-	}
-	return candidate, candidateItem, true
 }
 
 func (r *RangeIterator) allowAnchorOnNext() bool {
@@ -168,56 +92,29 @@ func (r *RangeIterator) primeNext() {
 		r.crossingAnchorSet = false
 		return
 	}
+	direction := directionFromOrder(r.order)
 	for !r.nextPrepared && r.err == nil {
-		var (
-			rec         Record
-			recFromPeek bool
-		)
-		if r.order == RangeDesc {
-			if !r.reversePrimed && r.reverseErr == nil {
-				r.ensureReversePrimed()
-			}
-			if r.reverseErr != nil {
-				if !errors.Is(r.reverseErr, EOI) {
-					r.err = r.reverseErr
-				}
+		collapse := r.order == RangeDesc && r.err == nil && !r.forward
+		candidate, ok, err := r.cursor.next(direction, collapse)
+		if err != nil {
+			if errors.Is(err, EOI) {
 				return
 			}
-			if !r.reversePrimed {
-				return
-			}
-			rec = r.reverseCached
-			recFromPeek = true
-		} else {
-			var err error
-			rec, err = r.mi.Next()
-			switch {
-			case errors.Is(err, EOI):
-				return
-			case err != nil:
-				r.err = err
-				return
-			}
+			r.err = err
+			return
 		}
-
-		peeked := recFromPeek
-		var stagedItem pqItem
-		if recFromPeek {
-			item, ok := r.consumePeekedReverse()
-			if !ok {
+		if !ok {
+			if candidate.peeked {
 				r.forward = false
+			}
+			if direction == DirReverse {
 				continue
 			}
-			stagedItem = item
-			if r.order == RangeDesc && r.err == nil && !r.forward {
-				var collapseOK bool
-				rec, stagedItem, collapseOK = r.collapseDescendingRun(rec, item)
-				if !collapseOK {
-					r.forward = false
-					continue
-				}
-			}
+			return
 		}
+
+		rec := candidate.record
+		peeked := candidate.peeked
 
 		sameKey := r.lastKeySet && rec.GetKey().Compare(r.lastKey) == CmpEqual
 		if sameKey {
@@ -227,7 +124,7 @@ func (r *RangeIterator) primeNext() {
 				if peeked {
 					// Ensure the discarded candidate remains available for Prev()
 					// so oscillating at the boundary can resurface the prior key.
-					r.mi.stageForPrev(stagedItem)
+					r.cursor.stageForPrev(candidate.stagedItem)
 					r.forward = false
 				}
 				continue
@@ -242,7 +139,7 @@ func (r *RangeIterator) primeNext() {
 			continue
 		}
 		if peeked {
-			r.mi.stageForPrev(stagedItem)
+			r.cursor.stageForPrev(candidate.stagedItem)
 			r.forward = false
 		}
 		r.next = rec
@@ -274,8 +171,8 @@ func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 				r.mi.forward = false
 			}
 			rec, err = r.mi.Next()
-			if order == r.order && errors.Is(r.reverseErr, EOI) {
-				r.reverseErr = nil
+			if order == r.order && errors.Is(r.cursor.reverseError(), EOI) {
+				r.cursor.clearReverseError()
 			}
 		} else {
 			rec, err = r.mi.Prev()
@@ -337,8 +234,8 @@ func (r *RangeIterator) Next() (Record, error) {
 		if r.err != nil {
 			return empty, r.err
 		}
-		if r.order == RangeDesc && errors.Is(r.reverseErr, EOI) {
-			r.reverseErr = nil
+		if r.order == RangeDesc && errors.Is(r.cursor.reverseError(), EOI) {
+			r.cursor.clearReverseError()
 			return empty, EOI
 		}
 		return empty, EOI
@@ -389,22 +286,26 @@ func (r *RangeIterator) Last() (Record, error) {
 
 	if r.order == RangeDesc {
 		for {
-			peeked, peekErr := r.mi.peekReverse()
+			peekErr := r.cursor.ensureReversePrimed()
 			switch {
 			case errors.Is(peekErr, EOI):
 				rec = nil
 			case peekErr != nil:
 				return empty, peekErr
 			default:
-				item, ok := r.consumePeekedReverse()
+				peeked := r.cursor.currentReverseCandidate()
+				item, ok := r.cursor.consumePeekedReverse()
 				if !ok {
 					rec = nil
 					break
 				}
-				collapsed, stagedItem, ok := r.collapseDescendingRun(peeked, item)
+				collapsed, stagedItem, ok, collapseErr := r.cursor.collapseDescendingRun(peeked, item)
+				if collapseErr != nil {
+					return empty, collapseErr
+				}
 				if ok {
 					rec = collapsed
-					r.mi.stageForPrev(stagedItem)
+					r.cursor.stageForPrev(stagedItem)
 				} else {
 					rec = nil
 				}
@@ -426,9 +327,7 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.next = nil
 	r.err = nil
 	r.lastKeySet = false
-	r.reversePrimed = false
-	r.reverseCached = nil
-	r.reverseErr = nil
+	r.cursor.resetReverse()
 
 	searchOrder := RangeAsc
 
