@@ -13,15 +13,18 @@ type anchorState struct {
 // record for replay when the traversal direction changes. It returns true when
 // a direction change occurred.
 func (a *anchorState) OnDirectionChange(next Direction, lastEmitted Record) bool {
+	prevDir := a.lastDir
+	a.lastDir = next
+
 	if !a.dirSet {
-		a.lastDir = next
 		a.dirSet = true
 		return false
 	}
-	if a.lastDir == next {
+
+	if prevDir == next {
 		return false
 	}
-	a.lastDir = next
+
 	a.pending = cloneRecord(lastEmitted)
 	return true
 }
