@@ -39,18 +39,13 @@ func (c *rangeCursor) ensureReversePrimed() error {
 		return c.reverseErr
 	}
 	rec, err := c.it.peekReverse()
-	switch {
-	case errors.Is(err, EOI):
+	if err != nil {
 		c.reverseErr = err
 		return err
-	case err != nil:
-		c.reverseErr = err
-		return err
-	default:
-		c.reverseCached = rec
-		c.reversePrimed = true
-		return nil
 	}
+	c.reverseCached = rec
+	c.reversePrimed = true
+	return nil
 }
 
 func (c *rangeCursor) consumePeekedReverse() (pqItem, bool) {
@@ -111,14 +106,13 @@ func (c *rangeCursor) next(dir Direction, collapse bool) (cursorCandidate, bool,
 
 func (c *rangeCursor) nextForward() (cursorCandidate, bool, error) {
 	rec, err := c.it.Next()
-	switch {
-	case err == nil:
-		return cursorCandidate{record: rec}, true, nil
-	case errors.Is(err, EOI):
-		return cursorCandidate{}, false, EOI
-	default:
+	if err != nil {
+		if errors.Is(err, EOI) {
+			return cursorCandidate{}, false, EOI
+		}
 		return cursorCandidate{}, false, err
 	}
+	return cursorCandidate{record: rec}, true, nil
 }
 
 func (c *rangeCursor) nextReverse(collapse bool) (cursorCandidate, bool, error) {
