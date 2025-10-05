@@ -17,8 +17,9 @@
    - Replace bodies of `Next`, `Prev`, and `Last` with `advance` invocations.  
    - `Prev` uses `DirReverse` with cursor reverse helper; `Last` seeds anchors/cursor appropriately before calling `advance`.
 
-4. **State resets**  
-   - On direction change detected by `anchorState`, reset `recordFilter` dedupe state if necessary (e.g., `filter.resetKey()`).
+4. **State resets**
+   - `anchorState.OnDirectionChange` returns a boolean when it stages the last emitted record as an anchor.
+   - When that boolean is true, `RangeIterator.advance` must call `filter.Reset()` before replaying the staged anchor so the dedupe gate allows the anchor key, then call `filter.MarkEmitted(anchor)` to re-prime the dedupe state.
 
 5. **Testing focus**  
    - Update existing iterator tests to pass new collaborators.  

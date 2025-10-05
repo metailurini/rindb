@@ -52,87 +52,115 @@ The current `RangeIterator` mixes cursor staging, key deduplication, direction t
 3. **Implement `recordFilter` for visibility and dedup**  
    - *Rationale*: Centralize key deduplication, tombstone skipping, and snapshot sequence validation to avoid scattered checks.  
    - *Code*:
-     ```diff
-     + type recordFilter struct {
-     +     lastKey []byte
-     +     snapshot sequence.Sequence
-     + }
-     +
-     + func (f *recordFilter) Accept(rec *Record, dir Direction) (*Record, bool) {
-     +     if rec == nil {
-     +         return nil, false
-     +     }
-     +     if isTombstone(rec) || rec.Seq > f.snapshot {
-     +         return nil, false
-     +     }
-     +     if bytes.Equal(rec.Key, f.lastKey) {
-     +         return nil, false
-     +     }
-     +     f.lastKey = append(f.lastKey[:0], rec.Key...)
-     +     return rec, true
-     + }
-     ```
-   - *Rollout Notes*: Decide whether to reset `lastKey` on direction change via `anchorState` callback to avoid stale dedupe when revisiting anchors.  
+    ```diff
+    + type recordFilter struct {
+    +     lastKey []byte
+    +     lastDir Direction
+    +     snapshot sequence.Sequence
+    + }
+    +
+    + func (f *recordFilter) Accept(rec *Record, dir Direction) (*Record, bool) {
+    +     if rec == nil {
+    +         return nil, false
+    +     }
+    +     if dir != f.lastDir {
+    +         f.lastKey = f.lastKey[:0]
+    +         f.lastDir = dir
+    +     }
+    +     if isTombstone(rec) || rec.Seq > f.snapshot {
+    +         return nil, false
+    +     }
+    +     if bytes.Equal(rec.Key, f.lastKey) {
+    +         return nil, false
+    +     }
+    +     f.lastKey = append(f.lastKey[:0], rec.Key...)
+    +     return rec, true
+    + }
+    +
+    + func (f *recordFilter) Reset() {
+    +     f.lastKey = f.lastKey[:0]
+    + }
+    +
+    + func (f *recordFilter) MarkEmitted(rec *Record) {
+    +     if rec == nil {
+    +         return
+    +     }
+    +     f.lastKey = append(f.lastKey[:0], rec.Key...)
+    + }
+    ```
+  - *Rollout Notes*: `RangeIterator` invokes `Reset` on direction change before replaying the anchor so `Accept` can permit the replayed key. `MarkEmitted` keeps dedupe state consistent for anchors that bypass filtering.
    - *Complexity*: 5
 
 4. **Add `anchorState` to manage direction switches**  
    - *Rationale*: Keep track of staged anchors when direction changes so previously peeked records can be replayed without duplicating logic in iterator methods.  
    - *Code*:
-     ```diff
-     + type anchorState struct {
-     +     pending *Record
-     +     lastDir Direction
-     + }
-     +
-     + func (a *anchorState) OnDirectionChange(dir Direction, replay *Record) {
-     +     if a.lastDir != dir {
-     +         a.pending = replay
-     +         a.lastDir = dir
-     +     }
-     + }
-     +
-     + func (a *anchorState) popPending() (*Record, bool) {
-     +     if a.pending == nil {
-     +         return nil, false
-     +     }
-     +     rec := a.pending
-     +     a.pending = nil
-     +     return rec, true
-     + }
-     ```
-   - *Rollout Notes*: Ensure iterator resets filter state when replaying anchors to avoid emitting stale versions twice.  
+    ```diff
+    + type anchorState struct {
+    +     pending *Record
+    +     lastDir Direction
+    + }
+    +
+    + func (a *anchorState) OnDirectionChange(next Direction, lastEmitted *Record) (changed bool) {
+    +     if a.lastDir == next {
+    +         return false
+    +     }
+    +     a.lastDir = next
+    +     a.pending = cloneRecord(lastEmitted)
+    +     return true
+    + }
+    +
+    + func (a *anchorState) popPending() (*Record, bool) {
+    +     if a.pending == nil {
+    +         return nil, false
+    +     }
+    +     rec := a.pending
+    +     a.pending = nil
+    +     return rec, true
+    + }
+    ```
+  - *Rollout Notes*: `OnDirectionChange` is invoked with the last emitted record before pulling new cursor data so the anchor is staged in time for the next `advance` call. `cloneRecord` copies key/value buffers to decouple the staged anchor from future cursor reuse.
    - *Complexity*: 4
 
 5. **Refactor `RangeIterator` as coordinator using new collaborators**  
    - *Rationale*: Simplify `Next`, `Prev`, and `Last` to orchestrate cursor, filter, and anchor state, eliminating duplicated ASC/DESC logic.  
    - *Code*:
-     ```diff
-     - func (ri *RangeIterator) Next() (*Record, bool) {
-     -     // existing combined logic...
-     - }
-     + func (ri *RangeIterator) Next() (*Record, bool) {
-     +     return ri.advance(DirForward, func(c *rangeCursor) (*Record, bool) {
-     +         return c.next(DirForward)
-     +     })
-     + }
-     +
-     + func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (*Record, bool)) (*Record, bool) {
-     +     if rec, ok := ri.anchors.popPending(); ok {
-     +         return rec, true
-     +     }
-     +     for {
-     +         rec, ok := pull(ri.cursor)
-     +         if !ok {
-     +             return nil, false
-     +         }
-     +         if accepted, ok := ri.filter.Accept(rec, dir); ok {
-     +             ri.anchors.OnDirectionChange(dir, rec)
-     +             return accepted, true
-     +         }
-     +     }
-     + }
-     ```
-   - *Rollout Notes*: Update constructor to inject collaborators, wire `Prev`/`Last` through `advance`, and ensure tests cover direction flips. Detailed coordination plan is in [`01_range_iterator_coordinator.md`](./01_range_iterator_coordinator.md).  
+    ```diff
+    - func (ri *RangeIterator) Next() (*Record, bool) {
+    -     // existing combined logic...
+    - }
+    + func (ri *RangeIterator) Next() (*Record, bool) {
+    +     return ri.advance(DirForward, func(c *rangeCursor) (*Record, bool) {
+    +         return c.next(DirForward)
+    +     })
+    + }
+    +
+    + func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (*Record, bool)) (*Record, bool) {
+    +     if changed := ri.anchors.OnDirectionChange(dir, ri.lastEmitted); changed {
+    +         ri.filter.Reset()
+    +         if rec, ok := ri.anchors.popPending(); ok {
+    +             ri.filter.MarkEmitted(rec)
+    +             ri.lastEmitted = rec
+    +             return rec, true
+    +         }
+    +     }
+    +     if rec, ok := ri.anchors.popPending(); ok {
+    +         ri.filter.MarkEmitted(rec)
+    +         ri.lastEmitted = rec
+    +         return rec, true
+    +     }
+    +     for {
+    +         rec, ok := pull(ri.cursor)
+    +         if !ok {
+    +             return nil, false
+    +         }
+    +         if accepted, ok := ri.filter.Accept(rec, dir); ok {
+    +             ri.lastEmitted = accepted
+    +             return accepted, true
+    +         }
+    +     }
+    + }
+    ```
+  - *Rollout Notes*: Update constructor to inject collaborators, persist `lastEmitted` inside `RangeIterator`, wire `Prev`/`Last` through `advance`, and ensure tests cover direction flips. Detailed coordination plan is in [`01_range_iterator_coordinator.md`](./01_range_iterator_coordinator.md).
    - *Complexity*: 8 ➜ see linked sub-plan.
 
 # Pitfalls & Validation
@@ -151,7 +179,8 @@ RangeIterator
   ├── direction Direction
   ├── cursor    *rangeCursor   // wraps MergingIterator
   ├── filter    recordFilter   // handles visibility
-  └── anchors   anchorState    // manages direction flips
+  ├── anchors   anchorState    // manages direction flips
+  └── lastEmitted *Record      // staged for anchor replay
 
 Next/Prev/Last:
   rec := anchors.popPending() ?? cursor.next(direction)
