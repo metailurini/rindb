@@ -16,8 +16,8 @@ type recordFilter struct {
 
 // newRecordFilter constructs a recordFilter bound to the provided snapshot. A
 // nil snapshot permits all sequence numbers.
-func newRecordFilter(snapshot *uint64) recordFilter {
-	f := recordFilter{}
+func newRecordFilter(snapshot *uint64) *recordFilter {
+	f := &recordFilter{}
 	if snapshot != nil {
 		f.snapshot = *snapshot
 		f.hasSnapshot = true
@@ -63,11 +63,12 @@ func (f *recordFilter) Reset() {
 
 // MarkEmitted updates the deduplication state for a record that bypassed
 // Accept, such as when replaying an anchor during a direction switch.
-func (f *recordFilter) MarkEmitted(rec Record) {
+func (f *recordFilter) MarkEmitted(rec Record, dir Direction) {
 	if rec == nil {
 		return
 	}
 	f.remember(rec.GetKey())
+	f.lastDir = dir
 	f.dirSet = true
 }
 
@@ -77,8 +78,6 @@ func (f *recordFilter) remember(key Bytes) {
 }
 
 func (f *recordFilter) resetKey() {
-	if f.lastKey != nil {
-		f.lastKey = f.lastKey[:0]
-	}
+	f.lastKey = f.lastKey[:0]
 	f.lastKeySet = false
 }
