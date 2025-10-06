@@ -16,6 +16,13 @@ func directionFromOrder(order RangeOrder) Direction {
 	return DirReverse
 }
 
+func oppositeDirection(dir Direction) Direction {
+	if dir == DirForward {
+		return DirReverse
+	}
+	return DirForward
+}
+
 type cursorCandidate struct {
 	record     Record
 	stagedItem pqItem
