@@ -287,16 +287,12 @@ func (r *RangeIterator) pullDescendingTail() pullFunc {
 			candidate := seed
 			stagedItem := item
 			if r.shouldCollapseReverse(DirReverse) {
-				rec, staged, okCollapse, err := c.collapseDescendingRun(seed, item)
+				rec, staged, _, err := c.collapseDescendingRun(seed, item)
 				if err != nil {
 					return nil, false, err
 				}
-				if okCollapse {
-					candidate = rec
-					stagedItem = staged
-				} else {
-					candidate = nil
-				}
+				candidate = rec
+				stagedItem = staged
 			}
 
 			if candidate == nil {
