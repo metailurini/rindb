@@ -168,6 +168,9 @@ func (r *RangeIterator) Last() (Record, error) {
 	}
 
 	if consumeAll && r.cursor.it.fwd.Len() > 0 {
+		// pullDescendingTail stages the terminal forward candidate when the
+		// cursor switches directions. Trim that staging so a subsequent
+		// forward traversal doesn't replay the tail key we just emitted.
 		_ = r.cursor.it.fwd.PopItem()
 	}
 
@@ -201,12 +204,8 @@ func (r *RangeIterator) prepare(dir Direction, pull pullFunc) *preparedState {
 }
 
 func (r *RangeIterator) advance(dir Direction, pull pullFunc) (Record, error) {
-	if r.anchors.OnDirectionChange(dir, r.lastEmitted) {
-		if rec, ok := r.anchors.popPending(); ok {
-			r.filter.MarkEmitted(rec, dir)
-			return rec, nil
-		}
-	} else if rec, ok := r.anchors.popPending(); ok {
+	r.anchors.OnDirectionChange(dir, r.lastEmitted)
+	if rec, ok := r.anchors.popPending(); ok {
 		r.filter.MarkEmitted(rec, dir)
 		return rec, nil
 	}

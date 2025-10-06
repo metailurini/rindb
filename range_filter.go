@@ -1,5 +1,7 @@
 package rindb
 
+import "bytes"
+
 // recordFilter coordinates record visibility and deduplication for range
 // iteration. It tracks the last emitted key so duplicate physical versions of a
 // user key are suppressed and applies snapshot and tombstone filtering.
@@ -13,13 +15,13 @@ type recordFilter struct {
 	snapshot    uint64
 	hasSnapshot bool
 
-	tombstoned map[string]struct{}
+	tombstoned map[uint64][]Bytes
 }
 
 // newRecordFilter constructs a recordFilter bound to the provided snapshot. A
 // nil snapshot permits all sequence numbers.
 func newRecordFilter(snapshot *uint64) *recordFilter {
-	f := &recordFilter{tombstoned: make(map[string]struct{})}
+	f := &recordFilter{tombstoned: make(map[uint64][]Bytes)}
 	if snapshot != nil {
 		f.snapshot = *snapshot
 		f.hasSnapshot = true
@@ -41,8 +43,8 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 		f.dirSet = true
 	}
 
-	keyStr := string(rec.GetKey())
-	if _, tombstoned := f.tombstoned[keyStr]; tombstoned {
+	key := rec.GetKey()
+	if f.isTombstoned(key) {
 		return nil, false
 	}
 
@@ -51,13 +53,13 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 	}
 
 	if rec.GetType() == TypeDeletion {
-		f.tombstoned[keyStr] = struct{}{}
-		f.remember(rec.GetKey())
+		f.markTombstoned(key)
+		f.remember(key)
 		return nil, false
 	}
 
 	if f.lastKeySet {
-		cmp := rec.GetKey().Compare(f.lastKey)
+		cmp := key.Compare(f.lastKey)
 		switch dir {
 		case DirForward:
 			if cmp == CmpLess {
@@ -70,11 +72,11 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 		}
 	}
 
-	if f.lastKeySet && rec.GetKey().Compare(f.lastKey) == CmpEqual {
+	if f.lastKeySet && key.Compare(f.lastKey) == CmpEqual {
 		return nil, false
 	}
 
-	f.remember(rec.GetKey())
+	f.remember(key)
 	return rec, true
 }
 
@@ -97,4 +99,34 @@ func (f *recordFilter) remember(key Bytes) {
 func (f *recordFilter) resetKey() {
 	f.lastKey = f.lastKey[:0]
 	f.lastKeySet = false
+}
+
+func (f *recordFilter) markTombstoned(key Bytes) {
+	hash := hashBytes(key)
+	cloned := append(Bytes(nil), key...)
+	f.tombstoned[hash] = append(f.tombstoned[hash], cloned)
+}
+
+func (f *recordFilter) isTombstoned(key Bytes) bool {
+	hash := hashBytes(key)
+	candidates := f.tombstoned[hash]
+	for _, existing := range candidates {
+		if bytes.Equal(existing, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func hashBytes(b Bytes) uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	hash := uint64(offset64)
+	for _, by := range b {
+		hash ^= uint64(by)
+		hash *= prime64
+	}
+	return hash
 }
