@@ -4,11 +4,11 @@ package rindb
 // iteration. It tracks the last emitted key so duplicate physical versions of a
 // user key are suppressed and applies snapshot and tombstone filtering.
 type recordFilter struct {
-	lastKey    Bytes
-	lastKeySet bool
+	recentKey Bytes
+	haveKey   bool
 
-	lastDir Direction
-	dirSet  bool
+	currentDir Direction
+	haveDir    bool
 
 	snapshot    uint64
 	hasSnapshot bool
@@ -33,10 +33,10 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 		return nil, false
 	}
 
-	if !f.dirSet || dir != f.lastDir {
+	if !f.haveDir || dir != f.currentDir {
 		f.resetKey()
-		f.lastDir = dir
-		f.dirSet = true
+		f.currentDir = dir
+		f.haveDir = true
 	}
 
 	if f.hasSnapshot && rec.GetSequenceNumber() > f.snapshot {
@@ -47,7 +47,7 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 		return nil, false
 	}
 
-	if f.lastKeySet && rec.GetKey().Compare(f.lastKey) == CmpEqual {
+	if f.haveKey && rec.GetKey().Compare(f.recentKey) == CmpEqual {
 		return nil, false
 	}
 
@@ -68,16 +68,22 @@ func (f *recordFilter) MarkEmitted(rec Record, dir Direction) {
 		return
 	}
 	f.remember(rec.GetKey())
-	f.lastDir = dir
-	f.dirSet = true
+	f.currentDir = dir
+	f.haveDir = true
 }
 
 func (f *recordFilter) remember(key Bytes) {
-	f.lastKey = append(f.lastKey[:0], key...)
-	f.lastKeySet = true
+	f.recentKey = append(f.recentKey[:0], key...)
+	f.haveKey = true
 }
 
 func (f *recordFilter) resetKey() {
-	f.lastKey = f.lastKey[:0]
-	f.lastKeySet = false
+	f.recentKey = f.recentKey[:0]
+	f.haveKey = false
+}
+
+func (f *recordFilter) clone() recordFilter {
+	copy := *f
+	copy.recentKey = append(Bytes(nil), f.recentKey...)
+	return copy
 }

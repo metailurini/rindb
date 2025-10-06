@@ -195,13 +195,111 @@ The current `RangeIterator` mixes cursor staging, key deduplication, direction t
    - *Complexity*: 4
 
 8. **Finalize collaborator cleanup and test adjustments**
-   - *Rationale*: Remove obsolete fields/helpers, align tests with the new orchestration model, and document the direction-switch behavior.
+   - *Rationale*: Strip the remaining staging state so direction changes, anchor replay, and dedupe are fully owned by the new collaborators.
+   - *Incremental Plan*:
+     1. **Teach `anchorState` to own replay bookkeeping** – Move `lastDir`/`lastEmitted` into `anchorState` so the iterator no longer mirrors that state. Introduce `MarkLastEmitted` and change `OnDirectionChange`/`PopPending` to derive anchors from the embedded copy.
+     2. **Delete the legacy iterator fields** – Drop `lastDir`, `lastEmitted`, `lastKey`, `lastKeySet`, `next`, `prev`, `nextPrepared`, `prevPrepared`, `forward`, `crossingAnchor`, and `crossingAnchorSet` from `RangeIterator`.
+     3. **Inline the old helpers** – Remove `prepareNext`, `preparePrev`, and `crossingAnchor` plumbing, forwarding their responsibilities to `rangeCursor` + `anchorState`.
+     4. **Harden tests around collaborator state** – Update iterator unit tests to assert `anchorState` transitions and filter dedupe rather than legacy staging flags.
    - *Code*:
     ```diff
-    - // legacy staging helpers...
-    + // collaborators handle staging; remove redundant helpers
+    type anchorState struct {
+-       pending *Record
+-       lastDir Direction
++       pending     *Record
++       lastDir     Direction
++       lastEmitted *Record
+    }
+
+-func (a *anchorState) OnDirectionChange(next Direction, lastEmitted *Record) (changed bool) {
+-    if a.lastDir == next {
+-        return false
+-    }
+-    a.lastDir = next
+-    a.pending = cloneRecord(lastEmitted)
+-    return true
+-}
++func (a *anchorState) OnDirectionChange(next Direction) (changed bool) {
++    if a.lastDir == next {
++        return false
++    }
++    a.lastDir = next
++    a.pending = cloneRecord(a.lastEmitted)
++    return true
++}
+
+-func (a *anchorState) popPending() (*Record, bool) {
++func (a *anchorState) PopPending(dir Direction) (*Record, bool) {
+     if a.pending == nil {
+         return nil, false
+     }
+     rec := a.pending
+     a.pending = nil
+     return rec, true
+ }
+
++func (a *anchorState) MarkLastEmitted(rec *Record, dir Direction) {
++    a.lastDir = dir
++    a.lastEmitted = cloneRecord(rec)
++}
+
+    type RangeIterator struct {
+-       cursor            *rangeCursor
+-       filter            *recordFilter
+-       anchors           *anchorState
+-       lastDir           Direction
+-       lastEmitted       *Record
+-       lastKey           []byte
+-       lastKeySet        bool
+-       next              *Record
+-       nextPrepared      bool
+-       prev              *Record
+-       prevPrepared      bool
+-       forward           bool
+-       crossingAnchor    *Record
+-       crossingAnchorSet bool
++       cursor  *rangeCursor
++       filter  *recordFilter
++       anchors *anchorState
+    }
+
+    func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (*Record, bool, error)) (*Record, bool, error) {
+-       if changed := ri.anchors.OnDirectionChange(dir, ri.lastEmitted); changed {
++       if changed := ri.anchors.OnDirectionChange(dir); changed {
+            ri.filter.Reset()
+        }
+-       if rec, ok := ri.anchors.popPending(); ok {
+-           ri.filter.MarkEmitted(rec)
+-           ri.lastEmitted = rec
+-           ri.lastDir = dir
+-           return rec, true, nil
++       if rec, ok := ri.anchors.PopPending(dir); ok {
++           ri.filter.MarkEmitted(rec)
++           ri.anchors.MarkLastEmitted(rec, dir)
++           return rec, true, nil
+        }
+        for {
+            rec, ok, err := pull(ri.cursor)
+            if err != nil {
+                return nil, false, err
+            }
+            if !ok {
+                return nil, false, nil
+            }
+            if accepted, ok := ri.filter.Accept(rec, dir); ok {
+-               ri.lastEmitted = accepted
+-               ri.lastDir = dir
+-               return accepted, true, nil
++               ri.anchors.MarkLastEmitted(accepted, dir)
++               return accepted, true, nil
+            }
+        }
+    }
+
+    // cursor/anchors now provide staging and direction handling; delete legacy
+    // `prepareNext`, `preparePrev`, and `crossingAnchor` helpers.
     ```
-   - *Rollout Notes*: Update constructor wiring, delete unused state, and extend tests noted in the Pitfalls section. Detailed coordination plan remains in [`01_range_iterator_coordinator.md`](./01_range_iterator_coordinator.md).
+   - *Rollout Notes*: Removing the legacy fields is mechanical once `anchorState` owns the emitted record. The iterator no longer mirrors direction state, so tests should assert `anchorState.MarkLastEmitted` is exercised instead of checking `lastDir`/`forward` flags. Clean up any TODOs that referenced the legacy helpers. Detailed coordination plan remains in [`01_range_iterator_coordinator.md`](./01_range_iterator_coordinator.md).
    - *Complexity*: 4
 
 # Pitfalls & Validation
