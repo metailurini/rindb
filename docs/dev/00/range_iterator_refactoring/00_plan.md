@@ -121,8 +121,62 @@ The current `RangeIterator` mixes cursor staging, key deduplication, direction t
   - *Rollout Notes*: `OnDirectionChange` is invoked with the last emitted record before pulling new cursor data so the anchor is staged in time for the next `advance` call. `cloneRecord` copies key/value buffers to decouple the staged anchor from future cursor reuse.
    - *Complexity*: 4
 
-5. **Refactor `RangeIterator` as coordinator using new collaborators**  
-   - *Rationale*: Simplify `Next`, `Prev`, and `Last` to orchestrate cursor, filter, and anchor state, eliminating duplicated ASC/DESC logic.  
+5. **Introduce collaborator fields into `RangeIterator`**
+   - *Rationale*: Plumb the new `Direction`, `rangeCursor`, `recordFilter`, and `anchorState` members so the iterator can orchestrate them without altering method logic yet.
+   - *Incremental Plan*:
+     1. **Define the fields and shims** – Add the collaborators and the `lastDir`/`lastEmitted` bookkeeping to `RangeIterator`, leaving existing fields in place. Provide temporary getters so un-migrated helpers can keep reading the legacy state.
+     2. **Wire constructors** – Update `newRangeIterator` (and any builder call sites) to allocate the collaborators, threading through the existing `MergingIterator`, snapshot, and metrics dependencies.
+     3. **Bridge legacy helpers** – Add minimal forwarding glue so legacy `stage`/`peek` helpers can call into the new collaborators without changing their signatures.
+   - *Code*:
+    ```diff
+    + type RangeIterator struct {
+    +     cursor      *rangeCursor
+    +     filter      *recordFilter
+    +     anchors     *anchorState
+    +     lastDir     Direction
+    +     lastEmitted *Record
+    +     // existing fields remain until Step 8 cleanup
+    + }
+    ```
+   - *Rollout Notes*: Keep constructors backward compatible (no new params) by instantiating collaborators internally. Gate any temporary glue with TODOs that reference the cleanup step so they do not linger.
+   - *Complexity*: 3 (spread over three PR-sized substeps)
+
+6. **Add shared `advance` helper and direction bookkeeping**
+   - *Rationale*: Centralize direction change handling and anchor replay before refactoring the public traversal methods.
+   - *Incremental Plan*:
+     1. **Skeleton helper** – Land a no-op `advance` that simply delegates to the provided puller while recording `lastDir`/`lastEmitted`. Use feature-flag style wrappers so `Next`/`Prev` can opt in without losing existing behavior.
+     2. **Direction change handling** – Introduce the `anchors.OnDirectionChange` call and `filter.Reset` logic, guarded behind temporary conditionals so we can toggle the behavior in tests.
+     3. **Pending anchor replay** – Wire `popPending` and `filter.MarkEmitted`, then tighten the helper loop to repeatedly call the puller until `recordFilter` accepts a record.
+   - *Code*:
+    ```diff
+    + func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (*Record, bool)) (*Record, bool) {
+    +     if changed := ri.anchors.OnDirectionChange(dir, ri.lastEmitted); changed {
+    +         ri.filter.Reset()
+    +     }
+    +     if rec, ok := ri.anchors.popPending(); ok {
+    +         ri.filter.MarkEmitted(rec)
+    +         ri.lastEmitted = rec
+    +         ri.lastDir = dir
+    +         return rec, true
+    +     }
+    +     for {
+    +         rec, ok := pull(ri.cursor)
+    +         if !ok {
+    +             return nil, false
+    +         }
+    +         if accepted, ok := ri.filter.Accept(rec, dir); ok {
+    +             ri.lastEmitted = accepted
+    +             ri.lastDir = dir
+    +             return accepted, true
+    +         }
+    +     }
+    + }
+    ```
+   - *Rollout Notes*: Each substep should land with focused tests (e.g., one verifies `lastDir` updates, another asserts anchor replay) before enabling the full loop in step 3. Only after the helper is battle-tested do `Next`/`Prev` swap to it in Step 7.
+   - *Complexity*: 5 (executed as three incremental changes)
+
+7. **Refactor `Next`, `Prev`, and `Last` to use `advance`**
+   - *Rationale*: Replace duplicated ASC/DESC branching with thin wrappers that invoke `advance` using appropriate cursor pulls.
    - *Code*:
     ```diff
     - func (ri *RangeIterator) Next() (*Record, bool) {
@@ -133,35 +187,19 @@ The current `RangeIterator` mixes cursor staging, key deduplication, direction t
     +         return c.next(DirForward)
     +     })
     + }
-    +
-    + func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (*Record, bool)) (*Record, bool) {
-    +     if changed := ri.anchors.OnDirectionChange(dir, ri.lastEmitted); changed {
-    +         ri.filter.Reset()
-    +         if rec, ok := ri.anchors.popPending(); ok {
-    +             ri.filter.MarkEmitted(rec)
-    +             ri.lastEmitted = rec
-    +             return rec, true
-    +         }
-    +     }
-    +     if rec, ok := ri.anchors.popPending(); ok {
-    +         ri.filter.MarkEmitted(rec)
-    +         ri.lastEmitted = rec
-    +         return rec, true
-    +     }
-    +     for {
-    +         rec, ok := pull(ri.cursor)
-    +         if !ok {
-    +             return nil, false
-    +         }
-    +         if accepted, ok := ri.filter.Accept(rec, dir); ok {
-    +             ri.lastEmitted = accepted
-    +             return accepted, true
-    +         }
-    +     }
-    + }
     ```
-  - *Rollout Notes*: Update constructor to inject collaborators, persist `lastEmitted` inside `RangeIterator`, wire `Prev`/`Last` through `advance`, and ensure tests cover direction flips. Detailed coordination plan is in [`01_range_iterator_coordinator.md`](./01_range_iterator_coordinator.md).
-   - *Complexity*: 8 ➜ see linked sub-plan.
+   - *Rollout Notes*: Mirror the `Next` changes into `Prev` and `Last`, ensuring tests cover direction flips and anchor replay. Any removed legacy helpers get folded into `rangeCursor` or deleted in follow-up cleanup.
+   - *Complexity*: 4
+
+8. **Finalize collaborator cleanup and test adjustments**
+   - *Rationale*: Remove obsolete fields/helpers, align tests with the new orchestration model, and document the direction-switch behavior.
+   - *Code*:
+    ```diff
+    - // legacy staging helpers...
+    + // collaborators handle staging; remove redundant helpers
+    ```
+   - *Rollout Notes*: Update constructor wiring, delete unused state, and extend tests noted in the Pitfalls section. Detailed coordination plan remains in [`01_range_iterator_coordinator.md`](./01_range_iterator_coordinator.md).
+   - *Complexity*: 4
 
 # Pitfalls & Validation
 - **Risk**: Incorrect deduplication when switching directions could re-emit stale versions.  
