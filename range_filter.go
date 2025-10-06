@@ -59,6 +59,7 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 // record as unseen regardless of the user key.
 func (f *recordFilter) Reset() {
 	f.resetKey()
+	f.haveDir = false
 }
 
 // MarkEmitted updates the deduplication state for a record that bypassed
