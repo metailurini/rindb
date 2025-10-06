@@ -52,3 +52,24 @@ func TestAnchorState_OnDirectionChangeIgnoresSameDirection(t *testing.T) {
 		t.Fatalf("did not expect pending record when direction unchanged")
 	}
 }
+
+func TestAnchorState_MarkLastEmittedClearsWhenNil(t *testing.T) {
+	state := &anchorState{}
+	rec := RecordImpl{Key: Bytes("key"), SequenceNumber: 1}
+	state.MarkLastEmitted(rec, DirForward)
+	state.MarkLastEmitted(nil, DirForward)
+	if state.recent != nil {
+		t.Fatalf("expected nil record to clear recent state")
+	}
+}
+
+func TestAnchorState_LastDirectionUnset(t *testing.T) {
+	state := &anchorState{}
+	dir, ok := state.LastDirection()
+	if ok {
+		t.Fatalf("expected unset direction to report false")
+	}
+	if dir != DirForward {
+		t.Fatalf("expected zero value direction to be forward")
+	}
+}
