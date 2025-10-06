@@ -6,15 +6,17 @@ func TestAnchorState_OnDirectionChangeStagesClone(t *testing.T) {
 	state := &anchorState{}
 	rec := RecordImpl{Key: Bytes("key"), Value: Bytes("value"), SequenceNumber: 1}
 
-	if changed := state.OnDirectionChange(DirForward, nil); changed {
+	if changed := state.OnDirectionChange(DirForward); changed {
 		t.Fatalf("expected initial direction to report no change")
 	}
 
-	if changed := state.OnDirectionChange(DirReverse, rec); !changed {
+	state.MarkLastEmitted(rec, DirForward)
+
+	if changed := state.OnDirectionChange(DirReverse); !changed {
 		t.Fatalf("expected direction switch to report change")
 	}
 
-	staged, ok := state.popPending()
+	staged, ok := state.PopPending(DirReverse)
 	if !ok {
 		t.Fatalf("expected pending record after direction change")
 	}
@@ -32,7 +34,7 @@ func TestAnchorState_OnDirectionChangeStagesClone(t *testing.T) {
 		t.Fatalf("expected staged record to be independent clone")
 	}
 
-	if _, ok := state.popPending(); ok {
+	if _, ok := state.PopPending(DirReverse); ok {
 		t.Fatalf("expected pending record to be cleared after pop")
 	}
 }
@@ -41,11 +43,12 @@ func TestAnchorState_OnDirectionChangeIgnoresSameDirection(t *testing.T) {
 	state := &anchorState{}
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 2}
 
-	state.OnDirectionChange(DirForward, rec)
-	if changed := state.OnDirectionChange(DirForward, rec); changed {
+	state.MarkLastEmitted(rec, DirForward)
+	state.OnDirectionChange(DirForward)
+	if changed := state.OnDirectionChange(DirForward); changed {
 		t.Fatalf("expected same direction to report no change")
 	}
-	if _, ok := state.popPending(); ok {
+	if _, ok := state.PopPending(DirForward); ok {
 		t.Fatalf("did not expect pending record when direction unchanged")
 	}
 }
