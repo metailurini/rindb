@@ -83,13 +83,6 @@ func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
 }
 
 func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, bool, error)) (Record, bool, error) {
-	if r.anchors == nil {
-		r.anchors = &anchorState{}
-	}
-	if r.filter == nil {
-		r.filter = newRecordFilter(nil)
-	}
-
 	if changed := r.anchors.OnDirectionChange(dir, r.lastEmitted); changed {
 		r.filter.Reset()
 	}
@@ -318,7 +311,7 @@ func (r *RangeIterator) pullNextPrepared(*rangeCursor) (Record, bool, error) {
 // Prev implements Iterator[Record].
 func (r *RangeIterator) Prev() (Record, error) {
 	dir := oppositeDirection(directionFromOrder(r.order))
-	rec, ok, err := r.advance(dir, r.pullPrevPrepared(r.order))
+	rec, ok, err := r.advance(dir, r.newPrevPuller(r.order))
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +327,7 @@ func (r *RangeIterator) Prev() (Record, error) {
 	return rec, nil
 }
 
-func (r *RangeIterator) pullPrevPrepared(order RangeOrder) func(*rangeCursor) (Record, bool, error) {
+func (r *RangeIterator) newPrevPuller(order RangeOrder) func(*rangeCursor) (Record, bool, error) {
 	return func(*rangeCursor) (Record, bool, error) {
 		if !r.prevPrepared {
 			r.primePrevWithOrder(order)
@@ -406,13 +399,9 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.lastKeySet = false
 	r.cursor.resetReverse()
 	r.lastEmitted = nil
-	if r.anchors != nil {
-		r.anchors = &anchorState{}
-	}
-	if r.filter != nil {
-		r.filter.Reset()
-		r.filter.dirSet = false
-	}
+	r.anchors = &anchorState{}
+	r.filter.Reset()
+	r.filter.dirSet = false
 
 	searchOrder := RangeAsc
 
@@ -422,7 +411,7 @@ func (r *RangeIterator) Last() (Record, error) {
 	}
 
 	dir := oppositeDirection(directionFromOrder(r.order))
-	pullPrev := r.pullPrevPrepared(searchOrder)
+	pullPrev := r.newPrevPuller(searchOrder)
 
 	for {
 		current, ok, err := r.advance(dir, pullPrev)
