@@ -403,9 +403,8 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.prefetch.ClearAll()
 	r.err = nil
 	r.cursor.resetReverse()
-	r.anchors = &anchorState{}
+	r.anchors.Reset()
 	r.filter.Reset()
-	r.filter.haveDir = false
 
 	searchOrder := RangeAsc
 

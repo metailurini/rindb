@@ -12,6 +12,14 @@ type anchorState struct {
 	recent     Record
 }
 
+// Reset clears all state from the anchor manager.
+func (a *anchorState) Reset() {
+	if a == nil {
+		return
+	}
+	*a = anchorState{}
+}
+
 func dirIndex(dir Direction) int {
 	if dir == DirReverse {
 		return 1
