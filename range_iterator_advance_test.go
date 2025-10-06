@@ -18,11 +18,11 @@ func TestRangeIteratorAdvance_ReplaysPendingAnchor(t *testing.T) {
 	}
 
 	last := rec("a", "va", 1, TypeValue)
-	ri.lastEmitted = last
+	ri.anchors.MarkLastEmitted(last, DirForward)
 
 	// Seed the anchor state with an initial forward traversal so the next
 	// direction switch stages the last emitted record.
-	changed := ri.anchors.OnDirectionChange(DirForward, ri.lastEmitted)
+	changed := ri.anchors.OnDirectionChange(DirForward)
 	require.False(t, changed)
 	ri.filter.MarkEmitted(last, DirForward)
 
@@ -38,8 +38,8 @@ func TestRangeIteratorAdvance_ReplaysPendingAnchor(t *testing.T) {
 	assert.Equal(t, Bytes("a"), replayed.GetKey())
 	assert.Equal(t, Bytes("va"), replayed.GetValue())
 	assert.Equal(t, 0, pullCalls, "anchor replay should bypass cursor pulls")
-	assert.Equal(t, DirReverse, ri.lastDir)
-	assert.Equal(t, Bytes("a"), ri.lastEmitted.GetKey())
+	assert.Equal(t, DirReverse, ri.anchors.currentDir)
+	assert.Equal(t, Bytes("a"), ri.anchors.recent.GetKey())
 }
 
 func TestRangeIteratorAdvance_FiltersUntilAccept(t *testing.T) {
