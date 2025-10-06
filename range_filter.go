@@ -82,8 +82,8 @@ func (f *recordFilter) resetKey() {
 	f.haveKey = false
 }
 
-func (f *recordFilter) clone() recordFilter {
+func (f *recordFilter) clone() *recordFilter {
 	copy := *f
 	copy.recentKey = append(Bytes(nil), f.recentKey...)
-	return copy
+	return &copy
 }

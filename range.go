@@ -153,6 +153,7 @@ func (r *RangeIterator) primeNext() {
 	if r.prefetch.Has(direction) {
 		return
 	}
+	filterClone := r.filter.clone()
 	for !r.prefetch.Has(direction) && r.err == nil {
 		collapse := r.shouldCollapseForNext()
 		candidate, ok, err := r.cursor.next(direction, collapse)
@@ -175,14 +176,13 @@ func (r *RangeIterator) primeNext() {
 			continue
 		}
 		if rec.GetType() == TypeDeletion {
-			r.filter.MarkEmitted(rec, direction)
+			filterClone.MarkEmitted(rec, direction)
 			if candidate.peeked {
 				r.cursor.stageForPrev(candidate.stagedItem)
 			}
 			continue
 		}
-		clone := r.filter.clone()
-		if _, accepted := clone.Accept(rec, direction); !accepted {
+		if _, accepted := filterClone.Accept(rec, direction); !accepted {
 			if candidate.peeked {
 				r.cursor.stageForPrev(candidate.stagedItem)
 			}
@@ -293,8 +293,8 @@ func (r *RangeIterator) HasNext() bool {
 		if !ok {
 			return false
 		}
-		clone := r.filter.clone()
-		if _, accepted := clone.Accept(candidate, dir); accepted {
+		filterClone := r.filter.clone()
+		if _, accepted := filterClone.Accept(candidate, dir); accepted {
 			return true
 		}
 		r.prefetch.Pop(dir)
@@ -345,8 +345,8 @@ func (r *RangeIterator) HasPrev() bool {
 		if !ok {
 			return false
 		}
-		clone := r.filter.clone()
-		if _, accepted := clone.Accept(candidate, dir); accepted {
+		filterClone := r.filter.clone()
+		if _, accepted := filterClone.Accept(candidate, dir); accepted {
 			return true
 		}
 		r.prefetch.Pop(dir)
