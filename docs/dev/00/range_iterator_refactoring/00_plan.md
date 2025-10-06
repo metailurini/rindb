@@ -149,7 +149,7 @@ The current `RangeIterator` mixes cursor staging, key deduplication, direction t
      3. **Pending anchor replay** – Wire `popPending` and `filter.MarkEmitted`, then tighten the helper loop to repeatedly call the puller until `recordFilter` accepts a record.
    - *Code*:
     ```diff
-    + func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (*Record, bool)) (*Record, bool) {
+    + func (ri *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, bool, error)) (Record, bool, error) {
     +     if changed := ri.anchors.OnDirectionChange(dir, ri.lastEmitted); changed {
     +         ri.filter.Reset()
     +     }
@@ -157,17 +157,20 @@ The current `RangeIterator` mixes cursor staging, key deduplication, direction t
     +         ri.filter.MarkEmitted(rec)
     +         ri.lastEmitted = rec
     +         ri.lastDir = dir
-    +         return rec, true
+    +         return rec, true, nil
     +     }
     +     for {
-    +         rec, ok := pull(ri.cursor)
+    +         rec, ok, err := pull(ri.cursor)
+    +         if err != nil {
+    +             return nil, false, err
+    +         }
     +         if !ok {
-    +             return nil, false
+    +             return nil, false, nil
     +         }
     +         if accepted, ok := ri.filter.Accept(rec, dir); ok {
     +             ri.lastEmitted = accepted
     +             ri.lastDir = dir
-    +             return accepted, true
+    +             return accepted, true, nil
     +         }
     +     }
     + }
