@@ -311,7 +311,7 @@ func (r *RangeIterator) pullNextPrepared(*rangeCursor) (Record, bool, error) {
 // Prev implements Iterator[Record].
 func (r *RangeIterator) Prev() (Record, error) {
 	dir := oppositeDirection(directionFromOrder(r.order))
-	rec, ok, err := r.advance(dir, r.newPrevPuller(r.order))
+	rec, ok, err := r.advance(dir, r.makePrevPuller(r.order))
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func (r *RangeIterator) Prev() (Record, error) {
 	return rec, nil
 }
 
-func (r *RangeIterator) newPrevPuller(order RangeOrder) func(*rangeCursor) (Record, bool, error) {
+func (r *RangeIterator) makePrevPuller(order RangeOrder) func(*rangeCursor) (Record, bool, error) {
 	return func(*rangeCursor) (Record, bool, error) {
 		if !r.prevPrepared {
 			r.primePrevWithOrder(order)
@@ -411,7 +411,7 @@ func (r *RangeIterator) Last() (Record, error) {
 	}
 
 	dir := oppositeDirection(directionFromOrder(r.order))
-	pullPrev := r.newPrevPuller(searchOrder)
+	pullPrev := r.makePrevPuller(searchOrder)
 
 	for {
 		current, ok, err := r.advance(dir, pullPrev)
