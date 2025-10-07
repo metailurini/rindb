@@ -69,7 +69,7 @@ func TestRecordFilter_ResetClearsSeenKey(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, rec, accepted)
 
-	filter.Reset()
+	filter.reset()
 
 	replay, ok := filter.accept(older, DirForward)
 	require.True(t, ok)
