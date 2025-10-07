@@ -6,7 +6,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecordFilterAcceptsVisibleValues(t *testing.T) {
+func TestRecordFilter_AcceptsVisibleValues(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 4, Type: TypeValue}
 
@@ -16,7 +17,8 @@ func TestRecordFilterAcceptsVisibleValues(t *testing.T) {
 	require.Equal(t, rec, accepted)
 }
 
-func TestRecordFilterRejectsTombstones(t *testing.T) {
+func TestRecordFilter_RejectsTombstones(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 4, Type: TypeDeletion}
 
@@ -26,7 +28,8 @@ func TestRecordFilterRejectsTombstones(t *testing.T) {
 	require.Nil(t, accepted)
 }
 
-func TestRecordFilterRejectsSequenceBeyondSnapshot(t *testing.T) {
+func TestRecordFilter_RejectsSequenceBeyondSnapshot(t *testing.T) {
+	t.Parallel()
 	snapshot := uint64(5)
 	filter := newRecordFilter(&snapshot)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
@@ -37,7 +40,8 @@ func TestRecordFilterRejectsSequenceBeyondSnapshot(t *testing.T) {
 	require.Nil(t, accepted)
 }
 
-func TestRecordFilterDeduplicatesKeysPerDirection(t *testing.T) {
+func TestRecordFilter_DeduplicatesKeysPerDirection(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
@@ -55,7 +59,8 @@ func TestRecordFilterDeduplicatesKeysPerDirection(t *testing.T) {
 	require.Equal(t, older, third)
 }
 
-func TestRecordFilterResetClearsSeenKey(t *testing.T) {
+func TestRecordFilter_ResetClearsSeenKey(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
@@ -64,14 +69,15 @@ func TestRecordFilterResetClearsSeenKey(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, rec, accepted)
 
-	filter.reset()
+	filter.Reset()
 
 	replay, ok := filter.accept(older, DirForward)
 	require.True(t, ok)
 	require.Equal(t, older, replay)
 }
 
-func TestRecordFilterMarkEmittedUpdatesState(t *testing.T) {
+func TestRecordFilter_MarkEmittedUpdatesState(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
@@ -83,7 +89,8 @@ func TestRecordFilterMarkEmittedUpdatesState(t *testing.T) {
 	require.Nil(t, second)
 }
 
-func TestRecordFilterMarkEmittedMaintainsDirection(t *testing.T) {
+func TestRecordFilter_MarkEmittedMaintainsDirection(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
@@ -99,7 +106,8 @@ func TestRecordFilterMarkEmittedMaintainsDirection(t *testing.T) {
 	require.Equal(t, older, replay)
 }
 
-func TestRecordFilterMarkEmittedIgnoresNilRecord(t *testing.T) {
+func TestRecordFilter_MarkEmittedIgnoresNilRecord(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 	other := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 
@@ -110,7 +118,8 @@ func TestRecordFilterMarkEmittedIgnoresNilRecord(t *testing.T) {
 	require.Equal(t, other, accepted)
 }
 
-func TestRecordFilterAcceptHandlesNilRecord(t *testing.T) {
+func TestRecordFilter_AcceptHandlesNilRecord(t *testing.T) {
+	t.Parallel()
 	filter := newRecordFilter(nil)
 
 	rec, ok := filter.accept(nil, DirForward)
