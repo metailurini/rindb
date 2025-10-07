@@ -10,7 +10,7 @@ func TestRecordFilterAcceptsVisibleValues(t *testing.T) {
 	filter := newRecordFilter(nil)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 4, Type: TypeValue}
 
-	accepted, ok := filter.Accept(rec, DirForward)
+	accepted, ok := filter.accept(rec, DirForward)
 
 	require.True(t, ok)
 	require.Equal(t, rec, accepted)
@@ -20,7 +20,7 @@ func TestRecordFilterRejectsTombstones(t *testing.T) {
 	filter := newRecordFilter(nil)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 4, Type: TypeDeletion}
 
-	accepted, ok := filter.Accept(rec, DirForward)
+	accepted, ok := filter.accept(rec, DirForward)
 
 	require.False(t, ok)
 	require.Nil(t, accepted)
@@ -31,7 +31,7 @@ func TestRecordFilterRejectsSequenceBeyondSnapshot(t *testing.T) {
 	filter := newRecordFilter(&snapshot)
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 
-	accepted, ok := filter.Accept(rec, DirForward)
+	accepted, ok := filter.accept(rec, DirForward)
 
 	require.False(t, ok)
 	require.Nil(t, accepted)
@@ -42,15 +42,15 @@ func TestRecordFilterDeduplicatesKeysPerDirection(t *testing.T) {
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
 
-	accepted, ok := filter.Accept(rec, DirForward)
+	accepted, ok := filter.accept(rec, DirForward)
 	require.True(t, ok)
 	require.Equal(t, rec, accepted)
 
-	second, ok := filter.Accept(older, DirForward)
+	second, ok := filter.accept(older, DirForward)
 	require.False(t, ok)
 	require.Nil(t, second)
 
-	third, ok := filter.Accept(older, DirReverse)
+	third, ok := filter.accept(older, DirReverse)
 	require.True(t, ok)
 	require.Equal(t, older, third)
 }
@@ -60,13 +60,13 @@ func TestRecordFilterResetClearsSeenKey(t *testing.T) {
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
 
-	accepted, ok := filter.Accept(rec, DirForward)
+	accepted, ok := filter.accept(rec, DirForward)
 	require.True(t, ok)
 	require.Equal(t, rec, accepted)
 
-	filter.Reset()
+	filter.reset()
 
-	replay, ok := filter.Accept(older, DirForward)
+	replay, ok := filter.accept(older, DirForward)
 	require.True(t, ok)
 	require.Equal(t, older, replay)
 }
@@ -76,9 +76,9 @@ func TestRecordFilterMarkEmittedUpdatesState(t *testing.T) {
 	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
 
-	filter.MarkEmitted(emitted, DirForward)
+	filter.markEmitted(emitted, DirForward)
 
-	second, ok := filter.Accept(older, DirForward)
+	second, ok := filter.accept(older, DirForward)
 	require.False(t, ok)
 	require.Nil(t, second)
 }
@@ -88,13 +88,13 @@ func TestRecordFilterMarkEmittedMaintainsDirection(t *testing.T) {
 	emitted := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 	older := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 3, Type: TypeValue}
 
-	filter.MarkEmitted(emitted, DirReverse)
+	filter.markEmitted(emitted, DirReverse)
 
-	suppressed, ok := filter.Accept(older, DirReverse)
+	suppressed, ok := filter.accept(older, DirReverse)
 	require.False(t, ok)
 	require.Nil(t, suppressed)
 
-	replay, ok := filter.Accept(older, DirForward)
+	replay, ok := filter.accept(older, DirForward)
 	require.True(t, ok)
 	require.Equal(t, older, replay)
 }
@@ -103,9 +103,9 @@ func TestRecordFilterMarkEmittedIgnoresNilRecord(t *testing.T) {
 	filter := newRecordFilter(nil)
 	other := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 6, Type: TypeValue}
 
-	filter.MarkEmitted(nil, DirForward)
+	filter.markEmitted(nil, DirForward)
 
-	accepted, ok := filter.Accept(other, DirForward)
+	accepted, ok := filter.accept(other, DirForward)
 	require.True(t, ok)
 	require.Equal(t, other, accepted)
 }
@@ -113,7 +113,7 @@ func TestRecordFilterMarkEmittedIgnoresNilRecord(t *testing.T) {
 func TestRecordFilterAcceptHandlesNilRecord(t *testing.T) {
 	filter := newRecordFilter(nil)
 
-	rec, ok := filter.Accept(nil, DirForward)
+	rec, ok := filter.accept(nil, DirForward)
 
 	require.False(t, ok)
 	require.Nil(t, rec)

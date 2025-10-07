@@ -73,13 +73,13 @@ func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
 }
 
 func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, bool, error)) (Record, bool, error) {
-	if changed := r.anchors.OnDirectionChange(dir); changed {
-		r.filter.Reset()
+	if changed := r.anchors.onDirectionChange(dir); changed {
+		r.filter.reset()
 	}
 
-	if rec, ok := r.anchors.PopPending(dir); ok {
-		r.filter.MarkEmitted(rec, dir)
-		r.anchors.MarkLastEmitted(rec, dir)
+	if rec, ok := r.anchors.popPending(dir); ok {
+		r.filter.markEmitted(rec, dir)
+		r.anchors.markLastEmitted(rec, dir)
 		return rec, true, nil
 	}
 
@@ -91,8 +91,8 @@ func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, 
 		if !ok {
 			return nil, false, nil
 		}
-		if accepted, ok := r.filter.Accept(rec, dir); ok {
-			r.anchors.MarkLastEmitted(accepted, dir)
+		if accepted, ok := r.filter.accept(rec, dir); ok {
+			r.anchors.markLastEmitted(accepted, dir)
 			return accepted, true, nil
 		}
 	}
@@ -100,11 +100,11 @@ func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, 
 
 func (r *RangeIterator) primeNext() {
 	direction := directionFromOrder(r.order)
-	if r.prefetch.Has(direction) {
+	if r.prefetch.has(direction) {
 		return
 	}
 	filterClone := r.filter.clone()
-	for !r.prefetch.Has(direction) && r.err == nil {
+	for !r.prefetch.has(direction) && r.err == nil {
 		collapse := r.shouldCollapseForNext()
 		candidate, ok, err := r.cursor.next(direction, collapse)
 		if err != nil {
@@ -126,13 +126,13 @@ func (r *RangeIterator) primeNext() {
 			continue
 		}
 		if rec.GetType() == TypeDeletion {
-			filterClone.MarkEmitted(rec, direction)
+			filterClone.markEmitted(rec, direction)
 			if candidate.peeked {
 				r.cursor.stageForPrev(candidate.stagedItem)
 			}
 			continue
 		}
-		if _, accepted := filterClone.Accept(rec, direction); !accepted {
+		if _, accepted := filterClone.accept(rec, direction); !accepted {
 			if candidate.peeked {
 				r.cursor.stageForPrev(candidate.stagedItem)
 			}
@@ -143,10 +143,10 @@ func (r *RangeIterator) primeNext() {
 			// so oscillating at the boundary can resurface the prior key.
 			r.cursor.stageForPrev(candidate.stagedItem)
 		}
-		r.prefetch.Stage(direction, rec)
+		r.prefetch.stage(direction, rec)
 	}
-	if r.prefetch.Has(direction) {
-		r.prefetch.Clear(oppositeDirection(direction))
+	if r.prefetch.has(direction) {
+		r.prefetch.clear(oppositeDirection(direction))
 	}
 }
 
@@ -158,7 +158,7 @@ func (r *RangeIterator) shouldCollapseForNext() bool {
 	if r.order != RangeDesc {
 		return false
 	}
-	lastDir, ok := r.anchors.LastDirection()
+	lastDir, ok := r.anchors.lastDirection()
 	if ok && lastDir == DirForward {
 		return false
 	}
@@ -167,13 +167,13 @@ func (r *RangeIterator) shouldCollapseForNext() bool {
 
 func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 	dir := oppositeDirection(directionFromOrder(order))
-	if r.anchors.HasPending(dir) {
+	if r.anchors.hasPending(dir) {
 		return
 	}
-	if r.prefetch.Has(dir) {
+	if r.prefetch.has(dir) {
 		return
 	}
-	for !r.prefetch.Has(dir) && r.err == nil {
+	for !r.prefetch.has(dir) && r.err == nil {
 		var (
 			rec Record
 			err error
@@ -201,8 +201,8 @@ func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 			continue
 		}
 	}
-	if r.prefetch.Has(dir) {
-		r.prefetch.Clear(oppositeDirection(dir))
+	if r.prefetch.has(dir) {
+		r.prefetch.clear(oppositeDirection(dir))
 	}
 }
 
@@ -212,23 +212,23 @@ func (r *RangeIterator) stagePrevCandidate(rec Record, order RangeOrder) bool {
 	}
 	dir := oppositeDirection(directionFromOrder(order))
 	if rec.GetType() == TypeDeletion {
-		r.filter.MarkEmitted(rec, dir)
+		r.filter.markEmitted(rec, dir)
 		return false
 	}
-	r.prefetch.Stage(dir, rec)
-	r.prefetch.Clear(oppositeDirection(dir))
+	r.prefetch.stage(dir, rec)
+	r.prefetch.clear(oppositeDirection(dir))
 	return true
 }
 
 // HasNext implements Iterator[Record].
 func (r *RangeIterator) HasNext() bool {
 	dir := directionFromOrder(r.order)
-	if r.anchors.HasPending(dir) {
+	if r.anchors.hasPending(dir) {
 		return true
 	}
-	if changed := r.anchors.OnDirectionChange(dir); changed {
-		r.filter.Reset()
-		if r.anchors.HasPending(dir) {
+	if changed := r.anchors.onDirectionChange(dir); changed {
+		r.filter.reset()
+		if r.anchors.hasPending(dir) {
 			return true
 		}
 	}
@@ -236,25 +236,25 @@ func (r *RangeIterator) HasNext() bool {
 		// This check-act-check sequence ensures that we attempt to fill the
 		// prefetch buffer only when it's empty and correctly handle cases
 		// where priming fails (e.g., at the end of the iterator).
-		if !r.prefetch.Has(dir) {
+		if !r.prefetch.has(dir) {
 			// If the prefetch buffer is empty, attempt to prime it with the next
 			// available record.
 			r.primeNext()
 		}
-		if !r.prefetch.Has(dir) {
+		if !r.prefetch.has(dir) {
 			// If the buffer is still empty after priming, it means there are no
 			// more records, so we can stop.
 			return false
 		}
-		candidate, ok := r.prefetch.Peek(dir)
+		candidate, ok := r.prefetch.peek(dir)
 		if !ok {
 			return false
 		}
 		filterClone := r.filter.clone()
-		if _, accepted := filterClone.Accept(candidate, dir); accepted {
+		if _, accepted := filterClone.accept(candidate, dir); accepted {
 			return true
 		}
-		r.prefetch.Pop(dir)
+		r.prefetch.pop(dir)
 	}
 }
 
@@ -275,19 +275,19 @@ func (r *RangeIterator) Next() (Record, error) {
 		}
 		return nil, EOI
 	}
-	r.anchors.MarkLastEmitted(rec, dir)
+	r.anchors.markLastEmitted(rec, dir)
 	return rec, nil
 }
 
 // HasPrev implements Iterator[Record].
 func (r *RangeIterator) HasPrev() bool {
 	dir := oppositeDirection(directionFromOrder(r.order))
-	if r.anchors.HasPending(dir) {
+	if r.anchors.hasPending(dir) {
 		return true
 	}
-	if changed := r.anchors.OnDirectionChange(dir); changed {
-		r.filter.Reset()
-		if r.anchors.HasPending(dir) {
+	if changed := r.anchors.onDirectionChange(dir); changed {
+		r.filter.reset()
+		if r.anchors.hasPending(dir) {
 			return true
 		}
 	}
@@ -295,25 +295,25 @@ func (r *RangeIterator) HasPrev() bool {
 		// This check-act-check sequence ensures that we attempt to fill the
 		// prefetch buffer only when it's empty and correctly handle cases
 		// where priming fails (e.g., at the end of the iterator).
-		if !r.prefetch.Has(dir) {
+		if !r.prefetch.has(dir) {
 			// If the prefetch buffer is empty, attempt to prime it with the
 			// previous available record.
 			r.primePrev()
 		}
-		if !r.prefetch.Has(dir) {
+		if !r.prefetch.has(dir) {
 			// If the buffer is still empty after priming, it means there are no
 			// more records, so we can stop.
 			return false
 		}
-		candidate, ok := r.prefetch.Peek(dir)
+		candidate, ok := r.prefetch.peek(dir)
 		if !ok {
 			return false
 		}
 		filterClone := r.filter.clone()
-		if _, accepted := filterClone.Accept(candidate, dir); accepted {
+		if _, accepted := filterClone.accept(candidate, dir); accepted {
 			return true
 		}
-		r.prefetch.Pop(dir)
+		r.prefetch.pop(dir)
 	}
 }
 
@@ -322,12 +322,12 @@ func (r *RangeIterator) pullNextPrepared(*rangeCursor) (Record, bool, error) {
 	// This check-act-check sequence ensures that we attempt to fill the
 	// prefetch buffer only when it's empty and correctly handle cases
 	// where priming fails (e.g., at the end of the iterator).
-	if !r.prefetch.Has(dir) {
+	if !r.prefetch.has(dir) {
 		// If the prefetch buffer is empty, attempt to prime it with the next
 		// available record.
 		r.primeNext()
 	}
-	if !r.prefetch.Has(dir) {
+	if !r.prefetch.has(dir) {
 		// If the buffer is still empty after priming, it means there are no
 		// more records. Return the stored error if any, otherwise stop.
 		if r.err != nil {
@@ -335,7 +335,7 @@ func (r *RangeIterator) pullNextPrepared(*rangeCursor) (Record, bool, error) {
 		}
 		return nil, false, nil
 	}
-	candidate, _ := r.prefetch.Pop(dir)
+	candidate, _ := r.prefetch.pop(dir)
 	return candidate, true, nil
 }
 
@@ -352,7 +352,7 @@ func (r *RangeIterator) Prev() (Record, error) {
 		}
 		return nil, EOI
 	}
-	r.anchors.MarkLastEmitted(rec, dir)
+	r.anchors.markLastEmitted(rec, dir)
 	return rec, nil
 }
 
@@ -362,12 +362,12 @@ func (r *RangeIterator) makePrevPuller(order RangeOrder) func(*rangeCursor) (Rec
 		// This check-act-check sequence ensures that we attempt to fill the
 		// prefetch buffer only when it's empty and correctly handle cases
 		// where priming fails (e.g., at the end of the iterator).
-		if !r.anchors.HasPending(dir) && !r.prefetch.Has(dir) {
+		if !r.anchors.hasPending(dir) && !r.prefetch.has(dir) {
 			// If the prefetch buffer is empty, attempt to prime it with the
 			// previous available record.
 			r.primePrevWithOrder(order)
 		}
-		if !r.prefetch.Has(dir) {
+		if !r.prefetch.has(dir) {
 			// If the buffer is still empty after priming, it means there are no
 			// more records. Return the stored error if any, otherwise stop.
 			if r.err != nil {
@@ -375,7 +375,7 @@ func (r *RangeIterator) makePrevPuller(order RangeOrder) func(*rangeCursor) (Rec
 			}
 			return nil, false, nil
 		}
-		candidate, _ := r.prefetch.Pop(dir)
+		candidate, _ := r.prefetch.pop(dir)
 		return candidate, true, nil
 	}
 }
@@ -426,13 +426,13 @@ func (r *RangeIterator) Last() (Record, error) {
 	}
 
 	dir := directionFromOrder(r.order)
-	r.anchors.ClearPending(dir)
-	r.anchors.ClearPending(oppositeDirection(dir))
-	r.prefetch.ClearAll()
+	r.anchors.clearPending(dir)
+	r.anchors.clearPending(oppositeDirection(dir))
+	r.prefetch.clearAll()
 	r.err = nil
 	r.cursor.resetReverse()
 	r.anchors.Reset()
-	r.filter.Reset()
+	r.filter.reset()
 
 	searchOrder := RangeAsc
 
@@ -454,14 +454,14 @@ func (r *RangeIterator) Last() (Record, error) {
 				return empty, r.err
 			}
 			if r.order == RangeDesc && lastValid != nil {
-				r.anchors.MarkLastEmitted(lastValid, walkDir)
+				r.anchors.markLastEmitted(lastValid, walkDir)
 				return lastValid, nil
 			}
 			return empty, EOI
 		}
 
 		if r.order != RangeDesc {
-			r.anchors.MarkLastEmitted(current, walkDir)
+			r.anchors.markLastEmitted(current, walkDir)
 			return current, nil
 		}
 

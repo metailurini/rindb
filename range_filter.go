@@ -25,10 +25,10 @@ func newRecordFilter(snapshot *uint64) *recordFilter {
 	return f
 }
 
-// Accept evaluates the supplied record for the given iteration direction. It
+// accept evaluates the supplied record for the given iteration direction. It
 // returns the record when it should be surfaced to callers and false when it
 // must be suppressed (duplicate key, tombstone, or hidden by the snapshot).
-func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
+func (f *recordFilter) accept(rec Record, dir Direction) (Record, bool) {
 	if rec == nil {
 		return nil, false
 	}
@@ -55,16 +55,16 @@ func (f *recordFilter) Accept(rec Record, dir Direction) (Record, bool) {
 	return rec, true
 }
 
-// Reset clears the stored key so the next Accept call treats the provided
+// reset clears the stored key so the next Accept call treats the provided
 // record as unseen regardless of the user key.
-func (f *recordFilter) Reset() {
+func (f *recordFilter) reset() {
 	f.resetKey()
 	f.haveDir = false
 }
 
-// MarkEmitted updates the deduplication state for a record that bypassed
+// markEmitted updates the deduplication state for a record that bypassed
 // Accept, such as when replaying an anchor during a direction switch.
-func (f *recordFilter) MarkEmitted(rec Record, dir Direction) {
+func (f *recordFilter) markEmitted(rec Record, dir Direction) {
 	if rec == nil {
 		return
 	}

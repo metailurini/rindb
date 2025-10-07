@@ -5,11 +5,11 @@ type prefetchState struct {
 	ready   [2]bool
 }
 
-func (p *prefetchState) Has(dir Direction) bool {
+func (p *prefetchState) has(dir Direction) bool {
 	return p.ready[dirIndex(dir)]
 }
 
-func (p *prefetchState) Peek(dir Direction) (Record, bool) {
+func (p *prefetchState) peek(dir Direction) (Record, bool) {
 	idx := dirIndex(dir)
 	if !p.ready[idx] {
 		return nil, false
@@ -17,7 +17,7 @@ func (p *prefetchState) Peek(dir Direction) (Record, bool) {
 	return p.records[idx], true
 }
 
-func (p *prefetchState) Stage(dir Direction, rec Record) {
+func (p *prefetchState) stage(dir Direction, rec Record) {
 	idx := dirIndex(dir)
 	if rec == nil {
 		p.records[idx] = nil
@@ -28,7 +28,7 @@ func (p *prefetchState) Stage(dir Direction, rec Record) {
 	p.ready[idx] = true
 }
 
-func (p *prefetchState) Pop(dir Direction) (Record, bool) {
+func (p *prefetchState) pop(dir Direction) (Record, bool) {
 	idx := dirIndex(dir)
 	if !p.ready[idx] {
 		return nil, false
@@ -39,13 +39,13 @@ func (p *prefetchState) Pop(dir Direction) (Record, bool) {
 	return rec, true
 }
 
-func (p *prefetchState) Clear(dir Direction) {
+func (p *prefetchState) clear(dir Direction) {
 	idx := dirIndex(dir)
 	p.records[idx] = nil
 	p.ready[idx] = false
 }
 
-func (p *prefetchState) ClearAll() {
-	p.Clear(DirForward)
-	p.Clear(DirReverse)
+func (p *prefetchState) clearAll() {
+	p.clear(DirForward)
+	p.clear(DirReverse)
 }
