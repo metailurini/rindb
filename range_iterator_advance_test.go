@@ -18,13 +18,13 @@ func TestRangeIteratorAdvance_ReplaysPendingAnchor(t *testing.T) {
 	}
 
 	last := rec("a", "va", 1, TypeValue)
-	ri.anchors.MarkLastEmitted(last, DirForward)
+	ri.anchors.markLastEmitted(last, DirForward)
 
 	// Seed the anchor state with an initial forward traversal so the next
 	// direction switch stages the last emitted record.
-	changed := ri.anchors.OnDirectionChange(DirForward)
+	changed := ri.anchors.onDirectionChange(DirForward)
 	require.False(t, changed)
-	ri.filter.MarkEmitted(last, DirForward)
+	ri.filter.markEmitted(last, DirForward)
 
 	pullCalls := 0
 	pull := func(*rangeCursor) (Record, bool, error) {

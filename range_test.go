@@ -560,17 +560,17 @@ func TestRangeIterator_Prepare(t *testing.T) {
 			dir := directionFromOrder(iter.order)
 			if tt.wantErr != "" {
 				assert.EqualError(t, iter.err, tt.wantErr)
-				iter.prefetch.Clear(dir)
+				iter.prefetch.clear(dir)
 				iter.primeNext()
-				assert.False(t, iter.prefetch.Has(dir))
+				assert.False(t, iter.prefetch.has(dir))
 			} else {
-				assert.Equal(t, tt.wantPrepared, iter.prefetch.Has(dir))
+				assert.Equal(t, tt.wantPrepared, iter.prefetch.has(dir))
 				if tt.wantPrepared {
-					pending, ok := iter.prefetch.Pop(dir)
+					pending, ok := iter.prefetch.pop(dir)
 					require.True(t, ok, "expected pending record to inspect")
 					assert.Equal(t, tt.wantKey, string(pending.GetKey()))
 					assert.Equal(t, tt.wantValue, string(pending.GetValue()))
-					iter.prefetch.Stage(dir, pending)
+					iter.prefetch.stage(dir, pending)
 				}
 			}
 		})

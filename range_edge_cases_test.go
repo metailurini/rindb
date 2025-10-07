@@ -36,10 +36,10 @@ func TestRangeIterator_PrimeNextEarlyReturn(t *testing.T) {
 	}
 
 	staged := rec("k", "v", 1, TypeValue)
-	ri.prefetch.Stage(DirForward, staged)
+	ri.prefetch.stage(DirForward, staged)
 	ri.primeNext()
 
-	peeked, ok := ri.prefetch.Peek(DirForward)
+	peeked, ok := ri.prefetch.peek(DirForward)
 	require.True(t, ok)
 	assert.Equal(t, staged, peeked)
 }
@@ -55,11 +55,11 @@ func TestRangeIterator_PrimeNextHandlesReverseGap(t *testing.T) {
 	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil, RangeDesc)
 	require.NoError(t, err)
 	ri := NewRangeIterator(mi, RangeDesc)
-	ri.prefetch.ClearAll()
+	ri.prefetch.clearAll()
 
 	ri.primeNext()
 
-	_, ok := ri.prefetch.Peek(DirReverse)
+	_, ok := ri.prefetch.peek(DirReverse)
 	assert.False(t, ok)
 	assert.NotNil(t, mi.err)
 }
@@ -75,11 +75,11 @@ func TestRangeIterator_PrimeNextStagesDeletionForPrev(t *testing.T) {
 	mi, err := NewMergingIterator([]Iterator[Record]{iter}, nil, RangeDesc)
 	require.NoError(t, err)
 	ri := NewRangeIterator(mi, RangeDesc)
-	ri.anchors.MarkLastEmitted(rec("seed", "", 1, TypeValue), DirForward)
+	ri.anchors.markLastEmitted(rec("seed", "", 1, TypeValue), DirForward)
 
 	ri.primeNext()
 
-	staged, ok := ri.prefetch.Peek(DirReverse)
+	staged, ok := ri.prefetch.peek(DirReverse)
 	require.True(t, ok, "next value should be staged after filtering tombstone")
 	assert.Equal(t, Bytes("k"), staged.GetKey())
 	assert.Equal(t, TypeValue, staged.GetType())
@@ -93,7 +93,7 @@ func TestRangeIterator_ShouldCollapseForNextFalseAfterForward(t *testing.T) {
 		prefetch: &prefetchState{},
 		order:    RangeDesc,
 	}
-	ri.anchors.MarkLastEmitted(rec("k", "v", 1, TypeValue), DirForward)
+	ri.anchors.markLastEmitted(rec("k", "v", 1, TypeValue), DirForward)
 	require.False(t, ri.shouldCollapseForNext())
 }
 
@@ -117,9 +117,9 @@ func TestRangeIterator_PrimePrevWithOrderEarlyReturns(t *testing.T) {
 
 	ri.anchors.pendingSet[dirIndex(dir)] = false
 	value := rec("x", "v", 1, TypeValue)
-	ri.prefetch.Stage(dir, value)
+	ri.prefetch.stage(dir, value)
 	ri.primePrevWithOrder(RangeAsc)
-	peeked, ok := ri.prefetch.Peek(dir)
+	peeked, ok := ri.prefetch.peek(dir)
 	require.True(t, ok)
 	assert.Equal(t, value, peeked)
 }
@@ -165,7 +165,7 @@ func TestRangeIterator_PrimePrevWithOrderSkipsNilAndDeletion(t *testing.T) {
 	require.False(t, ri.stagePrevCandidate(rec("k", "", 1, TypeDeletion), RangeAsc))
 
 	ri.primePrevWithOrder(RangeAsc)
-	assert.False(t, ri.prefetch.Has(oppositeDirection(directionFromOrder(RangeAsc))))
+	assert.False(t, ri.prefetch.has(oppositeDirection(directionFromOrder(RangeAsc))))
 }
 
 func TestRangeIterator_HasNextAnchorPending(t *testing.T) {
@@ -191,8 +191,8 @@ func TestRangeIterator_HasNextDropsRejectedPrefetch(t *testing.T) {
 	}
 	dir := directionFromOrder(RangeAsc)
 	value := rec("dup", "v", 1, TypeValue)
-	ri.prefetch.Stage(dir, value)
-	ri.filter.MarkEmitted(value, dir)
+	ri.prefetch.stage(dir, value)
+	ri.filter.markEmitted(value, dir)
 	ri.err = errors.New("stop")
 
 	assert.False(t, ri.HasNext())
@@ -221,8 +221,8 @@ func TestRangeIterator_HasPrevDropsRejectedPrefetch(t *testing.T) {
 	}
 	dir := oppositeDirection(directionFromOrder(RangeAsc))
 	value := rec("dup", "v", 1, TypeValue)
-	ri.prefetch.Stage(dir, value)
-	ri.filter.MarkEmitted(value, dir)
+	ri.prefetch.stage(dir, value)
+	ri.filter.markEmitted(value, dir)
 	ri.err = errors.New("stop")
 
 	assert.False(t, ri.HasPrev())

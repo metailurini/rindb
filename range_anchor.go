@@ -27,10 +27,10 @@ func dirIndex(dir Direction) int {
 	return 0
 }
 
-// OnDirectionChange records the new direction and stages the last emitted
+// onDirectionChange records the new direction and stages the last emitted
 // record for replay when the traversal direction changes. It returns true when
 // a direction change occurred.
-func (a *anchorState) OnDirectionChange(next Direction) bool {
+func (a *anchorState) onDirectionChange(next Direction) bool {
 	if !a.dirSet {
 		a.currentDir = next
 		a.dirSet = true
@@ -48,9 +48,9 @@ func (a *anchorState) OnDirectionChange(next Direction) bool {
 	return true
 }
 
-// PopPending retrieves the staged anchor record for the provided direction, if
+// popPending retrieves the staged anchor record for the provided direction, if
 // any, clearing the pending state once consumed.
-func (a *anchorState) PopPending(dir Direction) (Record, bool) {
+func (a *anchorState) popPending(dir Direction) (Record, bool) {
 	idx := dirIndex(dir)
 	if !a.pendingSet[idx] {
 		return nil, false
@@ -61,9 +61,9 @@ func (a *anchorState) PopPending(dir Direction) (Record, bool) {
 	return rec, true
 }
 
-// HasPending reports whether a staged record exists for the supplied
+// hasPending reports whether a staged record exists for the supplied
 // direction.
-func (a *anchorState) HasPending(dir Direction) bool {
+func (a *anchorState) hasPending(dir Direction) bool {
 	return a.pendingSet[dirIndex(dir)]
 }
 
@@ -73,16 +73,16 @@ func (a *anchorState) stagePending(rec Record, dir Direction) {
 	a.pendingSet[idx] = true
 }
 
-// ClearPending removes any staged record for the provided direction.
-func (a *anchorState) ClearPending(dir Direction) {
+// clearPending removes any staged record for the provided direction.
+func (a *anchorState) clearPending(dir Direction) {
 	idx := dirIndex(dir)
 	a.pending[idx] = nil
 	a.pendingSet[idx] = false
 }
 
-// MarkLastEmitted stores the most recently surfaced record so it can be replayed
+// markLastEmitted stores the most recently surfaced record so it can be replayed
 // after a direction change.
-func (a *anchorState) MarkLastEmitted(rec Record, dir Direction) {
+func (a *anchorState) markLastEmitted(rec Record, dir Direction) {
 	if rec == nil {
 		a.recent = nil
 	} else {
@@ -92,9 +92,9 @@ func (a *anchorState) MarkLastEmitted(rec Record, dir Direction) {
 	a.dirSet = true
 }
 
-// LastDirection returns the most recent traversal direction alongside a flag
+// lastDirection returns the most recent traversal direction alongside a flag
 // indicating whether a direction has been recorded.
-func (a *anchorState) LastDirection() (Direction, bool) {
+func (a *anchorState) lastDirection() (Direction, bool) {
 	if !a.dirSet {
 		return DirForward, false
 	}
