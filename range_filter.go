@@ -55,9 +55,9 @@ func (f *recordFilter) accept(rec Record, dir Direction) (Record, bool) {
 	return rec, true
 }
 
-// Reset clears the stored key and direction so the next Accept call treats the
+// reset clears the stored key and direction so the next Accept call treats the
 // provided record as unseen regardless of prior traversal state.
-func (f *recordFilter) Reset() {
+func (f *recordFilter) reset() {
 	f.resetKey()
 	f.haveDir = false
 }
