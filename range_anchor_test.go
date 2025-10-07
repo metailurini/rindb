@@ -3,6 +3,7 @@ package rindb
 import "testing"
 
 func TestAnchorState_OnDirectionChangeStagesClone(t *testing.T) {
+	t.Parallel()
 	state := &anchorState{}
 	rec := RecordImpl{Key: Bytes("key"), Value: Bytes("value"), SequenceNumber: 1}
 
@@ -40,6 +41,7 @@ func TestAnchorState_OnDirectionChangeStagesClone(t *testing.T) {
 }
 
 func TestAnchorState_OnDirectionChangeIgnoresSameDirection(t *testing.T) {
+	t.Parallel()
 	state := &anchorState{}
 	rec := RecordImpl{Key: Bytes("alpha"), SequenceNumber: 2}
 
@@ -54,6 +56,7 @@ func TestAnchorState_OnDirectionChangeIgnoresSameDirection(t *testing.T) {
 }
 
 func TestAnchorState_MarkLastEmittedClearsWhenNil(t *testing.T) {
+	t.Parallel()
 	state := &anchorState{}
 	rec := RecordImpl{Key: Bytes("key"), SequenceNumber: 1}
 	state.markLastEmitted(rec, DirForward)
@@ -64,6 +67,7 @@ func TestAnchorState_MarkLastEmittedClearsWhenNil(t *testing.T) {
 }
 
 func TestAnchorState_LastDirectionUnset(t *testing.T) {
+	t.Parallel()
 	state := &anchorState{}
 	dir, ok := state.lastDirection()
 	if ok {

@@ -74,7 +74,7 @@ func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
 
 func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, bool, error)) (Record, bool, error) {
 	if changed := r.anchors.onDirectionChange(dir); changed {
-		r.filter.reset()
+		r.filter.Reset()
 	}
 
 	if rec, ok := r.anchors.popPending(dir); ok {
@@ -227,7 +227,7 @@ func (r *RangeIterator) HasNext() bool {
 		return true
 	}
 	if changed := r.anchors.onDirectionChange(dir); changed {
-		r.filter.reset()
+		r.filter.Reset()
 		if r.anchors.hasPending(dir) {
 			return true
 		}
@@ -286,7 +286,7 @@ func (r *RangeIterator) HasPrev() bool {
 		return true
 	}
 	if changed := r.anchors.onDirectionChange(dir); changed {
-		r.filter.reset()
+		r.filter.Reset()
 		if r.anchors.hasPending(dir) {
 			return true
 		}
@@ -432,7 +432,7 @@ func (r *RangeIterator) Last() (Record, error) {
 	r.err = nil
 	r.cursor.resetReverse()
 	r.anchors.Reset()
-	r.filter.reset()
+	r.filter.Reset()
 
 	searchOrder := RangeAsc
 
