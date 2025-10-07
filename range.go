@@ -233,10 +233,17 @@ func (r *RangeIterator) HasNext() bool {
 		}
 	}
 	for {
+		// This check-act-check sequence ensures that we attempt to fill the
+		// prefetch buffer only when it's empty and correctly handle cases
+		// where priming fails (e.g., at the end of the iterator).
 		if !r.prefetch.Has(dir) {
+			// If the prefetch buffer is empty, attempt to prime it with the next
+			// available record.
 			r.primeNext()
 		}
 		if !r.prefetch.Has(dir) {
+			// If the buffer is still empty after priming, it means there are no
+			// more records, so we can stop.
 			return false
 		}
 		candidate, ok := r.prefetch.Peek(dir)
@@ -285,10 +292,17 @@ func (r *RangeIterator) HasPrev() bool {
 		}
 	}
 	for {
+		// This check-act-check sequence ensures that we attempt to fill the
+		// prefetch buffer only when it's empty and correctly handle cases
+		// where priming fails (e.g., at the end of the iterator).
 		if !r.prefetch.Has(dir) {
+			// If the prefetch buffer is empty, attempt to prime it with the
+			// previous available record.
 			r.primePrev()
 		}
 		if !r.prefetch.Has(dir) {
+			// If the buffer is still empty after priming, it means there are no
+			// more records, so we can stop.
 			return false
 		}
 		candidate, ok := r.prefetch.Peek(dir)
@@ -305,10 +319,17 @@ func (r *RangeIterator) HasPrev() bool {
 
 func (r *RangeIterator) pullNextPrepared(*rangeCursor) (Record, bool, error) {
 	dir := directionFromOrder(r.order)
+	// This check-act-check sequence ensures that we attempt to fill the
+	// prefetch buffer only when it's empty and correctly handle cases
+	// where priming fails (e.g., at the end of the iterator).
 	if !r.prefetch.Has(dir) {
+		// If the prefetch buffer is empty, attempt to prime it with the next
+		// available record.
 		r.primeNext()
 	}
 	if !r.prefetch.Has(dir) {
+		// If the buffer is still empty after priming, it means there are no
+		// more records. Return the stored error if any, otherwise stop.
 		if r.err != nil {
 			return nil, false, r.err
 		}
@@ -338,10 +359,17 @@ func (r *RangeIterator) Prev() (Record, error) {
 func (r *RangeIterator) makePrevPuller(order RangeOrder) func(*rangeCursor) (Record, bool, error) {
 	return func(*rangeCursor) (Record, bool, error) {
 		dir := oppositeDirection(directionFromOrder(order))
+		// This check-act-check sequence ensures that we attempt to fill the
+		// prefetch buffer only when it's empty and correctly handle cases
+		// where priming fails (e.g., at the end of the iterator).
 		if !r.anchors.HasPending(dir) && !r.prefetch.Has(dir) {
+			// If the prefetch buffer is empty, attempt to prime it with the
+			// previous available record.
 			r.primePrevWithOrder(order)
 		}
 		if !r.prefetch.Has(dir) {
+			// If the buffer is still empty after priming, it means there are no
+			// more records. Return the stored error if any, otherwise stop.
 			if r.err != nil {
 				return nil, false, r.err
 			}
