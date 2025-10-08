@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.4](https://github.com/metailurini/rindb/compare/v0.16.3...v0.16.4) (2025-10-08)
+
+
+### Bug Fixes
+
+* harden record filter state tracking ([57a239c](https://github.com/metailurini/rindb/commit/57a239c1d737d30ee9fa99e9e4926758ae122a75))
+
 ## [0.16.3](https://github.com/metailurini/rindb/compare/v0.16.2...v0.16.3) (2025-10-04)
 
 
