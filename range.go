@@ -19,6 +19,7 @@ type rangeConfig struct {
 	snapshotSeq *uint64
 }
 
+// rangeDefaultConfig returns the default configuration for a range iterator.
 func rangeDefaultConfig() rangeConfig {
 	return rangeConfig{order: RangeAsc}
 }
@@ -72,6 +73,9 @@ func NewRangeIterator(mi *MergingIterator, order RangeOrder) *RangeIterator {
 	return ri
 }
 
+// advance moves the iterator in the given direction, pulling records from the
+// underlying storage and returning the next record that passes the filter.
+// It handles direction changes, pending boundary records, and filtering.
 func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, bool, error)) (Record, bool, error) {
 	if changed := r.anchors.onDirectionChange(dir); changed {
 		r.filter.reset()
@@ -98,6 +102,10 @@ func (r *RangeIterator) advance(dir Direction, pull func(*rangeCursor) (Record, 
 	}
 }
 
+// primeNext prefetches the next record in the iterator's primary direction. It
+// populates the prefetch buffer with the next valid record that passes the
+// filter, ensuring it's ready for the Next() or HasNext() calls. It handles
+// tombstones and filters out duplicates.
 func (r *RangeIterator) primeNext() {
 	direction := directionFromOrder(r.order)
 	if r.prefetch.has(direction) {
@@ -150,10 +158,16 @@ func (r *RangeIterator) primeNext() {
 	}
 }
 
+// primePrev prefetches the next record in the opposite of the iterator's
+// primary direction. It populates the prefetch buffer with the next valid
+// record, which is used by Prev() and HasPrev().
 func (r *RangeIterator) primePrev() {
 	r.primePrevWithOrder(r.order)
 }
 
+// shouldCollapseForNext determines whether to collapse records for the next
+// iteration. In descending order, it returns true unless the last move was
+// forward, preventing re-collapsing the same keys.
 func (r *RangeIterator) shouldCollapseForNext() bool {
 	if r.order != RangeDesc {
 		return false
@@ -165,6 +179,8 @@ func (r *RangeIterator) shouldCollapseForNext() bool {
 	return true
 }
 
+// primePrevWithOrder prefetches the previous record, respecting the given
+// iteration order. It populates the prefetch buffer for reverse traversal.
 func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 	dir := oppositeDirection(directionFromOrder(order))
 	if r.anchors.hasPending(dir) {
@@ -206,6 +222,9 @@ func (r *RangeIterator) primePrevWithOrder(order RangeOrder) {
 	}
 }
 
+// stagePrevCandidate evaluates a record to determine if it can be staged as a
+// candidate for the previous item in the sequence. It returns true if the
+// record is valid and staged; otherwise, it returns false.
 func (r *RangeIterator) stagePrevCandidate(rec Record, order RangeOrder) bool {
 	if rec == nil {
 		return false
@@ -317,6 +336,9 @@ func (r *RangeIterator) HasPrev() bool {
 	}
 }
 
+// pullNextPrepared retrieves the next record from the prefetch buffer. If the
+// buffer is empty, it calls primeNext to populate it. It returns the record,
+// a boolean indicating if a record was found, and any error encountered.
 func (r *RangeIterator) pullNextPrepared(*rangeCursor) (Record, bool, error) {
 	dir := directionFromOrder(r.order)
 	// This check-act-check sequence ensures that we attempt to fill the
@@ -356,6 +378,9 @@ func (r *RangeIterator) Prev() (Record, error) {
 	return rec, nil
 }
 
+// makePrevPuller returns a function that pulls the previous record from the
+// prefetch buffer. If the buffer is empty, it primes it by calling
+// primePrevWithOrder.
 func (r *RangeIterator) makePrevPuller(order RangeOrder) func(*rangeCursor) (Record, bool, error) {
 	return func(*rangeCursor) (Record, bool, error) {
 		dir := oppositeDirection(directionFromOrder(order))

@@ -67,6 +67,9 @@ func (a *anchorState) hasPending(dir Direction) bool {
 	return a.pendingSet[dirIndex(dir)]
 }
 
+// stagePending saves a record to be replayed on the next iteration in the given
+// direction. This is used to resurface the anchor record when oscillation
+// occurs (e.g., Next() -> Prev()).
 func (a *anchorState) stagePending(rec Record, dir Direction) {
 	idx := dirIndex(dir)
 	a.pending[idx] = cloneRecord(rec)
