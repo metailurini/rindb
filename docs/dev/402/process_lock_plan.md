@@ -40,9 +40,9 @@
 +package rindb
 +
 +import (
++        "errors"
 +        "fmt"
 +        "os"
-+        "time"
 +
 +        "golang.org/x/sys/unix"
 +)
@@ -69,10 +69,12 @@
 +                return nil
 +        }
 +        defer func() { l.fd = nil }()
-+        if err := unix.Flock(int(l.fd.Fd()), unix.LOCK_UN); err != nil {
-+                return fmt.Errorf("unlock %s: %w", l.path, err)
++        unlockErr := unix.Flock(int(l.fd.Fd()), unix.LOCK_UN)
++        closeErr := l.fd.Close()
++        if unlockErr != nil {
++                return fmt.Errorf("unlock %s: %w", l.path, unlockErr)
 +        }
-+        return l.fd.Close()
++        return closeErr
 +}
    ```
    - Rationale: Non-blocking file locks fail fast when another process already owns the database.
