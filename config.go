@@ -105,6 +105,9 @@ type Config struct {
 
 	// logLevel controls which messages are emitted via the logger.
 	logLevel LogLevel
+
+	// disableProcessLock allows opting out of inter-process database locking.
+	disableProcessLock bool
 }
 
 // Option defines a functional option type for Config.
@@ -162,6 +165,7 @@ func DefaultConfig() Config {
 		fdLimiter:                 noopFDLimiter{},
 		logger:                    nopLogger{},
 		logLevel:                  LogLevelWarn,
+		disableProcessLock:        false,
 	}
 }
 
@@ -319,6 +323,14 @@ func WithLogger(l Logger) Option {
 // WithLogLevel sets the minimum log level emitted through the logger.
 func WithLogLevel(level LogLevel) Option {
 	return func(c *Config) { c.logLevel = level }
+}
+
+// WithDisableProcessLock disables inter-process locking for InitRinDB.
+//
+// This is primarily intended for advanced testing scenarios that require
+// multiple processes to open the same database directory concurrently.
+func WithDisableProcessLock() Option {
+	return func(c *Config) { c.disableProcessLock = true }
 }
 
 // WithMaxMemtableSize sets the maximum number of entries allowed in the memtable before flushing.

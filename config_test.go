@@ -39,6 +39,7 @@ func TestConfig_Default(t *testing.T) {
 		{"cacheProbationFraction", cfg.cacheProbationFraction, 0.25},
 		{"cacheCorruptTTL", cfg.cacheCorruptTTL, 5 * time.Minute},
 		{"cacheTombstoneTTL", cfg.cacheTombstoneTTL, time.Duration(0)},
+		{"disableProcessLock", cfg.disableProcessLock, false},
 	}
 
 	for _, tt := range tests {
@@ -193,6 +194,15 @@ func TestConfig_NewWithOptions(t *testing.T) {
 			verify: func(t *testing.T, cfg Config) {
 				if cfg.cacheBytes != 1024 {
 					t.Errorf("cacheBytes = %v, want %v", cfg.cacheBytes, 1024)
+				}
+			},
+		},
+		{
+			name: "WithDisableProcessLock",
+			opts: []Option{WithDisableProcessLock()},
+			verify: func(t *testing.T, cfg Config) {
+				if !cfg.disableProcessLock {
+					t.Errorf("disableProcessLock = %v, want %v", cfg.disableProcessLock, true)
 				}
 			},
 		},
