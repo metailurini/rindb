@@ -26,10 +26,7 @@ func (l *fileProcessLock) Acquire(ctx context.Context) error {
 
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = f.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
-			return fmt.Errorf("database is already open (lock %s busy)", l.path)
-		}
-		return fmt.Errorf("flock %s: %w", l.path, err)
+		return translateFlockError(l.path, err)
 	}
 
 	l.fd = f
@@ -55,4 +52,11 @@ func (l *fileProcessLock) Release() error {
 		return fmt.Errorf("close %s: %w", l.path, closeErr)
 	}
 	return nil
+}
+
+func translateFlockError(path string, err error) error {
+	if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+		return fmt.Errorf("database is already open (lock %s busy)", path)
+	}
+	return fmt.Errorf("flock %s: %w", path, err)
 }
