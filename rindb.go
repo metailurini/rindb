@@ -95,17 +95,21 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
-	locker := newProcessLock(path.Join(cfg.databaseDir, "LOCK"), log)
-	if err := locker.Acquire(ctx); err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err != nil {
-			if releaseErr := locker.Release(); releaseErr != nil {
-				log.errorf(ctx, "failed to release process lock: %v", releaseErr)
-			}
+	var locker processLock
+	if !cfg.disableProcessLock {
+		l := newProcessLock(path.Join(cfg.databaseDir, "LOCK"), log)
+		if err := l.Acquire(ctx); err != nil {
+			return nil, err
 		}
-	}()
+		locker = l
+		defer func() {
+			if err != nil {
+				if releaseErr := locker.Release(); releaseErr != nil {
+					log.errorf(ctx, "failed to release process lock: %v", releaseErr)
+				}
+			}
+		}()
+	}
 
 	vs, manifestPath, err := recoverVersionSet(ctx, cfg.databaseDir, cfg.fileNumberAllocator)
 	if err != nil {
