@@ -97,11 +97,10 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 
 	var locker processLock
 	if !cfg.disableProcessLock {
-		l := newProcessLock(path.Join(cfg.databaseDir, "LOCK"), log)
-		if err := l.Acquire(ctx); err != nil {
+		locker = newProcessLock(path.Join(cfg.databaseDir, "LOCK"), log)
+		if err := locker.Acquire(ctx); err != nil {
 			return nil, err
 		}
-		locker = l
 		defer func() {
 			if err != nil {
 				if releaseErr := locker.Release(); releaseErr != nil {

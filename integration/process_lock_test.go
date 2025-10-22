@@ -63,58 +63,26 @@ func TestProcessLock_HelperProcess(t *testing.T) {
 func TestInitRinDB_ProcessLockExclusive(t *testing.T) {
 	dir := t.TempDir()
 
-	holder := helperCommand(t, dir, true, false)
-	stdout, err := holder.StdoutPipe()
-	require.NoError(t, err)
-	stdin, err := holder.StdinPipe()
-	require.NoError(t, err)
-
-	holderWaited := false
-	require.NoError(t, holder.Start())
-	t.Cleanup(func() {
-		if holder.Process != nil && !holderWaited {
-			_ = holder.Process.Kill()
-			_ = holder.Wait()
-		}
-	})
-	waitForHelperReady(t, stdout)
+	releaseHolder := startHolderProcess(t, dir, false)
 
 	contender := helperCommand(t, dir, false, false)
 	output, err := contender.CombinedOutput()
 	require.Error(t, err)
 	require.Contains(t, string(output), "database is already open")
 
-	require.NoError(t, stdin.Close())
-	require.NoError(t, holder.Wait())
-	holderWaited = true
+	releaseHolder()
 }
 
 func TestInitRinDB_DisableProcessLockAllowsParallel(t *testing.T) {
 	dir := t.TempDir()
 
-	holder := helperCommand(t, dir, true, true)
-	stdout, err := holder.StdoutPipe()
-	require.NoError(t, err)
-	stdin, err := holder.StdinPipe()
-	require.NoError(t, err)
-
-	holderWaited := false
-	require.NoError(t, holder.Start())
-	t.Cleanup(func() {
-		if holder.Process != nil && !holderWaited {
-			_ = holder.Process.Kill()
-			_ = holder.Wait()
-		}
-	})
-	waitForHelperReady(t, stdout)
+	releaseHolder := startHolderProcess(t, dir, true)
 
 	contender := helperCommand(t, dir, false, true)
 	output, err := contender.CombinedOutput()
 	require.NoErrorf(t, err, "helper output: %s", string(output))
 
-	require.NoError(t, stdin.Close())
-	require.NoError(t, holder.Wait())
-	holderWaited = true
+	releaseHolder()
 }
 
 func helperCommand(t *testing.T, dir string, hold bool, disable bool) *exec.Cmd {
@@ -134,6 +102,32 @@ func helperCommand(t *testing.T, dir string, hold bool, disable bool) *exec.Cmd 
 	}
 	cmd.Env = env
 	return cmd
+}
+
+func startHolderProcess(t *testing.T, dir string, disable bool) func() {
+	t.Helper()
+
+	holder := helperCommand(t, dir, true, disable)
+	stdout, err := holder.StdoutPipe()
+	require.NoError(t, err)
+	stdin, err := holder.StdinPipe()
+	require.NoError(t, err)
+
+	holderWaited := false
+	require.NoError(t, holder.Start())
+	t.Cleanup(func() {
+		if holder.Process != nil && !holderWaited {
+			_ = holder.Process.Kill()
+			_ = holder.Wait()
+		}
+	})
+	waitForHelperReady(t, stdout)
+
+	return func() {
+		require.NoError(t, stdin.Close())
+		require.NoError(t, holder.Wait())
+		holderWaited = true
+	}
 }
 
 func waitForHelperReady(t *testing.T, r io.Reader) {
