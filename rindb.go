@@ -26,6 +26,7 @@ type Rindb struct {
 	SSTableManager    *ssTableManager
 	versionSet        *versionSet
 	manifest          manifestWriter
+	processLock       processLock
 	config            Config
 	log               scopedLogger
 	shutdownTelemetry func(context.Context) error
@@ -94,6 +95,18 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", cfg.databaseDir, err)
 	}
 
+	locker := newProcessLock(path.Join(cfg.databaseDir, "LOCK"), log)
+	if err := locker.Acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			if releaseErr := locker.Release(); releaseErr != nil {
+				log.errorf(ctx, "failed to release process lock: %v", releaseErr)
+			}
+		}
+	}()
+
 	vs, manifestPath, err := recoverVersionSet(ctx, cfg.databaseDir, cfg.fileNumberAllocator)
 	if err != nil {
 		return nil, err
@@ -148,6 +161,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		SSTableManager:    ssTableManager,
 		versionSet:        vs,
 		manifest:          mw,
+		processLock:       locker,
 		config:            cfg,
 		log:               log,
 		shutdownTelemetry: shutdownTelemetry,
@@ -526,6 +540,12 @@ func (r *Rindb) Close() error {
 		r.log.errorf(ctx, "Error shutting down telemetry: %v", err)
 	} else {
 		r.log.info(ctx, "Telemetry shutdown completed.")
+	}
+
+	if r.processLock != nil {
+		if err := r.processLock.Release(); err != nil {
+			r.log.errorf(ctx, "Error releasing process lock: %v", err)
+		}
 	}
 
 	r.log.info(ctx, "RinDB closed successfully")
