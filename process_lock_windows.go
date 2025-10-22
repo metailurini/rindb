@@ -31,10 +31,7 @@ func (l *fileProcessLock) Acquire(ctx context.Context) error {
 	err = windows.LockFileEx(handle, windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, lockFileAllBytes, lockFileAllBytes, &overlapped)
 	if err != nil {
 		_ = f.Close()
-		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
-			return fmt.Errorf("database is already open (lock %s busy)", l.path)
-		}
-		return fmt.Errorf("LockFileEx %s: %w", l.path, err)
+		return translateLockFileError(l.path, err)
 	}
 
 	l.fd = f
@@ -62,4 +59,11 @@ func (l *fileProcessLock) Release() error {
 		return fmt.Errorf("close %s: %w", l.path, closeErr)
 	}
 	return nil
+}
+
+func translateLockFileError(path string, err error) error {
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+		return fmt.Errorf("database is already open (lock %s busy)", path)
+	}
+	return fmt.Errorf("LockFileEx %s: %w", path, err)
 }
