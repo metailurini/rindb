@@ -14,6 +14,7 @@ import (
 func main() {
 	cacheBytes := flag.Int64("cache-bytes", 0, "table cache byte budget")
 	cacheShards := flag.Int("cache-shards", 0, "number of table cache shards")
+	dbDir := flag.String("db-dir", "rindat", "database directory")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -24,6 +25,9 @@ func main() {
 	if *cacheShards > 0 {
 		opts = append(opts, rindb.WithCacheShards(*cacheShards))
 	}
+	if dbDir != nil && *dbDir != "" {
+		opts = append(opts, rindb.WithDatabaseDir(*dbDir))
+	}
 	db, err := rindb.InitRinDB(ctx, opts...)
 	if err != nil {
 		fmt.Println("Error initializing database:", err)
@@ -33,10 +37,12 @@ func main() {
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Print(">> ")
 	for scanner.Scan() {
 		input := scanner.Text()
 		parts := strings.Fields(input)
 		if len(parts) == 0 {
+			fmt.Print(">> ")
 			continue
 		}
 
