@@ -63,7 +63,7 @@ func (l *fileProcessLock) Release() error {
 
 func translateLockFileError(path string, err error) error {
 	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
-		return fmt.Errorf("database is already open (lock %s busy)", path)
+		return fmt.Errorf("database is already open (lock %s busy): %w", path, err)
 	}
 	return fmt.Errorf("LockFileEx %s: %w", path, err)
 }

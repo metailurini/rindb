@@ -104,7 +104,7 @@ func InitRinDB(ctx context.Context, opts ...Option) (_ *Rindb, err error) {
 		defer func() {
 			if err != nil {
 				if releaseErr := locker.Release(); releaseErr != nil {
-					log.errorf(ctx, "failed to release process lock: %v", releaseErr)
+					log.errorf(ctx, "failed to release process lock after InitRinDB error (%v): %v", err, releaseErr)
 				}
 			}
 		}()
@@ -547,7 +547,7 @@ func (r *Rindb) Close() error {
 
 	if r.processLock != nil {
 		if err := r.processLock.Release(); err != nil {
-			r.log.errorf(ctx, "Error releasing process lock: %v", err)
+			r.log.errorf(ctx, "Error releasing process lock during shutdown: %v", err)
 		}
 	}
 

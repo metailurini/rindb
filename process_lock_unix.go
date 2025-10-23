@@ -56,7 +56,7 @@ func (l *fileProcessLock) Release() error {
 
 func translateFlockError(path string, err error) error {
 	if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
-		return fmt.Errorf("database is already open (lock %s busy)", path)
+		return fmt.Errorf("database is already open (lock %s busy): %w", path, err)
 	}
 	return fmt.Errorf("flock %s: %w", path, err)
 }
