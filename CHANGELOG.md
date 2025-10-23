@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.17.0](https://github.com/metailurini/rindb/compare/v0.16.4...v0.17.0) (2025-10-23)
+
+
+### Features
+
+* add cross-platform process locking ([71f4338](https://github.com/metailurini/rindb/commit/71f4338e23b6447eefb4d37547f88ac572a00c02))
+* add process lock scaffolding ([fd1fa97](https://github.com/metailurini/rindb/commit/fd1fa97a179dcee986db09f066a5eb88ea2b0a20))
+* add process lock toggle and integration tests ([e86d0a7](https://github.com/metailurini/rindb/commit/e86d0a7e89795df3521c4be44987e422e63d7d5c))
+
+
+### Bug Fixes
+
+* improve process lock error context ([a35e2cf](https://github.com/metailurini/rindb/commit/a35e2cf22c4da5e9d652ac165e63530da112eacf))
+* improve process lock error handling ([1308047](https://github.com/metailurini/rindb/commit/1308047ebbf47a333178ca53913e49f963b1e7bd))
+* Rename process lock plan document to correct ticket ID ([1ab051a](https://github.com/metailurini/rindb/commit/1ab051a85ec9148529641ece0b578b51de7fcd23))
+
 ## [0.16.4](https://github.com/metailurini/rindb/compare/v0.16.3...v0.16.4) (2025-10-08)
 
 
