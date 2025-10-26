@@ -1,17 +1,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
+	"github.com/peterh/liner"
+
 	"github.com/metailurini/rindb"
 )
-
-func printPrompt() { fmt.Print(">> ") }
 
 func handleCommand(ctx context.Context, db *rindb.Rindb, parts []string) bool {
 	if len(parts) == 0 {
@@ -136,21 +136,35 @@ func main() {
 	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end> [asc|desc], stats, exit")
 	defer db.Close()
 
-	scanner := bufio.NewScanner(os.Stdin)
-	printPrompt()
-	for scanner.Scan() {
-		input := strings.TrimSpace(scanner.Text())
+	l := liner.NewLiner()
+	defer l.Close()
+
+	l.SetCtrlCAborts(true)
+
+	for {
+		input, err := l.Prompt(">> ")
+		if err == liner.ErrPromptAborted {
+			// user pressed Ctrl+C to abort current input; continue
+			continue
+		} else if err == io.EOF {
+			// Ctrl+D / EOF: exit
+			fmt.Println()
+			break
+		} else if err != nil {
+			fmt.Fprintln(os.Stderr, "prompt error:", err)
+			break
+		}
+
+		input = strings.TrimSpace(input)
 		if input == "" {
-			printPrompt()
 			continue
 		}
+
+		l.AppendHistory(input)
+
 		parts := strings.Fields(input)
 		if handleCommand(ctx, db, parts) {
-			return
+			break
 		}
-		printPrompt()
-	}
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "scanner error:", err)
 	}
 }

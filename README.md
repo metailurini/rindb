@@ -215,8 +215,8 @@ compaction.
 The interactive CLI under `cmd/main.go` exposes `put`, `get`, `remove`, `range`, `stats`, and `exit` commands. Optional flags such as `--cache-bytes` and `--cache-shards` allow quick cache tuning while experimenting locally:
 
 ```bash
-go build -o rindb cmd/main.go
-./rindb --cache-bytes=67108864 --cache-shards=8
+go -C cmd build -o rindb ./main.go
+./cmd/rindb --cache-bytes=67108864 --cache-shards=8
 ```
 
 ## Building and Testing
@@ -254,7 +254,7 @@ make test-integration-full
 Build the CLI:
 
 ```bash
-go build -o rindb cmd/main.go
+go -C cmd build -o rindb ./main.go
 ```
 
 ## Contributing
