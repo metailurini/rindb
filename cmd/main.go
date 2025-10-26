@@ -13,6 +13,9 @@ import (
 	"github.com/metailurini/rindb"
 )
 
+// currentSnap holds the active snapshot for snap-* commands.
+var currentSnap *rindb.Snapshot
+
 func handleCommand(ctx context.Context, db *rindb.Rindb, parts []string) bool {
 	if len(parts) == 0 {
 		return false
@@ -103,7 +106,89 @@ func handleCommand(ctx context.Context, db *rindb.Rindb, parts []string) bool {
 		fmt.Printf("TableCacheUsedBytes: %d\n", tc.UsedBytes)
 		fmt.Printf("TableCacheHits: %d\n", tc.Hits)
 		fmt.Printf("TableCacheMisses: %d\n", tc.Misses)
+	case "snap-new":
+		if currentSnap != nil {
+			fmt.Println("Snapshot already active; release it first with snap-release")
+			return false
+		}
+		snap, err := db.NewSnapshot(ctx)
+		if err != nil {
+			fmt.Println("Error creating snapshot:", err)
+			return false
+		}
+		currentSnap = snap
+		fmt.Println("Snapshot created and active")
+	case "snap-release":
+		if currentSnap == nil {
+			fmt.Println("No active snapshot")
+			return false
+		}
+		if err := currentSnap.Release(ctx); err != nil {
+			fmt.Println("Error releasing snapshot:", err)
+			return false
+		}
+		currentSnap = nil
+		fmt.Println("Snapshot released")
+	case "snap-get":
+		if len(parts) != 2 {
+			fmt.Println("Usage: snap-get <key>")
+			return false
+		}
+		if currentSnap == nil {
+			fmt.Println("No active snapshot. Create one with snap-new")
+			return false
+		}
+		v, err := currentSnap.Get(ctx, rindb.Bytes(parts[1]))
+		if err != nil {
+			fmt.Println("Error:", err)
+			return false
+		}
+		fmt.Println(string(v))
+	case "snap-range":
+		if len(parts) < 3 || len(parts) > 4 {
+			fmt.Println("Usage: snap-range <start> <end> [asc|desc]")
+			return false
+		}
+		if currentSnap == nil {
+			fmt.Println("No active snapshot. Create one with snap-new")
+			return false
+		}
+		order := rindb.RangeAsc
+		if len(parts) == 4 {
+			s := strings.ToLower(parts[3])
+			if s == "desc" || s == "descending" {
+				order = rindb.RangeDesc
+			} else if s != "asc" && s != "ascending" {
+				fmt.Println("Usage: snap-range <start> <end> [asc|desc]")
+				return false
+			}
+		}
+		opts := make([]rindb.RangeOption, 0, 1)
+		if order == rindb.RangeDesc {
+			opts = append(opts, rindb.IRangeOrder(order))
+		}
+		iter, err := currentSnap.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]), opts...)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return false
+		}
+		for iter.HasNext() {
+			rec, err := iter.Next()
+			if err != nil {
+				fmt.Println("Error:", err)
+				break
+			}
+			fmt.Printf("%s:%s\n", rec.GetKey(), rec.GetValue())
+		}
+		if err := iter.Close(); err != nil {
+			fmt.Println("Error:", err)
+		}
 	case "exit":
+		// Make sure to release any active snapshot before exit.
+		if currentSnap != nil {
+			_ = currentSnap.Release(ctx)
+			currentSnap = nil
+		}
 		return true
 	default:
 		fmt.Println("Unknown command")
@@ -133,7 +218,7 @@ func main() {
 		fmt.Println("Error initializing database:", err)
 		return
 	}
-	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end> [asc|desc], stats, exit")
+	fmt.Println("rindb started. Commands: put <key> <value>, get <key>, remove <key>, range <start> <end> [asc|desc], snap-new, snap-release, snap-get <key>, snap-range <start> <end> [asc|desc], stats, exit")
 	defer db.Close()
 
 	l := liner.NewLiner()
