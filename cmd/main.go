@@ -11,6 +11,106 @@ import (
 	"github.com/metailurini/rindb"
 )
 
+func printPrompt() { fmt.Print(">> ") }
+
+func handleCommand(ctx context.Context, db *rindb.Rindb, parts []string) bool {
+	if len(parts) == 0 {
+		return false
+	}
+	switch parts[0] {
+	case "put":
+		if len(parts) != 3 {
+			fmt.Println("Usage: put <key> <value>")
+			return false
+		}
+		if err := db.Put(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2])); err != nil {
+			fmt.Println("Error:", err)
+		} else {
+			fmt.Println("OK")
+		}
+	case "get":
+		if len(parts) != 2 {
+			fmt.Println("Usage: get <key>")
+			return false
+		}
+		v, err := db.Get(ctx, rindb.Bytes(parts[1]))
+		if err != nil {
+			fmt.Println("Error:", err)
+		} else {
+			fmt.Println(string(v))
+		}
+	case "remove":
+		if len(parts) != 2 {
+			fmt.Println("Usage: remove <key>")
+			return false
+		}
+		if err := db.Remove(ctx, rindb.Bytes(parts[1])); err != nil {
+			fmt.Println("Error:", err)
+		} else {
+			fmt.Println("OK")
+		}
+	case "range":
+		if len(parts) < 3 || len(parts) > 4 {
+			fmt.Println("Usage: range <start> <end> [asc|desc]")
+			return false
+		}
+		order := rindb.RangeAsc
+		if len(parts) == 4 {
+			s := strings.ToLower(parts[3])
+			if s == "desc" || s == "descending" {
+				order = rindb.RangeDesc
+			} else if s != "asc" && s != "ascending" {
+				fmt.Println("Usage: range <start> <end> [asc|desc]")
+				return false
+			}
+		}
+
+		opts := make([]rindb.RangeOption, 0, 1)
+		if order == rindb.RangeDesc {
+			opts = append(opts, rindb.IRangeOrder(order))
+		}
+
+		iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]), opts...)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return false
+		}
+		for iter.HasNext() {
+			rec, err := iter.Next()
+			if err != nil {
+				fmt.Println("Error:", err)
+				break
+			}
+			fmt.Printf("%s:%s\n", rec.GetKey(), rec.GetValue())
+		}
+		if err := iter.Close(); err != nil {
+			fmt.Println("Error:", err)
+		}
+	case "stats":
+		s := db.Stats()
+		fmt.Printf("MemtableBytes: %d\n", s.MemtableBytes)
+		fmt.Printf("SequenceNumber: %d\n", s.SequenceNumber)
+		fmt.Printf("ActiveSnapshots: %d\n", s.ActiveSnapshots)
+		fmt.Printf("WALBytes: %d\n", s.WALBytes)
+		fmt.Printf("WALRecords: %d\n", s.WALRecords)
+		fmt.Printf("SSTablesPerLevel: %v\n", s.SSTablesPerLevel)
+		fmt.Printf("GetCalls: %d\n", s.GetCalls)
+		fmt.Printf("PutCalls: %d\n", s.PutCalls)
+		fmt.Printf("RemoveCalls: %d\n", s.RemoveCalls)
+		fmt.Printf("IRangeCalls: %d\n", s.IRangeCalls)
+		fmt.Printf("Flushes: %d\n", s.Flushes)
+		tc := db.TableCacheStats()
+		fmt.Printf("TableCacheUsedBytes: %d\n", tc.UsedBytes)
+		fmt.Printf("TableCacheHits: %d\n", tc.Hits)
+		fmt.Printf("TableCacheMisses: %d\n", tc.Misses)
+	case "exit":
+		return true
+	default:
+		fmt.Println("Unknown command")
+	}
+	return false
+}
+
 func main() {
 	cacheBytes := flag.Int64("cache-bytes", 0, "table cache byte budget")
 	cacheShards := flag.Int("cache-shards", 0, "number of table cache shards")
@@ -37,109 +137,20 @@ func main() {
 	defer db.Close()
 
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Print(">> ")
+	printPrompt()
 	for scanner.Scan() {
-		input := scanner.Text()
-		parts := strings.Fields(input)
-		if len(parts) == 0 {
-			fmt.Print(">> ")
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			printPrompt()
 			continue
 		}
-
-		switch parts[0] {
-		case "put":
-			if len(parts) != 3 {
-				fmt.Println("Usage: put <key> <value>")
-				continue
-			}
-			err := db.Put(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]))
-			if err != nil {
-				fmt.Println("Error:", err)
-			} else {
-				fmt.Println("OK")
-			}
-		case "get":
-			if len(parts) != 2 {
-				fmt.Println("Usage: get <key>")
-				continue
-			}
-			value, err := db.Get(ctx, rindb.Bytes(parts[1]))
-			if err != nil {
-				fmt.Println("Error:", err)
-			} else {
-				fmt.Println(string(value))
-			}
-		case "remove":
-			if len(parts) != 2 {
-				fmt.Println("Usage: remove <key>")
-				continue
-			}
-			err := db.Remove(ctx, rindb.Bytes(parts[1]))
-			if err != nil {
-				fmt.Println("Error:", err)
-			} else {
-				fmt.Println("OK")
-			}
-		case "range":
-			if len(parts) < 3 || len(parts) > 4 {
-				fmt.Println("Usage: range <start> <end> [asc|desc]")
-				continue
-			}
-			order := rindb.RangeAsc
-			if len(parts) == 4 {
-				switch strings.ToLower(parts[3]) {
-				case "asc", "ascending":
-					order = rindb.RangeAsc
-				case "desc", "descending":
-					order = rindb.RangeDesc
-				default:
-					fmt.Println("Usage: range <start> <end> [asc|desc]")
-					continue
-				}
-			}
-
-			opts := make([]rindb.RangeOption, 0, 1)
-			if order == rindb.RangeDesc {
-				opts = append(opts, rindb.IRangeOrder(order))
-			}
-
-			iter, err := db.IRange(ctx, rindb.Bytes(parts[1]), rindb.Bytes(parts[2]), opts...)
-			if err != nil {
-				fmt.Println("Error:", err)
-				continue
-			}
-			for iter.HasNext() {
-				rec, err := iter.Next()
-				if err != nil {
-					fmt.Println("Error:", err)
-					break
-				}
-				fmt.Printf("%s:%s\n", rec.GetKey(), rec.GetValue())
-			}
-			if err := iter.Close(); err != nil {
-				fmt.Println("Error:", err)
-			}
-		case "stats":
-			s := db.Stats()
-			fmt.Printf("MemtableBytes: %d\n", s.MemtableBytes)
-			fmt.Printf("SequenceNumber: %d\n", s.SequenceNumber)
-			fmt.Printf("ActiveSnapshots: %d\n", s.ActiveSnapshots)
-			fmt.Printf("WALBytes: %d\n", s.WALBytes)
-			fmt.Printf("WALRecords: %d\n", s.WALRecords)
-			fmt.Printf("SSTablesPerLevel: %v\n", s.SSTablesPerLevel)
-			fmt.Printf("GetCalls: %d\n", s.GetCalls)
-			fmt.Printf("PutCalls: %d\n", s.PutCalls)
-			fmt.Printf("RemoveCalls: %d\n", s.RemoveCalls)
-			fmt.Printf("IRangeCalls: %d\n", s.IRangeCalls)
-			fmt.Printf("Flushes: %d\n", s.Flushes)
-			tc := db.TableCacheStats()
-			fmt.Printf("TableCacheUsedBytes: %d\n", tc.UsedBytes)
-			fmt.Printf("TableCacheHits: %d\n", tc.Hits)
-			fmt.Printf("TableCacheMisses: %d\n", tc.Misses)
-		case "exit":
+		parts := strings.Fields(input)
+		if handleCommand(ctx, db, parts) {
 			return
-		default:
-			fmt.Println("Unknown command")
 		}
+		printPrompt()
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "scanner error:", err)
 	}
 }

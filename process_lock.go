@@ -20,7 +20,6 @@ type fileProcessLock struct {
 
 var (
 	_ processLock = (*fileProcessLock)(nil)
-	_             = newProcessLock
 )
 
 // newProcessLock creates a new fileProcessLock instance.
