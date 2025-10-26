@@ -4,6 +4,7 @@
 *.so
 *.dll
 *.exe
+rindb
 bin/
 obj/
 diffharness/bin/
@@ -13,7 +14,7 @@ diffharness/bin/
 
 # test data
 testdata/*
-rindat
+rindat/
 !testdata/.keep
 .aider*
 coverage.out
