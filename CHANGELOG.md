@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.0](https://github.com/metailurini/rindb/compare/v0.17.0...v0.18.0) (2026-03-08)
+
+
+### Features
+
+* **cli:** add interactive snapshot commands (snap-new, snap-release, snap-get, snap-range) ([306e73e](https://github.com/metailurini/rindb/commit/306e73eff787378d303b897dba5dc9b89fc933f8))
+
+
+### Bug Fixes
+
+* Update CLI to use Go modules and improve interactive experience ([2a00195](https://github.com/metailurini/rindb/commit/2a00195700ac72f59a2a4a3c957406b2659f8de1))
+
 ## [0.17.0](https://github.com/metailurini/rindb/compare/v0.16.4...v0.17.0) (2025-10-23)
 
 
