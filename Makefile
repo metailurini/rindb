@@ -1,4 +1,4 @@
-export GOTOOLCHAIN ?= go1.25.0
+export GOTOOLCHAIN ?= go1.26.0
 GO = go
 UNAME_S := $(shell uname -s)
 PKGS := $(shell $(GO) list ./... | grep -v -e '/cmd' -e '/diffharness' -e '/tool')
